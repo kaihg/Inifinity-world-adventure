@@ -1,6 +1,6 @@
 ---
 name: enter-dungeon
-description: Start (or resume) a dungeon run. Creates a branch and PR for the run, sets up the run log, and begins the narrative dialogue strictly following world/setting.md and the current character/dungeon state. Use when the user asks to enter a dungeon, start a new 副本, or re-enter a previously visited dungeon — and also use proactively, without waiting for user request, when the ongoing story (in start-story main-space dialogue) reaches a point where the setting's 主神/系统 forcibly pulls the protagonist into a dungeon (半强制进入机制).
+description: Start (or resume) a dungeon run. Creates a branch and PR for the run, sets up the run log, and begins the narrative dialogue strictly following world/setting.md and the current character/dungeon state. Use when the user asks to enter a dungeon, start a new 副本, or re-enter a previously visited dungeon — and also use proactively, without waiting for user request, when the ongoing story (in start-story main-space dialogue) reaches a point where the setting's 主神/系统 forcibly pulls the protagonist into a dungeon (半強制進入機制).
 ---
 
 # enter-dungeon
