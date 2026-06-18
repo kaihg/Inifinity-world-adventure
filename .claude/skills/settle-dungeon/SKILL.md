@@ -10,18 +10,22 @@ description: Settle a finished dungeon run (cleared, died, or retreated) - disti
 ## 步驟
 
 1. **讀取本次 run 的完整記錄**：`world/dungeons/<dungeon-id>/runs/<run-id>.md`（即該 PR branch 上累積的全部 commit 內容）。
-   - **若這份 log 很長**（多輪對話、篇幅明顯超過一般單次副本），不要自己整篇讀完去消化，改用 Agent 工具派一個 `Explore` subagent 去讀 `runs/<run-id>.md`（必要時也帶上現有的 `wiki.md`、相關 `characters/*.md` 做對照），請它回報**結構化結論**：本次積分增減依據、哪些 NPC 狀態有變化（要具體到「變化前→變化後」）、wiki 該新增哪些條目、是否有死亡/重傷等關鍵事件。subagent 只負責消化文本、回報結論，不直接寫文件，也不能代替步驟 2～5 的規則判定。
+   - **若這份 log 很長**（多輪對話、篇幅明顯超過一般單次副本），不要自己整篇讀完去消化，改用 Agent 工具派一個 `Explore` subagent 去讀 `runs/<run-id>.md`（必要時也帶上現有的 `wiki.md`、相關 `characters/*.md` 做對照），請它回報**結構化結論**：本次積分增減依據、哪些 NPC 狀態有變化（要具體到「變化前→變化後」）、wiki 該新增哪些條目、是否有死亡/重傷等關鍵事件。subagent 只負責消化文本、回報結論，不直接寫文件，也不能代替步驟 3～7 的規則判定。
    - 若 log 不長，直接自己讀即可，不必為了短文件也派 subagent。
-2. **判定結束類型**：通關 / 死亡 / 中途撤退，並依 `world/setting.md` 當前規則（含新手保護條款）決定積分增減、懲罰或獎勵。
-3. **提煉進 wiki（不是複製貼上全文）**：
+2. **一致性檢查（lint）**：在提煉進 wiki 前，派一個 `Explore` subagent，拿 `runs/<run-id>.md` 比對既有 `world/dungeons/<dungeon-id>/wiki.md`、相關 `world/characters/*.md`、`world/characters/index.md` 的「鎖定事實」，請它回報**矛盾清單**：NPC 細節漂移（外觀/身份/關係與鎖定事實不符）、過時宣稱、劇情前後牴觸、孤立或無依據的新事實。
+   - **重要**：`world/gm-notes.md`／`world/dungeons/<dungeon-id>/secrets.md` 牴觸 `setting.md`／`wiki.md` 是**設計上的隱藏層（隱藏 vs 揭露）**，**不是矛盾**，subagent 不可把它列為矛盾——必須在派工說明裡明確告知這點。
+   - 有矛盾 → 在後續提煉/更新角色狀態時**先修正敘事認定或明確標註**，再合併；不要把矛盾原樣寫進 canonical 檔。
+   - subagent 只負責回報結論，不直接寫文件。
+3. **判定結束類型**：通關 / 死亡 / 中途撤退，並依 `world/setting.md` 當前規則（含新手保護條款）決定積分增減、懲罰或獎勵。
+4. **提煉進 wiki（不是複製貼上全文）**：
    - 更新（或新建）`world/dungeons/<dungeon-id>/wiki.md`：本次新發現的地圖/機關/規則/NPC，已經死亡或消耗掉的資源。
    - 對照 `world/dungeons/<dungeon-id>/secrets.md`（若存在）與 `world/gm-notes.md`：**只把這次劇情裡實際揭露出來的部分**寫進 `wiki.md`，未揭露的隱藏真相留在 secrets/gm-notes 裡，不要因為結算而提前曝光。若本次有揭露，在 `gm-notes.md` 的「揭露記錄」補一筆。
    - 原始 `runs/<run-id>.md` 保留不刪，作為可回溯的原始記錄。
-4. **更新角色狀態**：
+5. **更新角色狀態**：
    - `world/characters/protagonist.md`：積分、屬性變化、新增/消耗的技能與物品、buff/debuff、新手保護剩餘次數等。
    - 涉及到的 NPC：更新對應 `world/characters/<id>.md`，若是新出現的重要角色，新建檔案並在 `index.md` 加一行。
-5. **死亡的特殊處理**：若設定中新手保護允許死亡不等於 game over，依規則記錄「死亡懲罰」（例如扣積分、清空部分物品、留下後遺症 debuff），而不是直接結束故事——除非設定明確寫了保護已用盡。
-6. **提交並合併**：
+6. **死亡的特殊處理**：若設定中新手保護允許死亡不等於 game over，依規則記錄「死亡懲罰」（例如扣積分、清空部分物品、留下後遺症 debuff），而不是直接結束故事——除非設定明確寫了保護已用盡。
+7. **提交並合併**：
    - 把以上更新 commit 到該 dungeon run 的 branch。
    - 合併 PR 回 main（無論結果好壞都合併）。
    - 合併後可刪除該 run 的臨時分支（`runs/<run-id>.md` 內容已經在 main 上保留，不會丟失）。
