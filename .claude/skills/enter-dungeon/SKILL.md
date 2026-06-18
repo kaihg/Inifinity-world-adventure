@@ -17,12 +17,13 @@ description: Start (or resume) a dungeon run. Creates a branch and PR for the ru
 ## 步骤
 
 1. **确认副本身份**：
-   - 新副本：与用户商定 `dungeon-id`（短英文/拼音 slug）。
-   - 已存在的副本（重新进入）：读取 `world/dungeons/<dungeon-id>/wiki.md`，这是本次叙事必须遵守的既有事实（地图、机关、已死亡的NPC、已知规则等），不可与之矛盾。
+   - 新副本：与用户商定 `dungeon-id`（短英文/拼音 slug）。**第一次进入**时，仿照 `init-world` 的隐藏设定模式，自主生成 `world/dungeons/<dungeon-id>/secrets.md`（副本真正的机关原理、暗藏的转折、NPC 的真实动机等），**不跟用户讨论或预览**，写完即可开始叙事；只有故事里真的揭露到的部分才会进到 `wiki.md`。
+   - 已存在的副本（重新进入）：读取 `world/dungeons/<dungeon-id>/wiki.md`（已揭露的既有事实，不可矛盾）与 `world/dungeons/<dungeon-id>/secrets.md`（尚未揭露的真相，仅供保持暗线一致，不可提前讲出来）。
 2. **读取必要状态**（不要读多余文件）：
    - `world/setting.md`（系统规则、新手保护）
+   - `world/gm-notes.md`（世界隐藏真相，保持暗线一致用，不可提前剧透）
    - `world/characters/index.md` → 按需再读相关 `world/characters/<id>.md`
-   - `world/dungeons/<dungeon-id>/wiki.md`（若存在）
+   - `world/dungeons/<dungeon-id>/wiki.md`、`secrets.md`（若存在）
 3. **建立 branch + run 目录**：
    - 新建分支，例如 `dungeon/<dungeon-id>/<run-id>`（`run-id` 用日期或序号，例如 `run-3`）。
    - 建立 `world/dungeons/<dungeon-id>/runs/<run-id>.md`，文件开头写明：进入时间、当前角色状态摘要、本次副本目标（若已知）。
@@ -37,3 +38,4 @@ description: Start (or resume) a dungeon run. Creates a branch and PR for the ru
 
 - 死亡也算「副本结束」，**不是**要放弃这个 PR——仍然走 `settle-dungeon` 流程合并回 main（新手保护机制由结算规则处理，而不是靠不合并来逃避后果）。
 - 同一 dungeon-id 可以有多个 run-id（多次进入），`wiki.md` 在多次 run 间累积延续，`runs/*.md` 彼此独立、append-only。
+- `secrets.md` 只在第一次进入该 dungeon-id 时生成一次，之后重复进入不要重新生成或覆写，只能由 `settle-dungeon` 视剧情揭露程度补充到 `wiki.md`。

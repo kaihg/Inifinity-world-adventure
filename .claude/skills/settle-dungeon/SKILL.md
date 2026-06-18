@@ -15,6 +15,7 @@ description: Settle a finished dungeon run (cleared, died, or retreated) - disti
 2. **判定结束类型**：通关 / 死亡 / 中途撤退，并依 `world/setting.md` 当前规则（含新手保护条款）决定积分增减、惩罚或奖励。
 3. **提炼进 wiki（不是复制粘贴全文）**：
    - 更新（或新建）`world/dungeons/<dungeon-id>/wiki.md`：本次新发现的地图/机关/规则/NPC，已经死亡或消耗掉的资源。
+   - 对照 `world/dungeons/<dungeon-id>/secrets.md`（若存在）与 `world/gm-notes.md`：**只把这次剧情里实际揭露出来的部分**写进 `wiki.md`，未揭露的隐藏真相留在 secrets/gm-notes 里，不要因为结算而提前曝光。若本次有揭露，在 `gm-notes.md` 的「揭露记录」补一笔。
    - 原始 `runs/<run-id>.md` 保留不删，作为可回溯的原始记录。
 4. **更新角色状态**：
    - `world/characters/protagonist.md`：积分、属性变化、新增/消耗的技能与物品、buff/debuff、新手保护剩余次数等。

@@ -23,14 +23,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 world/
-  setting.md              # 主神/系统规则、世界基调、当前篇章、新手保护条款——叙事必须严格遵守
+  setting.md              # 玩家可见：主神表面规则、世界基调、当前篇章、新手保护条款——叙事必须严格遵守
+  gm-notes.md              # 剧透文件：主神真实动机、世界真相、暗线，仅供保持一致，不可提前揭露
   characters/
     index.md               # 轻量角色索引（先读这个，不要一次读全部角色档案）
     protagonist.md          # 主角：积分、属性、技能、物品、buff/debuff
     <npc-id>.md             # 重要 NPC/队友/敌人档案，随故事持续更新
   dungeons/
     <dungeon-id>/
-      wiki.md               # 该副本提炼后的累积知识（地图/机关/规则），多次进入间延续，进副本时优先读这份
+      wiki.md               # 该副本已揭露的累积知识（地图/机关/规则），多次进入间延续，进副本时优先读这份
+      secrets.md            # 剧透文件：该副本真正的机关原理/NPC真实动机，首次进入时生成一次
       runs/<run-id>.md       # 单次进入的原始对话 log，append-only，对应一个 PR/branch
 archives/
   <timestamp>/world/...      # /init-world 重置前的整份世界快照，只读
@@ -52,5 +54,6 @@ archives/
 - **机率事件必须真随机**：技能命中率、暴击、随机事件等一律先用 `roll-random` skill（实际跑 `python3 -c "import random; ..."` 之类命令）取得数值，再依数值叙事。禁止 LLM 直接「演」出一个机率结果而不掷骰，也禁止先编故事再凑一个随机数。
 - **死亡也要合并 PR**：新手保护机制是靠 `settle-dungeon` 按 `world/setting.md` 规则做结算（扣分、清状态等），而不是不合并 PR 来回避后果。
 - **剧情模式 vs 维护对话要分清**：没有进入 `start-story` 的对话（例如改这份 CLAUDE.md、调整 skill）不要代入主神/系统角色语气；副本进入可以由叙事内容半强制触发，不是只能等使用者明确下指令。
+- **隐藏设定逐步揭露**：`gm-notes.md`（世界层）与 `dungeons/<id>/secrets.md`（副本层）由 LLM 在 `init-world`/`enter-dungeon` 首次生成时自主写入，**不跟使用者讨论或预览**，只用来让叙事的暗线保持一致；只有剧情真正发展到揭露节点，才把对应内容写进 `setting.md`/`wiki.md`/对话叙事。commit message 提到这类文件时只写事实（「生成隐藏设定」），不写具体内容，避免 git log 剧透。
 - **单一主角、单一世界**：本仓库只服务一条故事线；其他人想玩自己的版本应该 fork 仓库，而不是在这里加第二个主角或第二个世界。
 - **GitHub Action 默认零成本**：`settle-on-merge.yml` 默认只留言提醒，由使用者手动在 Claude Code 里跑 `settle-dungeon`。如果要让 Action 自动呼叫 Claude API 完成结算（会产生费用），需要自己加 `ANTHROPIC_API_KEY` secret 并按 workflow 文件里的注释打开 `auto-settle` job。
