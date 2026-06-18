@@ -31,8 +31,21 @@ description: Start (or resume) a dungeon run. Creates a branch and PR for the ru
 5. **開始敘事**：
    - 嚴格依據 `world/setting.md` 與角色檔案敘事，不可憑空更改已設定的規則、屬性數值。
    - 凡是涉及機率判定（技能命中、暴擊、隨機事件、NPC 反應等），**必須**調用 `roll-random` skill 取得真實隨機數，禁止直接用文字「演」出結果。
-   - 每個回合/關鍵節點，把對話進展 append 到 `runs/<run-id>.md` 並 commit（不要等到最後一次性寫完整段劇情再 commit，方便保留時間序的真實記錄）。
+   - 每個回合結束跑「回合收束協議」（見下方專節），逐回合 append + commit，不要等到最後一次性寫完。
 6. **副本結束的判定**（通關 / 死亡 / 中途撤退）由敘事內容自然產生。結束後呼叫 `settle-dungeon` skill 處理結算與合併，不要自己手動改 `characters/*.md` 或 `wiki.md`。
+
+## 回合收束協議（副本內每個敘事回合結束時執行）
+
+每個敘事回合**結束時**依序執行；步驟 2–4 為條件式，本回合沒對應變動就略過。
+
+**敘事前（query）**：重提任何已存在 NPC 前，先看 `world/characters/index.md` 的「鎖定事實」，細節不足才 Read 完整角色檔。機率判定一律先呼叫 `roll-random`，再依數值敘事。
+
+1. **記錄（raw 層）**：把本回合關鍵敘事＋骰子結果 append 到 `world/dungeons/<dungeon-id>/runs/<run-id>.md`，段落開頭帶時間戳 `## [YYYY-MM-DD] <一句標題>`。append-only，不改舊段。
+2. **提煉（wiki 層）**：把本回合**實際發生**且**已在劇情中揭露**的狀態變動寫進 canonical 檔——`world/characters/protagonist.md`、出場 NPC 的 `world/characters/<id>.md`、`world/dungeons/<dungeon-id>/wiki.md`（只寫已揭露的地圖/機關/規則，嚴守 `secrets.md`，未揭露不寫）。
+3. **索引（index 層）**：若本回合**新出現**一個重要 NPC/實體，在 `world/characters/index.md` 加一行＋一段「鎖定事實」。
+4. **提交（git 層）**：commit 到副本 branch，message 一句摘要。
+
+> 注意：角色屬性/積分的「最終結算」仍由 `settle-dungeon` 統一處理（步驟 6）。回合中只記錄已明確發生的變動，不要在副本中途自行做新手保護等結算判定。
 
 ## 注意
 
