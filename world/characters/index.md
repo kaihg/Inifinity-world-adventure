@@ -5,6 +5,6 @@
 
 | ID | 姓名 | 定位 | 最近状态 | 最后更新副本 |
 |----|------|------|----------|--------------|
-| protagonist | （待 `/init-world` 填入） | 主角 | 见 `protagonist.md` | - |
+| protagonist | 沈奕 | 主角 | 刚被系统选中，尚未进入第一个副本 | - |
 
 新增 NPC 时，在这里加一行，并新建 `characters/<character-id>.md`。
