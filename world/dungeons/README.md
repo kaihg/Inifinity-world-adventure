@@ -1,16 +1,16 @@
-# 副本目录结构
+# 副本目錄結構
 
-每个副本一个子目录：`world/dungeons/<dungeon-id>/`
+每個副本一個子目錄：`world/dungeons/<dungeon-id>/`
 
 ```
 world/dungeons/<dungeon-id>/
-  wiki.md            # 已揭露的累积知识：地图、机关、NPC、已知规则、跨次进入的记忆
-  secrets.md         # 尚未揭露的隐藏真相（机关原理、NPC真实动机、剧情转折），首次进入时生成，剧透文件
+  wiki.md            # 已揭露的累積知識：地圖、機關、NPC、已知規則、跨次進入的記憶
+  secrets.md         # 尚未揭露的隱藏真相（機關原理、NPC真實動機、劇情轉折），首次進入時生成，劇透文件
   runs/
-    <run-id>.md       # 单次进入的完整对话 log（对应一个 PR/branch），append-only
+    <run-id>.md       # 單次進入的完整對話 log（對應一個 PR/branch），append-only
 ```
 
-- `wiki.md` 是**精炼后**、**玩家已知**的 canonical 知识，每次进入副本时优先读这份，不读历史 `runs/*.md` 全文。
-- `secrets.md` 是该副本的「母版真相」，由 `enter-dungeon` 首次进入时自主生成（不跟使用者讨论），仅供 LLM 叙事时保持暗线一致，**不可提前讲给玩家**。打开它等同剧透，建议不要主动查看。
-- `runs/<run-id>.md` 是该次 PR branch 上的原始流水账（含 `roll-random` 的实际指令与输出），结算时由 `settle-dungeon` 提炼合并进 `wiki.md` 与 `characters/*.md`：只有实际剧情中揭露的部分会从 `secrets.md` 移入 `wiki.md`，原始记录保留供事后查证矛盾。
-- 同一个副本可以被多次进入（不同 `run-id`），`wiki.md` 在多次 run 之间延续，`secrets.md` 只生成一次不重新覆写。
+- `wiki.md` 是**精煉後**、**玩家已知**的 canonical 知識，每次進入副本時優先讀這份，不讀歷史 `runs/*.md` 全文。
+- `secrets.md` 是該副本的「母版真相」，由 `enter-dungeon` 首次進入時自主生成（不跟使用者討論），僅供 LLM 敘事時保持暗線一致，**不可提前講給玩家**。打開它等同劇透，建議不要主動查看。
+- `runs/<run-id>.md` 是該次 PR branch 上的原始流水帳（含 `roll-random` 的實際指令與輸出），結算時由 `settle-dungeon` 提煉合併進 `wiki.md` 與 `characters/*.md`：只有實際劇情中揭露的部分會從 `secrets.md` 移入 `wiki.md`，原始記錄保留供事後查證矛盾。
+- 同一個副本可以被多次進入（不同 `run-id`），`wiki.md` 在多次 run 之間延續，`secrets.md` 只生成一次不重新覆寫。

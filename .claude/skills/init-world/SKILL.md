@@ -9,7 +9,7 @@ description: Reset the entire world. Archives the current world/ state and works
 
 ## 步驟
 
-1. **確認**：跟用戶確認是否真的要重置世界（這會讓當前主角的故事線結束）。除非用戶已經在本次對話中明確要求 `/init`，否則先用 AskUserQuestion 確認一次。
+1. **確認**：跟用戶確認是否真的要重置世界（這會讓當前主角的故事線結束）。除非用戶已經在本次對話中明確要求 `/init-world`，否則先用 AskUserQuestion 確認一次。
 2. **封存舊世界**：
    - 若 `world/setting.md` 顯示「尚未初始化」，跳過封存，直接進入步驟 3。
    - 否則，將整個 `world/` 目錄複製到 `archives/<UTC timestamp, 格式 YYYYMMDD-HHMMSS>/world/`。
