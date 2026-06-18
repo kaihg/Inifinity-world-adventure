@@ -10,6 +10,8 @@ description: Settle a finished dungeon run (cleared, died, or retreated) - disti
 ## 步骤
 
 1. **读取本次 run 的完整记录**：`world/dungeons/<dungeon-id>/runs/<run-id>.md`（即该 PR branch 上累积的全部 commit 内容）。
+   - **若这份 log 很长**（多轮对话、篇幅明显超过一般单次副本），不要自己整篇读完去消化，改用 Agent 工具派一个 `Explore` subagent 去读 `runs/<run-id>.md`（必要时也带上现有的 `wiki.md`、相关 `characters/*.md` 做对照），请它回报**结构化结论**：本次积分增减依据、哪些 NPC 状态有变化（要具体到「变化前→变化后」）、wiki 该新增哪些条目、是否有死亡/重伤等关键事件。subagent 只负责消化文本、回报结论，不直接写文件，也不能代替步骤 2～5 的规则判定。
+   - 若 log 不长，直接自己读即可，不必为了短文件也派 subagent。
 2. **判定结束类型**：通关 / 死亡 / 中途撤退，并依 `world/setting.md` 当前规则（含新手保护条款）决定积分增减、惩罚或奖励。
 3. **提炼进 wiki（不是复制粘贴全文）**：
    - 更新（或新建）`world/dungeons/<dungeon-id>/wiki.md`：本次新发现的地图/机关/规则/NPC，已经死亡或消耗掉的资源。
