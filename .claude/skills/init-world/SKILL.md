@@ -19,7 +19,8 @@ description: Reset the entire world. Archives the current world/ state and works
    - 改寫 `world/setting.md`，移除「尚未初始化」狀態，填入玩家可見的完整設定。
    - 改寫 `world/gm-notes.md`，移除「尚未生成」狀態，填入隱藏真相（步驟 4 的產出），「揭露記錄」留空。
    - 改寫 `world/characters/protagonist.md`：姓名、出身、初始屬性、初始積分（一般為 0）。
-   - 清空/重建 `world/characters/index.md` 表格，只保留 protagonist 一行。
+   - 清空/重建 `world/characters/index.md` 表格與「鎖定事實」區塊，只保留 protagonist 一行＋一段鎖定事實。
+   - 重建 `world/journal.md`：清空舊內容，只留標題與說明，並 append 一段 `## [YYYY-MM-DD] 新世界啟用` 起始時間戳。
    - 清空 `world/dungeons/` 下舊的副本子目錄（已封存在 archives，不用擔心丟失）。
 6. **提交**：commit message 只描述「重置世界、生成新設定」這類事實，**不要把 `gm-notes.md` 的具體內容寫進 commit message**（commit message 在 git log 裡很容易被無意間看到，等同劇透）。**不要自動 push**，除非用戶要求。
 
