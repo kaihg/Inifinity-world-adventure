@@ -1,11 +1,18 @@
 ---
 name: enter-dungeon
-description: Start (or resume) a dungeon run. Creates a branch and PR for the run, sets up the run log, and begins the narrative dialogue strictly following world/setting.md and the current character/dungeon state. Use when the user asks to enter a dungeon, start a new 副本, or re-enter a previously visited dungeon.
+description: Start (or resume) a dungeon run. Creates a branch and PR for the run, sets up the run log, and begins the narrative dialogue strictly following world/setting.md and the current character/dungeon state. Use when the user asks to enter a dungeon, start a new 副本, or re-enter a previously visited dungeon — and also use proactively, without waiting for user request, when the ongoing story (in start-story main-space dialogue) reaches a point where the setting's 主神/系统 forcibly pulls the protagonist into a dungeon (半强制进入机制).
 ---
 
 # enter-dungeon
 
 开启一次副本「进入」。一次进入 = 一个 git branch + 一个 PR，整个副本期间的剧情对话都发生在这个 branch 上，并以 commit 的形式逐步落地成 log。
+
+## 触发方式
+
+副本进入在无限恐怖设定里通常是**半强制**的，两种触发路径都要支援，不要预设只有使用者主动要求才能进：
+
+- **使用者主动要求**：直接进入下面的步骤。
+- **剧情强制触发**：在 `start-story` 的主空间对话中，依 `world/setting.md` 的规则判断「系统/主神宣布即将开启副本、时间到、或强制传送」时，由 LLM 自己判断该呼叫本 skill，不必等使用者下指令。触发前先用一两句叙事给出「察觉到副本即将开启」的过渡（例如系统提示音、空间震动），再正式进入步骤 1，避免没有任何预警就硬切场景。
 
 ## 步骤
 
