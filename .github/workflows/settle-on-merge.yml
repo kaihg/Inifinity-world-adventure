@@ -1,0 +1,40 @@
+name: Settle dungeon on merge
+
+# 当一个 dungeon/* 分支的 PR 合并进 main 时，提示/触发结算（settle-dungeon skill 的逻辑）。
+#
+# 默认只负责留言提醒（零成本），方便手动在 Claude Code 里执行 settle-dungeon。
+# 若要改成自动呼叫 Claude 跑结算（会产生 API 费用），需要：
+#   1. 在 repo secrets 新增 ANTHROPIC_API_KEY
+#   2. 把下面 auto-settle job 的 if 条件改成 true，并补上对应 action（例如 anthropics/claude-code-action）
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  remind:
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'dungeon/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment reminder to run settle-dungeon
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '副本分支已合并。请在 Claude Code 中执行 `settle-dungeon` skill 完成结算（更新角色状态与副本 wiki）。'
+            })
+
+  # auto-settle:
+  #   if: false  # 改成 true 并补上 ANTHROPIC_API_KEY 才会自动执行，会产生 API 费用
+  #   needs: remind
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: anthropics/claude-code-action@v1
+  #       with:
+  #         anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+  #         prompt: "Run the settle-dungeon skill for the just-merged dungeon run."
