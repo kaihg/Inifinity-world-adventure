@@ -16,9 +16,15 @@ import {
   loadDungeonLore,
   appendWikiReveals,
 } from "./dungeon.js";
+import {
+  runCharacterPrePass,
+  formatIntentsBlock,
+  parseCompanionIds,
+} from "./character-pre-pass.js";
 
 export interface TurnDeps {
   client: LlmClient;
+  characterClient?: LlmClient;
   worldDir: string;
   commit: (message: string) => Promise<boolean>;
   today?: () => string;
@@ -95,6 +101,7 @@ export interface BuildMessagesParams {
   state: GameState;
   input: string;
   dicePool: number[];
+  intentsBlock?: string;
 }
 
 /** 主空間回合的對話訊息（純函式，可測試） */
@@ -119,6 +126,7 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     settingText.trim(),
     "",
     canonicalBlock(state),
+    ...(params.intentsBlock ? ["", params.intentsBlock] : []),
   ].join("\n");
 
   return [
@@ -161,6 +169,7 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
     secrets.trim() || "（無）",
     "",
     canonicalBlock(state),
+    ...(params.intentsBlock ? ["", params.intentsBlock] : []),
   ].join("\n");
 
   return [
@@ -277,6 +286,49 @@ async function* runTurnCore(
   };
 }
 
+/**
+ * 對在場 NPC 跑角色意圖 pre-pass，回傳 warning events 與格式化後的 intentsBlock。
+ * 失敗靜默降級——不 block 回合，但 yield warning 讓前端可觀察。
+ */
+async function* runPrePassBlock(
+  deps: TurnDeps,
+  state: GameState,
+  input: string,
+): AsyncGenerator<TurnEvent, string> {
+  const charClient = deps.characterClient ?? deps.client;
+  const npcIds = parseCompanionIds(state.now.companions, state.npcs);
+  const npcNames = Object.fromEntries(state.npcs.map((n) => [n.id, n.name]));
+  if (npcIds.length === 0) return "";
+
+  let intents: import("./character-pre-pass.js").CharacterIntent[];
+  try {
+    intents = await runCharacterPrePass({
+      npcIds,
+      scene: state.now.scene,
+      playerInput: input,
+      worldDir: deps.worldDir,
+      client: charClient,
+    });
+  } catch (err) {
+    yield {
+      type: "warning" as const,
+      message: `character pre-pass 全部失敗：${(err as Error).message}`,
+    };
+    return "";
+  }
+
+  if (intents.length < npcIds.length) {
+    const returnedIds = new Set(intents.map((i) => i.id));
+    const missing = npcIds.filter((id) => !returnedIds.has(id));
+    yield {
+      type: "warning" as const,
+      message: `character pre-pass 部分失敗，略過：${missing.join(", ")}`,
+    };
+  }
+
+  return formatIntentsBlock(intents, npcNames);
+}
+
 /** 主空間敘事回合 */
 export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
   const log = (deps.logger ?? defaultLogger).child({ mode: "main-space" });
@@ -285,6 +337,8 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const state = await loadState(deps.worldDir, log);
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
 
+  const intentsBlock = yield* runPrePassBlock(deps, state, input);
+
   yield* runTurnCore(
     deps,
     input,
@@ -292,7 +346,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
     dicePool,
     today,
     {
-      messages: buildMainSpaceMessages({ settingText, state, input, dicePool }),
+      messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock }),
       appendRaw: (entry) => appendJournal(deps.worldDir, entry),
     },
     log,
@@ -315,6 +369,8 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
   const lore = await loadDungeonLore(deps.worldDir, active.dungeonId, log);
 
+  const intentsBlock = yield* runPrePassBlock(deps, state, input);
+
   yield* runTurnCore(
     deps,
     input,
@@ -325,6 +381,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
       messages: buildDungeonMessages({
         settingText, state, input, dicePool,
         dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
+        intentsBlock,
       }),
       appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
       distill: (control, date) =>

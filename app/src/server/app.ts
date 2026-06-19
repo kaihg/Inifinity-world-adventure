@@ -19,6 +19,7 @@ const WEB_BUILD_DIR = path.join(APP_ROOT, "web-dist");
 /** 可注入的相依（測試以 fake 取代真實 LLM / git） */
 export interface ServerDeps {
   client?: LlmClient;
+  characterClient?: LlmClient;
   commit?: (message: string) => Promise<boolean>;
   logger?: Logger;
 }
@@ -37,6 +38,23 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
   const repoRoot = path.dirname(config.worldDir);
 
   const makeClient = (turnLogger: Logger): LlmClient => deps.client ?? createOpenAiClient(config, turnLogger);
+
+  // 啟動時建立一次，避免每回合重複建立 HTTP client
+  const characterClient: LlmClient | undefined =
+    deps.characterClient ??
+    (config.character
+      ? createOpenAiClient(
+          {
+            ...config,
+            openai: {
+              baseUrl: config.character.baseUrl,
+              apiKey: config.openai.apiKey,
+              model: config.character.model,
+            },
+          },
+          logger,
+        )
+      : undefined);
 
   const makeCommit = (turnLogger: Logger): ((message: string) => Promise<boolean>) =>
     deps.commit ??
@@ -84,6 +102,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       for await (const ev of runTurnLoop(
         {
           client: makeClient(turnLogger),
+          characterClient,
           worldDir: config.worldDir,
           commit: makeCommit(turnLogger),
           logger: turnLogger,

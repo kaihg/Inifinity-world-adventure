@@ -48,6 +48,29 @@ describe("loadConfig", () => {
     const c = loadConfig({ WORLD_DIR: "/tmp/custom-world" });
     expect(c.worldDir).toBe("/tmp/custom-world");
   });
+
+  it("character 欄位：有設定時解析", () => {
+    const config = loadConfig({
+      OPENAI_BASE_URL: "http://main/v1",
+      OPENAI_API_KEY: "key",
+      MODEL: "main-model",
+      CHARACTER_OPENAI_BASE_URL: "http://char/v1",
+      CHARACTER_MODEL: "qwen2.5:3b",
+    });
+    expect(config.character).toEqual({
+      baseUrl: "http://char/v1",
+      model: "qwen2.5:3b",
+    });
+  });
+
+  it("character 欄位：未設定時為 undefined", () => {
+    const config = loadConfig({
+      OPENAI_BASE_URL: "http://main/v1",
+      OPENAI_API_KEY: "key",
+      MODEL: "main-model",
+    });
+    expect(config.character).toBeUndefined();
+  });
 });
 
 describe("configWarnings", () => {
