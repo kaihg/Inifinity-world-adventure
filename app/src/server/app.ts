@@ -65,6 +65,8 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     });
 
     try {
+      // 立刻寫入第一筆 ping 事件，建立首位元組資料，防止反向代理（如 Tailscale Serve）在 LLM 漫長 Prefill 時發生 30s 閘道超時
+      reply.raw.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
       for await (const ev of runMainSpaceTurn({ client, worldDir: config.worldDir, commit }, input)) {
         reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`);
       }
