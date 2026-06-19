@@ -15,9 +15,14 @@ import {
   loadDungeonLore,
   appendWikiReveals,
 } from "./dungeon.js";
+import {
+  runCharacterPrePass,
+  formatIntentsBlock,
+} from "./character-pre-pass.js";
 
 export interface TurnDeps {
   client: LlmClient;
+  characterClient?: LlmClient;
   worldDir: string;
   commit: (message: string) => Promise<boolean>;
   today?: () => string;
@@ -92,6 +97,7 @@ export interface BuildMessagesParams {
   state: GameState;
   input: string;
   dicePool: number[];
+  intentsBlock?: string;
 }
 
 /** 主空間回合的對話訊息（純函式，可測試） */
@@ -116,6 +122,7 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     settingText.trim(),
     "",
     canonicalBlock(state),
+    ...(params.intentsBlock ? ["", params.intentsBlock] : []),
   ].join("\n");
 
   return [
@@ -158,6 +165,7 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
     secrets.trim() || "（無）",
     "",
     canonicalBlock(state),
+    ...(params.intentsBlock ? ["", params.intentsBlock] : []),
   ].join("\n");
 
   return [
@@ -264,8 +272,27 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const state = await loadState(deps.worldDir);
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
 
+  const charClient = deps.characterClient ?? deps.client;
+  const npcIds = state.npcs.map((n) => n.id);
+  const npcNames = Object.fromEntries(state.npcs.map((n) => [n.id, n.name]));
+  let intentsBlock = "";
+  if (npcIds.length > 0) {
+    try {
+      const intents = await runCharacterPrePass({
+        npcIds,
+        scene: state.now.scene,
+        playerInput: input,
+        worldDir: deps.worldDir,
+        client: charClient,
+      });
+      intentsBlock = formatIntentsBlock(intents, npcNames);
+    } catch {
+      // pre-pass 失敗不 block 回合
+    }
+  }
+
   yield* runTurnCore(deps, input, state, dicePool, today, {
-    messages: buildMainSpaceMessages({ settingText, state, input, dicePool }),
+    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock }),
     appendRaw: (entry) => appendJournal(deps.worldDir, entry),
   });
 }
@@ -284,10 +311,30 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
   const lore = await loadDungeonLore(deps.worldDir, active.dungeonId);
 
+  const charClient = deps.characterClient ?? deps.client;
+  const npcIds = state.npcs.map((n) => n.id);
+  const npcNames = Object.fromEntries(state.npcs.map((n) => [n.id, n.name]));
+  let intentsBlock = "";
+  if (npcIds.length > 0) {
+    try {
+      const intents = await runCharacterPrePass({
+        npcIds,
+        scene: state.now.scene,
+        playerInput: input,
+        worldDir: deps.worldDir,
+        client: charClient,
+      });
+      intentsBlock = formatIntentsBlock(intents, npcNames);
+    } catch {
+      // pre-pass 失敗不 block 回合
+    }
+  }
+
   yield* runTurnCore(deps, input, state, dicePool, today, {
     messages: buildDungeonMessages({
       settingText, state, input, dicePool,
       dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
+      intentsBlock,
     }),
     appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
     distill: (control, date) =>

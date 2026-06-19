@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { readdir } from "node:fs/promises";
-import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, type TurnEvent } from "./turn.js";
+import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, type TurnEvent, type TurnDeps } from "./turn.js";
 import type { GameState } from "./context.js";
 
 function fakeClient(chunks: string[]): LlmClient {
@@ -69,6 +70,44 @@ afterEach(async () => {
   await rm(world, { recursive: true, force: true });
 });
 
+function makeFakeState(): GameState {
+  return {
+    now: { chapter: "c", scene: "s", companions: "", activeDungeon: "無", threads: "", nextStep: "", lastUpdated: "" },
+    protagonist: { name: "沈奕", points: "100" },
+    protagonistDetail: { name: "沈奕", points: "100", attributes: "", skills: "", items: "", buffs: "" },
+    npcs: [],
+    mode: "main-space",
+  };
+}
+
+async function makeTempWorld(opts: { withYeqing?: boolean } = {}): Promise<string> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "world-turn-"));
+  const charsDir = path.join(dir, "characters");
+  await mkdir(charsDir, { recursive: true });
+  await writeFile(path.join(dir, "now.md"), [
+    "- 當前篇章：第一章",
+    "- 此刻場景/地點：安全區大廳",
+    "- 在場同伴/相關 NPC：葉晴",
+    "- 進行中的副本：無",
+    "- 未解懸念/伏筆：無",
+    "- 主角下一步打算：等待",
+    "- 最後更新：2026-06-19",
+  ].join("\n"), "utf8");
+  await writeFile(path.join(charsDir, "protagonist.md"), [
+    "- 姓名：沈奕",
+    "- 當前積分：100",
+  ].join("\n"), "utf8");
+  await writeFile(path.join(charsDir, "index.md"), [
+    "| ID | 姓名 | 定位 | 最近狀態 |",
+    "|----|------|------|----------|",
+    "| yeqing | 葉晴 | NPC | 在場 |",
+  ].join("\n"), "utf8");
+  if (opts.withYeqing) {
+    await writeFile(path.join(charsDir, "yeqing.md"), "# 葉晴\n前特種部隊教官", "utf8");
+  }
+  return dir;
+}
+
 describe("buildMainSpaceMessages", () => {
   it("system 含設定、canonical、輸出格式與骰值；user 為玩家輸入", () => {
     const msgs = buildMainSpaceMessages({
@@ -80,6 +119,30 @@ describe("buildMainSpaceMessages", () => {
     expect(msgs[0].content).toContain("awaiting_user_input");
     expect(msgs[0].content).toContain("[7, 42]");
     expect(msgs[1]).toEqual({ role: "user", content: "我四處看看" });
+  });
+
+  it("intentsBlock 有值時出現在 system prompt", () => {
+    const params = {
+      settingText: "設定",
+      state: makeFakeState(),
+      input: "行動",
+      dicePool: [50],
+      intentsBlock: "## 在場角色本回合意圖\n### 葉晴（yeqing）\n- 立場：觀察",
+    };
+    const msgs = buildMainSpaceMessages(params);
+    expect(msgs[0].content).toContain("## 在場角色本回合意圖");
+  });
+
+  it("intentsBlock 為空字串時 system prompt 不含意圖區塊標題", () => {
+    const params = {
+      settingText: "設定",
+      state: makeFakeState(),
+      input: "行動",
+      dicePool: [50],
+      intentsBlock: "",
+    };
+    const msgs = buildMainSpaceMessages(params);
+    expect(msgs[0].content).not.toContain("## 在場角色本回合意圖");
   });
 });
 
@@ -235,6 +298,86 @@ describe("runDungeonTurn", () => {
     // journal 不該被副本回合寫入
     const journalExists = await readFile(path.join(world, "journal.md"), "utf8").then(() => true).catch(() => false);
     expect(journalExists).toBe(false);
+  });
+});
+
+describe("pre-pass 整合測試", () => {
+  it("characterClient 注入後意圖出現在 system prompt（主空間）", async () => {
+    const charClient: LlmClient = {
+      async *streamChat() {
+        yield JSON.stringify({ stance: "觀察", intent: "提暗號", tone: "冷靜" });
+      },
+    };
+    let capturedSystem = "";
+    const mainClient: LlmClient = {
+      async *streamChat(msgs) {
+        capturedSystem = msgs[0].content;
+        yield `敘事\n===STATE===\n${JSON.stringify({
+          state_changes: {},
+          rolls: [],
+          mode_transition: null,
+          awaiting_user_input: true,
+          suggested_actions: [],
+          commit_summary: "test",
+        })}`;
+      },
+    };
+
+    const worldDir = await makeTempWorld({ withYeqing: true });
+    try {
+      const deps: TurnDeps = {
+        client: mainClient,
+        characterClient: charClient,
+        worldDir,
+        commit: async () => false,
+        today: () => "2026-06-19",
+        dicePool: [50],
+      };
+      const events = [];
+      for await (const ev of runMainSpaceTurn(deps, "測試")) events.push(ev);
+
+      expect(capturedSystem).toContain("## 在場角色本回合意圖");
+    } finally {
+      await rm(worldDir, { recursive: true, force: true });
+    }
+  });
+
+  it("characterClient 失敗時回合仍正常完成（降級）", async () => {
+    const charClient: LlmClient = {
+      async *streamChat() {
+        throw new Error("LLM 掛了");
+        yield "";
+      },
+    };
+    const mainClient: LlmClient = {
+      async *streamChat() {
+        yield `敘事\n===STATE===\n${JSON.stringify({
+          state_changes: {},
+          rolls: [],
+          mode_transition: null,
+          awaiting_user_input: true,
+          suggested_actions: [],
+          commit_summary: "test",
+        })}`;
+      },
+    };
+    const worldDir = await makeTempWorld({ withYeqing: true });
+    try {
+      const deps: TurnDeps = {
+        client: mainClient,
+        characterClient: charClient,
+        worldDir,
+        commit: async () => false,
+        today: () => "2026-06-19",
+        dicePool: [50],
+      };
+      const events = [];
+      for await (const ev of runMainSpaceTurn(deps, "測試")) events.push(ev);
+      const done = events.find((e) => e.type === "done");
+      expect(done).toBeDefined();
+    } finally {
+      await rm(worldDir, { recursive: true, force: true });
+    }
   });
 });
 
