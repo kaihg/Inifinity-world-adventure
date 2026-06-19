@@ -1,0 +1,31 @@
+{
+  "name": "infinity-world-adventure-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "無限世界冒險：劇情遊玩網頁引擎（可設定 OpenAI 相容後端）",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "start": "node dist/server/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "fastify": "^4.28.1",
+    "openai": "^4.67.3",
+    "simple-git": "^3.27.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}
