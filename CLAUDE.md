@@ -53,7 +53,7 @@ app/                           # 網頁引擎（開發中，Node.js + TypeScript
   src/
     config.ts                  # LLM 後端等設定（OPENAI_BASE_URL/MODEL…），可指自架
     llm/client.ts              # OpenAI 相容串流 client（介面化、可換端點）
-    engine/                    # 回合引擎：context（載入）、turn（回合/自動推進）、schema（結構化輸出）、roll（真隨機）、stream-split、journal、now
+    engine/                    # 回合引擎：context（載入）、turn（回合/自動推進/模式路由）、dungeon（副本，非 branch）、schema、roll、stream-split、journal、now
     git/commit.ts              # 每回合自動 commit world/
     server/                    # Fastify：/api/state、/api/turn(SSE)、/
   web/index.html               # 最小前端（resume 面板 + 劇情輸入；完整 UI 為 Phase 6）
@@ -68,7 +68,7 @@ app/                           # 網頁引擎（開發中，Node.js + TypeScript
 - **canonical 不變**：引擎沿用同一套 Markdown 契約（`now.md` 七欄、三層模型、回合收束協議）；`world/` 檔案架構不動。
 - **設定化後端**：LLM 端點/模型全走 `app/.env`（`OPENAI_BASE_URL`/`OPENAI_API_KEY`/`MODEL`），部署者可指自架（vLLM/Ollama/LM Studio）。
 - **開發方式**：TDD（Vitest）。本機跑 `cd app && npm install && cp .env.example .env && npm run dev`。
-- **目前進度**：Phase 0–4 已完成——骨架、狀態載入器 + resume 面板、LLM client + 單回合敘事 + 自動 commit、結構化輸出（`===STATE===` sentinel + JSON）+ 伺服器端真隨機骰、自動推進回合（`awaiting_user_input` 驅動，消滅手動「繼續」）。Phase 5（副本）、6（完整 UI）、7（封存 skills）待做。計畫見 `docs/superpowers/plans/2026-06-19-web-app-implementation.md`。
+- **目前進度**：Phase 0–5 已完成——骨架、狀態載入器 + resume 面板、LLM client + 單回合敘事 + 自動 commit、結構化輸出（`===STATE===` sentinel + JSON）+ 伺服器端真隨機骰、自動推進回合（`awaiting_user_input` 驅動，消滅手動「繼續」）、**副本模式（mode-aware 路由，`runs/*.md` raw + `wiki.md` 提煉 + 首次生成 `secrets.md`，enter/settle 由 `mode_transition` 驅動，不切 git branch）**。Phase 6（完整 UI）、7（封存 skills）待做。計畫見 `docs/superpowers/plans/2026-06-19-web-app-implementation.md`。
 
 ## 關鍵約定
 

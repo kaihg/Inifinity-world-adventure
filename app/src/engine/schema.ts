@@ -33,6 +33,10 @@ export const TurnControlSchema = z.object({
   state_changes: StateChangesSchema,
   rolls: z.array(RollReportSchema).default([]),
   mode_transition: z.enum(["enter_dungeon", "settle_dungeon"]).nullable().default(null),
+  /** 配合 mode_transition=enter_dungeon：要進入的副本 id（短 slug） */
+  transition_dungeon_id: z.string().optional(),
+  /** 配合 enter_dungeon：本次副本目標（可選） */
+  transition_dungeon_goal: z.string().optional(),
   awaiting_user_input: z.boolean(),
   suggested_actions: z.array(z.string()).default([]),
   commit_summary: z.string().min(1),

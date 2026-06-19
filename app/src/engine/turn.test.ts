@@ -3,7 +3,8 @@ import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
-import { runMainSpaceTurn, runMainSpaceTurnLoop, buildMainSpaceMessages, type TurnEvent } from "./turn.js";
+import { readdir } from "node:fs/promises";
+import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, type TurnEvent } from "./turn.js";
 import type { GameState } from "./context.js";
 
 function fakeClient(chunks: string[]): LlmClient {
@@ -154,10 +155,10 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
   });
 });
 
-describe("runMainSpaceTurnLoop — 自動推進", () => {
+describe("runTurnLoop — 自動推進", () => {
   it("awaiting_user_input=false 時自動接續，遇 true 停止", async () => {
     const events: TurnEvent[] = [];
-    for await (const ev of runMainSpaceTurnLoop(
+    for await (const ev of runTurnLoop(
       {
         client: sequencedClient([control(false, "系統倒數推進"), control(true, "需要玩家決定")]),
         worldDir: world,
@@ -178,7 +179,7 @@ describe("runMainSpaceTurnLoop — 自動推進", () => {
 
   it("達 maxAuto 上限即停（即使一直 false）", async () => {
     const events: TurnEvent[] = [];
-    for await (const ev of runMainSpaceTurnLoop(
+    for await (const ev of runTurnLoop(
       {
         client: sequencedClient([control(false, "持續推進")]),
         worldDir: world,
@@ -193,5 +194,84 @@ describe("runMainSpaceTurnLoop — 自動推進", () => {
     // 1 個初始 + 最多 2 個自動 = 最多 3 個 done
     const dones = events.filter((e) => e.type === "done");
     expect(dones).toHaveLength(3);
+  });
+});
+
+describe("runDungeonTurn", () => {
+  it("落地到 runs/*.md、提煉 wiki_reveals 進 wiki.md", async () => {
+    await mkdir(path.join(world, "dungeons", "U-001", "runs"), { recursive: true });
+    await writeFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "# run\n");
+    await writeFile(path.join(world, "dungeons", "U-001", "secrets.md"), "真相：地板會塌\n");
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
+    );
+    const response =
+      "你踏入大廳，三道門並排。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { wiki_reveals: ["入口大廳有三道門"] },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "進入大廳",
+      });
+
+    const events: TurnEvent[] = [];
+    for await (const ev of runDungeonTurn(
+      { client: fakeClient([response]), worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5] },
+      "往前走",
+    )) {
+      events.push(ev);
+    }
+
+    const run = await readFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "utf8");
+    expect(run).toContain("## [2026-06-19] 進入大廳");
+    expect(run).toContain("往前走");
+    const wiki = await readFile(path.join(world, "dungeons", "U-001", "wiki.md"), "utf8");
+    expect(wiki).toContain("三道門");
+    // journal 不該被副本回合寫入
+    const journalExists = await readFile(path.join(world, "journal.md"), "utf8").then(() => true).catch(() => false);
+    expect(journalExists).toBe(false);
+  });
+});
+
+describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
+  it("enter_dungeon → 生成 secrets/建 run → 副本回合 → settle_dungeon 回主空間", async () => {
+    const enterCtl = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
+      transition_dungeon_id: "U-TEST", awaiting_user_input: false, suggested_actions: [], commit_summary: "系統強制開啟副本",
+    });
+    const settleCtl = JSON.stringify({
+      state_changes: { wiki_reveals: ["出口在東側"] }, rolls: [], mode_transition: "settle_dungeon",
+      awaiting_user_input: true, suggested_actions: [], commit_summary: "撤離副本",
+    });
+    const client = sequencedClient([
+      "系統警報響起。\n===STATE===\n" + enterCtl,   // call 0：主空間 → 進副本
+      "這個副本真正的機關是潮汐淹沒。",              // call 1：secrets 生成（純文字）
+      "你抵達出口。\n===STATE===\n" + settleCtl,    // call 2：副本回合 → 結算
+    ]);
+
+    const events: TurnEvent[] = [];
+    for await (const ev of runTurnLoop(
+      { client, worldDir: world, commit: async () => true, today: () => "2026-06-19" },
+      "在安全區等待",
+      4,
+    )) {
+      events.push(ev);
+    }
+
+    const transitions = events.filter((e) => e.type === "transition") as any[];
+    expect(transitions.map((t) => t.to)).toEqual(["dungeon", "main-space"]);
+
+    const secrets = await readFile(path.join(world, "dungeons", "U-TEST", "secrets.md"), "utf8");
+    expect(secrets).toContain("潮汐淹沒");
+    const runs = await readdir(path.join(world, "dungeons", "U-TEST", "runs"));
+    expect(runs).toContain("run-1.md");
+    const wiki = await readFile(path.join(world, "dungeons", "U-TEST", "wiki.md"), "utf8");
+    expect(wiki).toContain("出口在東側");
+
+    const now = await readFile(path.join(world, "now.md"), "utf8");
+    expect(now).toContain("- 進行中的副本：無"); // 結算後回主空間
   });
 });

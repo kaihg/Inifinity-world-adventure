@@ -70,14 +70,18 @@
 - [ ] **Step 2:** 前端支援中斷自動推進；每自動回合仍跑完整收束 + commit。
 - [ ] **驗證:** 純環境/倒數情境下無需輸入即連續推進並停在需要決策處；不超過上限。
 
-### Phase 5：副本模式（enter / run log / settle / 路由）
+### Phase 5：副本模式（mode，非 branch）
 
-**Files:** `app/src/engine/router.ts`、`app/src/engine/dungeon.ts`、`app/src/git/commit.ts`（branch 支援）
+**Files:** `app/src/engine/dungeon.ts`、`app/src/engine/turn.ts`（mode-aware 路由）
 
-- [ ] **Step 1:** `router.ts`：依 `now.md`「進行中的副本」欄路由主空間/副本；mode_transition 觸發切換。
-- [ ] **Step 2:** `dungeon.ts` enter：建 `dungeon/<id>/<run-id>` branch、建 `runs/<run-id>.md`；首次進入該 dungeon 生成 `secrets.md`（不外洩）。
-- [ ] **Step 3:** 副本回合 commit 到 dungeon branch；settle：提煉 run log 進 `wiki.md` + 更新 character/index + **本地 merge** 回 main（不開 PR）。
-- [ ] **驗證:** 完整跑一次「進副本→數回合→結算合併」，branch/wiki/now 路由正確，全程本地 branch+merge、不依賴 GitHub。
+> **架構修正**：副本不切 git branch，而是 `now.md` 驅動的「模式」。所有回合 commit 當前分支；raw/提煉分層靠檔案。
+
+- [ ] **Step 1:** `dungeon.ts`：`parseActiveDungeon`/`formatActiveDungeon`、`nextRunId`、`appendRun`（raw → `runs/<run-id>.md`）、`loadDungeonLore`（讀 wiki+secrets）。
+- [ ] **Step 2:** `enterDungeon`：建 `runs/<run-id>.md`（含進入時間/角色摘要/目標）、首次進入用 LLM 生成 `secrets.md`（不外洩、可注入測試）、設 `now.md` 進行中的副本欄。
+- [ ] **Step 3:** 副本回合：載入 wiki+secrets 進 prompt（嚴守 secrets）；raw → `runs/<run-id>.md`；提煉 `wiki_reveals` → `wiki.md`；now 七欄/積分照舊。
+- [ ] **Step 4:** `settleDungeon`：提煉 run→wiki、更新 characters/index、清 `now.md` 進行中的副本欄回主空間（死亡也走此流程）。
+- [ ] **Step 5:** `runTurnLoop` mode-aware：依 `now.md` 模式 dispatch；`mode_transition` enter/settle 觸發切換。
+- [ ] **驗證:** 完整跑「進副本→數回合→結算回主空間」，runs/wiki/now 正確、secrets 不外洩；全程不切 branch。
 
 ### Phase 6：完整世界觀 UI
 

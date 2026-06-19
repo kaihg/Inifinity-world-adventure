@@ -128,9 +128,11 @@ app/
 ## 7. Git 行為
 
 - 每個敘事回合收束時自動 commit `world/` 變更（用 `simple-git` 或 `child_process`）；commit message 取結構化輸出的 `commit_summary`。
-- 主空間：直接 commit 當前分支。
-- 副本：enter 時建 `dungeon/<id>/<run-id>` branch，逐回合 commit 到該 branch；settle 時提煉進 wiki 後**本地 merge** 回 main。
-- **副本不開 PR（已決議）**：網頁單機自架以「本地 branch + merge」做副本邊界，引擎不需 GitHub token。**PR 改回歸一般開發流程**（改引擎程式碼、CLAUDE.md、skills 等才開 PR），不再用 PR 承載副本劇情。
+- **副本不切 branch（已決議，新架構修正）**：CLI 路徑曾用 branch+PR 承載副本，但網頁引擎是單人/單世界/自架，branch 不再帶來隔離價值。**副本是一種「模式」，不是 branch**——所有回合（主空間與副本）都 commit 到當前分支（自架即 main）。
+  - 副本語意改由**檔案**承載：raw → `dungeons/<id>/runs/<run-id>.md`、提煉 → `wiki.md`、暗線 → `secrets.md`；resume 路由靠 `now.md`「進行中的副本」欄。
+  - 進入副本（`mode_transition: enter_dungeon`）：建 run log、首次生成 `secrets.md`、設 `now.md` 進行中的副本欄。
+  - 結算（`settle_dungeon`）：提煉 run→wiki、更新 characters/index、清空 `now.md` 進行中的副本欄回主空間。死亡同樣走結算，不靠丟棄逃避。
+- **PR 回歸一般開發流程**：改引擎程式碼、CLAUDE.md、skills 等才開 PR，劇情遊玩完全不碰 PR/branch。
 
 ## 8. 設定 / 部署
 
