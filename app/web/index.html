@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>無限世界冒險</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        font-family: system-ui, "Noto Sans TC", sans-serif;
+        background: #0f1115; color: #e6e6e6;
+        margin: 0; padding: 2rem; line-height: 1.6;
+      }
+      h1 { font-size: 1.4rem; margin: 0 0 0.25rem; }
+      .sub { color: #8a8f98; font-size: 0.85rem; margin-bottom: 1.5rem; }
+      .panel {
+        background: #171a21; border: 1px solid #262b34;
+        border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem;
+        max-width: 760px;
+      }
+      .label { color: #7aa2f7; font-size: 0.8rem; letter-spacing: 0.04em; }
+      .value { white-space: pre-wrap; margin: 0.15rem 0 0.9rem; }
+      .badge {
+        display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
+        font-size: 0.75rem; background: #1f2937; color: #93c5fd;
+      }
+      .err { color: #f87171; }
+    </style>
+  </head>
+  <body>
+    <h1>無限世界冒險 <span id="mode" class="badge">…</span></h1>
+    <div class="sub">劇情遊玩引擎 · resume 讀取 world/now.md（唯讀預覽）</div>
+
+    <div class="panel">
+      <div class="label">主角</div>
+      <div class="value" id="protagonist">載入中…</div>
+      <div class="label">當前篇章</div>
+      <div class="value" id="chapter"></div>
+      <div class="label">此刻場景／地點</div>
+      <div class="value" id="scene"></div>
+      <div class="label">在場同伴／相關 NPC</div>
+      <div class="value" id="companions"></div>
+      <div class="label">進行中的副本</div>
+      <div class="value" id="activeDungeon"></div>
+      <div class="label">未解懸念／伏筆</div>
+      <div class="value" id="threads"></div>
+      <div class="label">主角下一步打算</div>
+      <div class="value" id="nextStep"></div>
+      <div class="label">最後更新</div>
+      <div class="value" id="lastUpdated"></div>
+    </div>
+
+    <script>
+      const set = (id, text) => { document.getElementById(id).textContent = text || "—"; };
+      async function load() {
+        try {
+          const res = await fetch("/api/state");
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const s = await res.json();
+          const modeText = s.mode === "dungeon" ? "副本中" : "主空間";
+          document.getElementById("mode").textContent = modeText;
+          set("protagonist", `${s.protagonist.name}　積分：${s.protagonist.points}`);
+          set("chapter", s.now.chapter);
+          set("scene", s.now.scene);
+          set("companions", s.now.companions);
+          set("activeDungeon", s.now.activeDungeon);
+          set("threads", s.now.threads);
+          set("nextStep", s.now.nextStep);
+          set("lastUpdated", s.now.lastUpdated);
+        } catch (e) {
+          document.getElementById("protagonist").innerHTML =
+            '<span class="err">讀取 /api/state 失敗：' + e.message + "</span>";
+        }
+      }
+      load();
+    </script>
+  </body>
+</html>
