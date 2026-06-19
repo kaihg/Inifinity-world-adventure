@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
+import { parseLastTurnRecord, type LastTurnRecord } from "./journal.js";
+import { parseActiveDungeon } from "./dungeon.js";
 
 /** world/now.md 的七個固定欄位（對應回合收束協議的覆寫頁） */
 export interface NowState {
@@ -40,6 +42,8 @@ export interface GameState {
   protagonistDetail: ProtagonistDetail;
   npcs: NpcEntry[];
   mode: GameMode;
+  /** 重開頁面時還原畫面用：最後一筆 raw 記錄（journal.md 或進行中副本的 runs/*.md），無記錄時為 null */
+  lastTurn: LastTurnRecord | null;
 }
 
 /** now.md 欄位標籤 → NowState 鍵。順序即 now.md 的固定欄位順序。 */
@@ -177,6 +181,16 @@ async function readOrEmpty(file: string, logger: Logger): Promise<string> {
   }
 }
 
+/** 還原畫面用：依 now 的「進行中的副本」欄決定讀 journal.md 或對應 runs/*.md，解析最後一段記錄 */
+async function loadLastTurn(worldDir: string, now: NowState, logger: Logger): Promise<LastTurnRecord | null> {
+  const active = parseActiveDungeon(now.activeDungeon);
+  const rawFile = active
+    ? path.join(worldDir, "dungeons", active.dungeonId, "runs", `${active.runId}.md`)
+    : path.join(worldDir, "journal.md");
+  const md = await readOrEmpty(rawFile, logger);
+  return md ? parseLastTurnRecord(md) : null;
+}
+
 export async function loadState(worldDir: string, logger: Logger = defaultLogger): Promise<GameState> {
   const [nowMd, protagonistMd, indexMd] = await Promise.all([
     readFile(path.join(worldDir, "now.md"), "utf8"),
@@ -192,5 +206,6 @@ export async function loadState(worldDir: string, logger: Logger = defaultLogger
     protagonistDetail: detail,
     npcs: parseCharacterIndex(indexMd),
     mode: isInDungeon(now) ? "dungeon" : "main-space",
+    lastTurn: await loadLastTurn(worldDir, now, logger),
   };
 }

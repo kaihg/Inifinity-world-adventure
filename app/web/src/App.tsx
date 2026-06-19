@@ -12,8 +12,19 @@ export function App() {
   const [input, setInput] = useState("");
   const [showStatus, setShowStatus] = useState(false);
   const storyEndRef = useRef<HTMLDivElement | null>(null);
+  const loadedInitialRef = useRef(false);
 
-  const refresh = () => fetchState().then(setState).catch(() => {});
+  const refresh = () =>
+    fetchState()
+      .then((s) => {
+        setState(s);
+        if (!loadedInitialRef.current && s.lastTurn) {
+          setStory(s.lastTurn.narrative);
+          setSuggested(s.lastTurn.suggestedActions);
+        }
+        loadedInitialRef.current = true;
+      })
+      .catch(() => {});
   useEffect(() => {
     refresh();
   }, []);
