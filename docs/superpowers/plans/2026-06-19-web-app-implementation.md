@@ -6,7 +6,7 @@
 
 **Architecture:** `app/` story runtime 與 `world/`、`.claude/` 並列。引擎固化三層模型與回合收束協議；狀態載入器決定論地組 context（修 resume 落差）；伺服器端 roll-random（真隨機）；結構化回合輸出帶 `awaiting_user_input` 驅動自動推進。
 
-**Tech Stack:** Node.js + TypeScript、OpenAI 相容 SDK、SSE streaming、simple-git、Vite + React（前端，可改純 HTML）。本 repo 原無測試框架，引擎部分引入 Vitest 做最小單元測試；其餘以手動驗證/grep。
+**Tech Stack:** Node.js + TypeScript、OpenAI 相容 SDK、SSE streaming、simple-git、Vite + React（前端）。本 repo 原無測試框架，引擎部分引入 Vitest 做最小單元測試；其餘以手動驗證/grep。
 
 ## Global Constraints
 
@@ -17,6 +17,9 @@
 - 隱藏設定（`gm-notes.md`／`secrets.md`）不得進入前端可見回應。
 - 每回合收束自動 commit；commit message 用一句摘要。
 - LLM 後端參數全部設定化（base URL/key/model），預設 OpenAI、可指自架。
+- **不做弱模型降級**：結構化輸出為核心契約，要求具 tool-calling/JSON 能力的模型；解析失敗以錯誤回報（可重試一次），不靜默退化。
+- **副本不開 PR**：本地 branch+merge；PR 回歸一般開發流程。
+- 前端固定 **Vite + React**。
 
 ---
 
@@ -55,8 +58,8 @@
 - [ ] **Step 1:** `schema.ts`：定義結構化回合輸出（`narrative`/`rolls_needed`/`state_changes`/`mode_transition`/`awaiting_user_input`/`suggested_actions`/`commit_summary`），用 tool-calling 或 JSON mode 取得。
 - [ ] **Step 2:** `roll.ts`：`crypto` 真隨機，支援 d100/門檻判定，回傳值寫進 raw log（可驗證）。
 - [ ] **Step 3:** `turn.ts` 升級為兩階段：LLM 宣告 `rolls_needed` → 引擎擲骰 → 回灌 LLM 續敘 → 引擎依 `state_changes` **決定論地**落地三層（append raw、提煉 `characters/*.md`/`wiki.md`、覆寫 `now.md` 七欄位），嚴守 `secrets.md` 不外洩。
-- [ ] **Step 4:** 解析失敗的降級路徑（純敘事 + 最小 now.md 覆寫，log 標記降級）。
-- [ ] **Step 5:** Vitest：roll 分佈/門檻、schema 解析、降級路徑單元測試。
+- [ ] **Step 4:** 解析失敗處理：以明確錯誤回報並可對同一回合重試一次，不靜默退化（無降級路徑）。
+- [ ] **Step 5:** Vitest：roll 分佈/門檻、schema 解析、解析失敗錯誤路徑單元測試。
 - [ ] **驗證:** 觸發一次機率情境，log 內有可驗證骰值；canonical 檔依 delta 更新；`npm test` 綠燈。
 
 ### Phase 4：自動推進回合（解決手動「繼續」）
@@ -73,9 +76,8 @@
 
 - [ ] **Step 1:** `router.ts`：依 `now.md`「進行中的副本」欄路由主空間/副本；mode_transition 觸發切換。
 - [ ] **Step 2:** `dungeon.ts` enter：建 `dungeon/<id>/<run-id>` branch、建 `runs/<run-id>.md`；首次進入該 dungeon 生成 `secrets.md`（不外洩）。
-- [ ] **Step 3:** 副本回合 commit 到 dungeon branch；settle：提煉 run log 進 `wiki.md` + 更新 character/index + merge 回 main。
-- [ ] **Step 4:** PR 設定化（有 GitHub token 才開 PR，否則本地 branch+merge）——對應 spec §10 待議。
-- [ ] **驗證:** 完整跑一次「進副本→數回合→結算合併」，branch/wiki/now 路由與 CLI 路徑語意一致。
+- [ ] **Step 3:** 副本回合 commit 到 dungeon branch；settle：提煉 run log 進 `wiki.md` + 更新 character/index + **本地 merge** 回 main（不開 PR）。
+- [ ] **驗證:** 完整跑一次「進副本→數回合→結算合併」，branch/wiki/now 路由正確，全程本地 branch+merge、不依賴 GitHub。
 
 ### Phase 6：完整世界觀 UI
 
@@ -86,14 +88,14 @@
 - [ ] **Step 3:** 設定頁：LLM base URL/model/key（寫回 `.env` 或 runtime config）。
 - [ ] **驗證:** 一輪遊玩中面板即時反映 canonical 變化；切換 LLM 端點生效。
 
-### Phase 7：文件與邊界固化
+### Phase 7：封存現有 skills + 文件固化
 
-**Files:** `CLAUDE.md`、`.claude/skills/*/SKILL.md`（加交叉引用）、`app/README.md`
+**Files:** `CLAUDE.md`、`.claude/skills/`（封存遊玩類 skills）、`app/README.md`
 
-- [ ] **Step 1:** `CLAUDE.md` 增「網頁引擎路徑」章節：`app/` 角色、劇情/開發分離、雙路徑共用 canonical、引擎只寫 `world/` 的邊界。
-- [ ] **Step 2:** 相關 skill 文件加一句交叉引用，避免兩邊協議漂移。
+- [ ] **Step 1:** 封存邏輯已被引擎重實作的遊玩類 skills（`start-story`／`enter-dungeon`／`settle-dungeon`／`roll-random`／`init-world`）——移到 `archives/skills/<date>/` 或加 deprecated 標記，並移除/調整 `.claude/settings.json` 中對應的 Stop hook（改由引擎負責回合落地）。
+- [ ] **Step 2:** `CLAUDE.md` 大改：把「核心循環」「目錄結構」「關鍵約定」更新為**網頁引擎路徑**——`app/` 角色、劇情/開發分離、副本走本地 branch+merge（不開 PR）、引擎只寫 `world/` 的邊界、skills 已封存。
 - [ ] **Step 3:** `app/README.md`：安裝/設定/啟動、如何指向自架模型。
-- [ ] **驗證:** 新讀者能從 CLAUDE.md 理解兩條遊玩路徑與邊界；README 能照著跑起來。
+- [ ] **驗證:** 新讀者能從 CLAUDE.md 理解唯一遊玩路徑（網頁引擎）與開發邊界；README 能照著跑起來；封存的 skills 不再被 Claude Code 當作遊玩入口。
 
 ---
 

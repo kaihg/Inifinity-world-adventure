@@ -31,6 +31,8 @@
 - **單一主角、單一世界**：網頁服務預設**單機自架、無多人/帳號系統**；想玩自己的版本仍是 fork 倉庫。多人化為非目標。
 - **隱藏設定哲學不動**：`gm-notes.md`／`secrets.md` 仍由「init/enter 首次生成、不預覽、只供暗線一致」，引擎不得把未揭露內容送進前端可見回應。
 
+> **路徑演進（已決議）**：網頁引擎是**取代** CLI skill 路徑的新遊玩面，不是長期並行。引擎開發完成後，邏輯被重實作的現有 skills（`start-story`／`enter-dungeon`／`settle-dungeon`／`roll-random`／`init-world`）即**封存**（見 plan Phase 7）。開發期間兩者暫時共存以便對照。
+
 ## 3. 整體架構
 
 新增頂層目錄 `app/`（story runtime），與 `world/`（狀態）、`.claude/`（CLI 維護路徑）並列。
@@ -82,7 +84,7 @@ app/
    - 主敘事區（串流故事文字）+ 玩家輸入框 + 建議動作按鈕。
    - 側欄世界觀面板：主角狀態（積分、屬性、技能、buff/debuff）、在場 NPC、當前篇章、副本倒數、未解懸念——即「更完整世界觀與使用者操作」。
    - 設定頁：LLM 端點/模型。
-   - 技術選型建議 Vite + React（狀態面板較好做），亦可純 HTML + htmx 保持輕量。
+   - 技術選型：**Vite + React**（已決議，狀態面板較好做）。
 
 ## 4. 自動推進設計（解決手動「繼續」）
 
@@ -115,20 +117,20 @@ app/
 }
 ```
 
-**降級策略**：小型自架模型可能難穩定產出結構化輸出。引擎需容錯——解析失敗時退回「純敘事 + 由引擎做最小 now.md 覆寫」，並在 log 標記降級，不讓整回合失敗。設計上以結構化路徑為主、markdown/純文字為 fallback。
+**模型要求（已決議：不做降級 fallback）**：結構化輸出是引擎核心契約，**要求部署者使用具備穩定 tool-calling／JSON mode 能力的模型**，不為弱模型維護「純文字抽取」降級路徑。解析失敗時引擎以明確錯誤回報（並可重試一次同一回合），而非靜默退化——保持回合落地的確定性。自架模型須先驗證其結構化輸出能力。
 
 ## 6. 劇情 / 開發分離
 
 - `app/` = 劇情 runtime（遊玩面）；只會寫入 `world/`（與建立副本 branch），**永不**碰 `CLAUDE.md`／`.claude/skills/`／引擎自身程式碼。
 - 倉庫維護（改 CLAUDE.md、調 skill、改引擎）= 開發路徑，走一般 git 流程。
-- **雙路徑共用同一份 canonical**：CLI（Claude Code skills）與網頁引擎讀寫同一批 `world/*.md`，可交替遊玩。引擎重實作 skill 邏輯，但兩者共享同一套 Markdown 契約（`now.md` 欄位、回合收束三層）——契約以本設計文件與既有 spec 為單一來源。
+- **canonical 單一來源**：網頁引擎讀寫 `world/*.md`，遵循同一套 Markdown 契約（`now.md` 欄位、回合收束三層）——契約以本設計文件與既有 spec 為單一來源。開發期間 CLI skills 暫時共存可對照，引擎完成後封存（見 Phase 7）；之後 `world/` 仍可被 Claude Code 臨時讀寫（維護用），但**正式遊玩走網頁引擎**。
 
 ## 7. Git 行為
 
 - 每個敘事回合收束時自動 commit `world/` 變更（用 `simple-git` 或 `child_process`）；commit message 取結構化輸出的 `commit_summary`。
 - 主空間：直接 commit 當前分支。
-- 副本：enter 時建 `dungeon/<id>/<run-id>` branch，逐回合 commit 到該 branch；settle 時提煉進 wiki 後 merge 回 main。
-- **PR 為可選**：CLI 路徑現況靠 PR 做副本邊界；網頁單機自架可退化為「本地 branch + merge」，是否開 PR 由設定決定（自架者多半無 GitHub token）。此為 §10 待議。
+- 副本：enter 時建 `dungeon/<id>/<run-id>` branch，逐回合 commit 到該 branch；settle 時提煉進 wiki 後**本地 merge** 回 main。
+- **副本不開 PR（已決議）**：網頁單機自架以「本地 branch + merge」做副本邊界，引擎不需 GitHub token。**PR 改回歸一般開發流程**（改引擎程式碼、CLAUDE.md、skills 等才開 PR），不再用 PR 承載副本劇情。
 
 ## 8. 設定 / 部署
 
@@ -140,12 +142,13 @@ app/
 
 - 多人/多主角/多世界（維持 fork 模型）。
 - 帳號、登入、權限系統。
-- 取代 CLI 路徑——skills 與 CLI 遊玩持續可用，網頁是並行的第二遊玩面。
+- 弱模型相容的降級/純文字抽取路徑（要求具結構化輸出能力的模型）。
+- 長期維護 CLI 遊玩路徑——引擎完成後現有遊玩類 skills 封存。
 - 改動 `world/` 既有檔案語意或三層模型。
 
-## 10. 待議問題（Open questions）
+## 10. 已決議事項（原待議）
 
-1. **PR 與否**：副本邊界在自架無 GitHub token 情境是否還開 PR？或預設本地 branch+merge、PR 設定化開啟？
-2. **結構化輸出可靠度**：對弱模型 fallback 的最低保證為何？是否提供「強制 JSON」與「純文字 + 引擎抽取」兩種模式切換？
-3. **前端框架**：Vite+React vs 純 HTML/htmx，取捨偏好？
-4. **既有 skills 是否標註**：CLI skill 文件是否加一句「另有網頁引擎路徑」交叉引用，避免兩邊協議漂移？
+1. **副本不開 PR**：本地 branch+merge；PR 回歸一般開發流程。
+2. **不做弱模型降級**：結構化輸出為核心契約，要求具 tool-calling/JSON 能力的模型。
+3. **前端**：Vite + React。
+4. **現有 skills 封存**：引擎完成後封存遊玩類 skills（見 plan Phase 7），不做交叉引用。
