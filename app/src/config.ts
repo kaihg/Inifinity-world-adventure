@@ -9,6 +9,7 @@ export interface AppConfig {
   };
   port: number;
   host: string;
+  debug: boolean;
   git: {
     authorName: string;
     authorEmail: string;
@@ -53,6 +54,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     port: parsePositiveInt(env.PORT, DEFAULTS.port),
     host: env.HOST || DEFAULTS.host,
+    debug: env.DEBUG === "true" || env.DEBUG === "1",
     git: {
       authorName: env.GIT_AUTHOR_NAME || DEFAULTS.authorName,
       authorEmail: env.GIT_AUTHOR_EMAIL || DEFAULTS.authorEmail,

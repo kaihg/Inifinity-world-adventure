@@ -31,13 +31,18 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
   const client = deps.client ?? createOpenAiClient(config);
   const commit =
     deps.commit ??
-    ((message: string) =>
-      commitWorld({
+    ((message: string) => {
+      if (config.debug) {
+        console.log(`[DEBUG] 偵測到 Debug 模式，跳過自動 commit：${message}`);
+        return Promise.resolve(false);
+      }
+      return commitWorld({
         repoRoot,
         message,
         authorName: config.git.authorName,
         authorEmail: config.git.authorEmail,
-      }));
+      });
+    });
 
   server.get("/api/health", async () => {
     return { ok: true, model: config.openai.model };
