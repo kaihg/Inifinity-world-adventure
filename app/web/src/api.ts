@@ -32,28 +32,9 @@ export interface GameState {
   mode: "main-space" | "dungeon";
 }
 
-export interface LlmConfig {
-  baseUrl: string;
-  model: string;
-}
-
 export async function fetchState(): Promise<GameState> {
   const res = await fetch("/api/state");
   if (!res.ok) throw new Error("HTTP " + res.status);
-  return res.json();
-}
-
-export async function fetchConfig(): Promise<LlmConfig> {
-  const res = await fetch("/api/config");
-  return res.json();
-}
-
-export async function saveConfig(cfg: Partial<LlmConfig>): Promise<LlmConfig> {
-  const res = await fetch("/api/config", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(cfg),
-  });
   return res.json();
 }
 
