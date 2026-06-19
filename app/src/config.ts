@@ -10,6 +10,8 @@ export interface AppConfig {
   port: number;
   host: string;
   debug: boolean;
+  /** pino log level（trace/debug/info/warn/error/silent），預設 debug 模式給 debug，否則 info */
+  logLevel: string;
   git: {
     authorName: string;
     authorEmail: string;
@@ -55,6 +57,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: parsePositiveInt(env.PORT, DEFAULTS.port),
     host: env.HOST || DEFAULTS.host,
     debug: env.DEBUG_MODE === "true" || env.DEBUG_MODE === "1",
+    logLevel: env.LOG_LEVEL || (env.DEBUG_MODE === "true" || env.DEBUG_MODE === "1" ? "debug" : "info"),
     git: {
       authorName: env.GIT_AUTHOR_NAME || DEFAULTS.authorName,
       authorEmail: env.GIT_AUTHOR_EMAIL || DEFAULTS.authorEmail,
