@@ -44,13 +44,12 @@ archives/
   skills/2026-06-19/...       # 已封存的舊遊玩類 skills（歷史參考，不再使用）
 app/                           # 網頁引擎（Node.js + TypeScript，唯一遊玩路徑）
   src/
-    config.ts                  # LLM 後端等設定（OPENAI_BASE_URL/MODEL/HOST/DEBUG…），可指自架
-    config-file.ts             # 設定頁寫回 .env
+    config.ts                  # LLM 後端等設定（OPENAI_BASE_URL/MODEL/HOST/DEBUG…），可指自架，僅由後端 .env 控制
     llm/client.ts              # OpenAI 相容串流 client（介面化、可換端點）
     engine/                    # context（載入）、turn（回合/自動推進/模式路由）、dungeon（副本，非 branch）、schema、roll、stream-split、journal、now
     git/commit.ts              # 每回合自動 commit world/
-    server/                    # Fastify：/api/state、/api/turn(SSE)、/api/config、靜態前端
-  web/                         # 前端（Vite + React）：狀態/NPC 面板、串流劇情、建議動作、設定頁
+    server/                    # Fastify：/api/state、/api/turn(SSE)、靜態前端
+  web/                         # 前端（Vite + React）：狀態/NPC 面板、串流劇情、建議動作
   vite.config.ts               # 前端 build/dev（dev 跑 5174 proxy /api 到後端 5173）
   .env.example                 # 設定範本
 .github/workflows/
@@ -66,7 +65,7 @@ app/                           # 網頁引擎（Node.js + TypeScript，唯一遊
 ## 開發網頁引擎
 
 - **TDD（Vitest）**。本機跑：`cd app && npm install && cp .env.example .env`（填端點/model）`&& npm run dev`（同時起後端 5173 與 Vite 5174，開 http://localhost:5174 遊玩）。`npm run build` 後 `npm start` 由後端服務 React build。
-- **設定化後端**：LLM 端點/模型走 `app/.env`（`OPENAI_BASE_URL`/`OPENAI_API_KEY`/`MODEL`）或設定頁（`/api/config`，可執行期改並寫回 `.env`），部署者可指自架（vLLM/Ollama/LM Studio）。
+- **設定化後端**：LLM 端點/金鑰/模型一律走 `app/.env`（`OPENAI_BASE_URL`/`OPENAI_API_KEY`/`MODEL`），部署者可指自架（vLLM/Ollama/LM Studio）；前端不提供、也不應提供修改後端打哪個端點的介面，避免「金鑰留後端」與「前端能改後端要打的 URL」這兩個前提互相矛盾。
 - **結構化輸出為核心契約**：要求模型能穩定產出 `===STATE===` + JSON；解析失敗時引擎安全降級（保留敘事、暫停等玩家、發 warning），不維護弱模型純文字抽取路徑。
 - 進度與計畫見 `docs/superpowers/plans/2026-06-19-web-app-implementation.md`（Phase 0–7）。
 

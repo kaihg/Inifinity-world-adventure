@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  fetchState,
-  fetchConfig,
-  saveConfig,
-  streamTurn,
-  type GameState,
-  type LlmConfig,
-} from "./api";
+import { fetchState, streamTurn, type GameState } from "./api";
 
 const PREFILL_HINT =
   "🌌 [主控系統] 正在分析個體行動，載入因果律中…（自架模型首字推論可能需數十秒，請稍候）";
@@ -17,7 +10,6 @@ export function App() {
   const [suggested, setSuggested] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
-  const [showSettings, setShowSettings] = useState(false);
   const storyEndRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = () => fetchState().then(setState).catch(() => {});
@@ -79,9 +71,6 @@ export function App() {
             無限世界冒險{" "}
             <span className="badge">{state?.mode === "dungeon" ? "副本中" : "主空間"}</span>
           </h1>
-          <button className="ghost" onClick={() => setShowSettings(true)}>
-            ⚙ 設定
-          </button>
         </header>
 
         <div className="story">{story}</div>
@@ -115,8 +104,6 @@ export function App() {
         {state && <StatusPanel state={state} />}
         {state && <NpcPanel state={state} />}
       </aside>
-
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );
 }
@@ -167,32 +154,3 @@ function NpcPanel({ state }: { state: GameState }) {
   );
 }
 
-function SettingsModal({ onClose }: { onClose: () => void }) {
-  const [cfg, setCfg] = useState<LlmConfig>({ baseUrl: "", model: "" });
-  const [saved, setSaved] = useState(false);
-  useEffect(() => {
-    fetchConfig().then(setCfg).catch(() => {});
-  }, []);
-  async function save() {
-    const next = await saveConfig(cfg);
-    setCfg(next);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  }
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>LLM 設定</h2>
-        <p className="hint">可指向自架（vLLM/Ollama/LM Studio）的 OpenAI 相容端點。API key 走 .env，不在此顯示。</p>
-        <label>OpenAI Base URL</label>
-        <input value={cfg.baseUrl} onChange={(e) => setCfg({ ...cfg, baseUrl: e.target.value })} />
-        <label>Model</label>
-        <input value={cfg.model} onChange={(e) => setCfg({ ...cfg, model: e.target.value })} />
-        <div className="modal-actions">
-          <button className="ghost" onClick={onClose}>關閉</button>
-          <button onClick={save}>{saved ? "已儲存 ✓" : "儲存"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}

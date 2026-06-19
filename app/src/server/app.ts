@@ -8,19 +8,16 @@ import { loadState } from "../engine/context.js";
 import { runTurnLoop } from "../engine/turn.js";
 import { createOpenAiClient, type LlmClient } from "../llm/client.js";
 import { commitWorld } from "../git/commit.js";
-import { writeEnvUpdates } from "../config-file.js";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 // app/src/server/app.ts → app/web（dev：原始檔；prod：Vite build 輸出 web-dist）
 const WEB_DEV_DIR = path.join(APP_ROOT, "web");
 const WEB_BUILD_DIR = path.join(APP_ROOT, "web-dist");
-const DEFAULT_ENV_PATH = path.join(APP_ROOT, ".env");
 
-/** 可注入的相依（測試以 fake 取代真實 LLM / git / env 路徑） */
+/** 可注入的相依（測試以 fake 取代真實 LLM / git） */
 export interface ServerDeps {
   client?: LlmClient;
   commit?: (message: string) => Promise<boolean>;
-  envPath?: string;
 }
 
 /**
@@ -34,16 +31,8 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
   server.decorate("config", config);
 
   const repoRoot = path.dirname(config.worldDir);
-  const envPath = deps.envPath ?? DEFAULT_ENV_PATH;
 
-  // 可在執行期由設定頁調整的 LLM 設定（apiKey 不外露到前端）
-  const runtime = { baseUrl: config.openai.baseUrl, model: config.openai.model };
-  const makeClient = (): LlmClient =>
-    deps.client ??
-    createOpenAiClient({
-      ...config,
-      openai: { ...config.openai, baseUrl: runtime.baseUrl, model: runtime.model },
-    });
+  const makeClient = (): LlmClient => deps.client ?? createOpenAiClient(config);
 
   const commit =
     deps.commit ??
@@ -61,34 +50,12 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     });
 
   server.get("/api/health", async () => {
-    return { ok: true, model: runtime.model };
+    return { ok: true, model: config.openai.model };
   });
 
   // resume 入口：決定論地讀 world/ 回傳當前局勢
   server.get("/api/state", async () => {
     return loadState(config.worldDir);
-  });
-
-  // LLM 設定（不外露 apiKey）
-  server.get("/api/config", async () => {
-    return { baseUrl: runtime.baseUrl, model: runtime.model };
-  });
-
-  server.post("/api/config", async (req) => {
-    const body = (req.body ?? {}) as { baseUrl?: string; model?: string };
-    const updates: Record<string, string> = {};
-    if (typeof body.baseUrl === "string" && body.baseUrl.trim()) {
-      runtime.baseUrl = body.baseUrl.trim();
-      updates.OPENAI_BASE_URL = runtime.baseUrl;
-    }
-    if (typeof body.model === "string" && body.model.trim()) {
-      runtime.model = body.model.trim();
-      updates.MODEL = runtime.model;
-    }
-    if (Object.keys(updates).length > 0) {
-      await writeEnvUpdates(envPath, updates);
-    }
-    return { baseUrl: runtime.baseUrl, model: runtime.model };
   });
 
   // 推進主空間敘事回合（含自動推進），以 SSE 串流 delta/auto-advance/done 事件
