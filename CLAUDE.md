@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 核心循環
 
 1. **世界狀態**存在 `world/`，是當前 lifetime 的唯一真相來源（canonical truth）。
-2. **劇情模式切換** = `start-story` skill。這是跟一般倉庫維護對話（改 CLAUDE.md、調 skill、討論架構）的分界線——只有 `start-story` 之後的對話才代入主神/系統語氣與主角視角。主空間（副本之間：兌換積分、休整、NPC 互動）直接在當前分支對話+commit，不需要開 PR。每個敘事回合結束都要跑「回合收束協議」（記錄→提煉→索引→提交），主空間記到 `world/journal.md`，副本記到 `runs/<run-id>.md`；協議定義見 `start-story`／`enter-dungeon` skill。
+2. **劇情模式切換** = `start-story` skill。這是跟一般倉庫維護對話（改 CLAUDE.md、調 skill、討論架構）的分界線——只有 `start-story` 之後的對話才代入主神/系統語氣與主角視角。主空間（副本之間：兌換積分、休整、NPC 互動）直接在當前分支對話+commit，不需要開 PR。每個敘事回合結束都要跑「回合收束協議」（記錄→提煉→索引→覆寫 now.md→提交），主空間 raw 記到 `world/journal.md`、副本記到 `runs/<run-id>.md`，並覆寫 `world/now.md` 當前局勢；協議定義見 `start-story`／`enter-dungeon` skill。**resume（新 session 接劇情）讀 `world/now.md`，不讀 `journal.md`**；`now.md` 的「進行中的副本」欄決定停在主空間或交給 `enter-dungeon`。
 3. **進入副本** = 開一個 git branch + PR（`enter-dungeon` skill）。整個副本期間的劇情對話，逐步以 commit 落到該 branch 的 run log 裡。進入副本通常是**半強制**的：使用者可以主動要求，LLM 也要在 `start-story` 對話中依設定判斷「系統強制開啟副本」的劇情節點主動觸發，不必每次等使用者下指令。
 4. **副本結束**（通關 / 死亡 / 撤退）都要**合併回 main**（`settle-dungeon` skill）——死亡不等於丟棄 PR，新手保護等後果由結算規則處理，不是靠不合併來逃避。
 5. **合併後**觸發 `.github/workflows/settle-on-merge.yml`，提醒/觸發把本次 run 的內容提煉進角色檔案與副本 wiki。
@@ -26,6 +26,7 @@ world/
   setting.md              # 玩家可見：主神表面規則、世界基調、當前篇章、新手保護條款——敘事必須嚴格遵守
   gm-notes.md              # 劇透文件：主神真實動機、世界真相、暗線，僅供保持一致，不可提前揭露
   journal.md              # 主空間 raw 層：append-only、帶時間戳的原始時間線（與副本 runs/*.md 對稱）
+  now.md                  # 主空間提煉頁：覆寫式「當前局勢」快照，resume 入口（對稱副本 wiki.md）；讀這份接劇情，不讀 journal.md
   characters/
     index.md               # 輕量角色索引（先讀這個，不要一次讀全部角色檔案）
     protagonist.md          # 主角：積分、屬性、技能、物品、buff/debuff

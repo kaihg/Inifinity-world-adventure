@@ -36,16 +36,17 @@ description: Start (or resume) a dungeon run. Creates a branch and PR for the ru
 
 ## 回合收束協議（副本內每個敘事回合結束時執行）
 
-每個敘事回合**結束時**依序執行；步驟 2–4 為條件式，本回合沒對應變動就略過。
+每個敘事回合**結束時**依序執行；步驟 2–3 為條件式（本回合沒對應變動就略過），步驟 1、4、5 每回合都做。
 
 **敘事前（query）**：重提任何已存在 NPC 前，先看 `world/characters/index.md` 的「鎖定事實」，細節不足才 Read 完整角色檔。機率判定一律先呼叫 `roll-random`，再依數值敘事。
 
 1. **記錄（raw 層）**：把本回合關鍵敘事＋骰子結果 append 到 `world/dungeons/<dungeon-id>/runs/<run-id>.md`，段落開頭帶時間戳 `## [YYYY-MM-DD] <一句標題>`。append-only，不改舊段。
 2. **提煉（wiki 層）**：把本回合**實際發生**且**已在劇情中揭露**的狀態變動寫進 canonical 檔——`world/characters/protagonist.md`、出場 NPC 的 `world/characters/<id>.md`、`world/dungeons/<dungeon-id>/wiki.md`（只寫已揭露的地圖/機關/規則，嚴守 `secrets.md`，未揭露不寫）。
 3. **索引（index 層）**：若本回合**新出現**一個重要 NPC/實體，在 `world/characters/index.md` 加一行＋一段「鎖定事實」。
-4. **提交（git 層）**：commit 到副本 branch，message 一句摘要。
+4. **更新提煉頁（覆寫 `world/now.md`）**：覆寫七個欄位反映副本內當前局勢，「進行中的副本」欄填 `<dungeon-id> + <run-id>`，確保在副本中暫停時 resume 能正確路由回本副本。保持精簡（≤50 行）。
+5. **提交（git 層）**：commit 到副本 branch，message 一句摘要。
 
-> 注意：角色屬性/積分的「最終結算」仍由 `settle-dungeon` 統一處理（步驟 6）。回合中只記錄已明確發生的變動，不要在副本中途自行做新手保護等結算判定。
+> 注意：角色屬性/積分的「最終結算」仍由 `settle-dungeon` 統一處理。回合中只記錄已明確發生的變動，不要在副本中途自行做新手保護等結算判定。
 
 ## 注意
 
