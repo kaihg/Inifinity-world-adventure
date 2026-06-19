@@ -104,7 +104,8 @@
         if (!input) return;
         sendEl.disabled = true;
         inputEl.value = "";
-        storyEl.textContent = "";
+        storyEl.innerHTML = '<span style="color: #7aa2f7; font-style: italic;">🌌 [主控系統] 正在分析個體行動，載入主空間因果律中... (本機 Qwen-35B 模型首字推論 prefill 約需 30-40 秒，請耐性等候喔...)</span>';
+        let isFirstToken = true;
         try {
           const res = await fetch("/api/turn", {
             method: "POST",
@@ -124,7 +125,13 @@
               const line = part.replace(/^data: /, "");
               if (!line) continue;
               const ev = JSON.parse(line);
-              if (ev.type === "delta") storyEl.textContent += ev.text;
+              if (ev.type === "delta") {
+                if (isFirstToken) {
+                  storyEl.textContent = "";
+                  isFirstToken = false;
+                }
+                storyEl.textContent += ev.text;
+              }
               else if (ev.type === "error")
                 storyEl.innerHTML += '<span class="err">\n[錯誤] ' + ev.message + "</span>";
             }
