@@ -17,6 +17,7 @@ const WEB_BUILD_DIR = path.join(APP_ROOT, "web-dist");
 /** 可注入的相依（測試以 fake 取代真實 LLM / git） */
 export interface ServerDeps {
   client?: LlmClient;
+  characterClient?: LlmClient;
   commit?: (message: string) => Promise<boolean>;
 }
 
@@ -33,6 +34,21 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
   const repoRoot = path.dirname(config.worldDir);
 
   const makeClient = (): LlmClient => deps.client ?? createOpenAiClient(config);
+
+  const makeCharacterClient = (): LlmClient | undefined => {
+    if (deps.characterClient) return deps.characterClient;
+    if (config.character) {
+      return createOpenAiClient({
+        ...config,
+        openai: {
+          baseUrl: config.character.baseUrl,
+          apiKey: config.openai.apiKey,
+          model: config.character.model,
+        },
+      });
+    }
+    return undefined;
+  };
 
   const commit =
     deps.commit ??
@@ -73,7 +89,12 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       // 立刻寫入第一筆 ping 事件，建立首位元組資料，防止反向代理（如 Tailscale Serve）在 LLM 漫長 Prefill 時發生 30s 閘道超時
       reply.raw.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
       for await (const ev of runTurnLoop(
-        { client: makeClient(), worldDir: config.worldDir, commit },
+        {
+          client: makeClient(),
+          characterClient: makeCharacterClient(),
+          worldDir: config.worldDir,
+          commit,
+        },
         input,
         config.autoAdvanceMax,
       )) {
