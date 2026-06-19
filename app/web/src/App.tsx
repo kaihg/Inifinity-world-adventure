@@ -18,6 +18,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [showStatus, setShowStatus] = useState(false);
   const storyEndRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = () => fetchState().then(setState).catch(() => {});
@@ -79,9 +80,14 @@ export function App() {
             無限世界冒險{" "}
             <span className="badge">{state?.mode === "dungeon" ? "副本中" : "主空間"}</span>
           </h1>
-          <button className="ghost" onClick={() => setShowSettings(true)}>
-            ⚙ 設定
-          </button>
+          <div className="header-actions">
+            <button className="ghost" onClick={() => setShowStatus(true)}>
+              👤 角色 / 系統
+            </button>
+            <button className="ghost" onClick={() => setShowSettings(true)}>
+              ⚙ 設定
+            </button>
+          </div>
         </header>
 
         <div className="story">{story}</div>
@@ -111,10 +117,9 @@ export function App() {
         </div>
       </main>
 
-      <aside className="side-col">
-        {state && <StatusPanel state={state} />}
-        {state && <NpcPanel state={state} />}
-      </aside>
+      {showStatus && state && (
+        <StatusDrawer state={state} onClose={() => setShowStatus(false)} />
+      )}
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
@@ -127,6 +132,23 @@ function Field({ label, value }: { label: string; value: string }) {
       <div className="label">{label}</div>
       <div className="value">{value || "—"}</div>
     </>
+  );
+}
+
+function StatusDrawer({ state, onClose }: { state: GameState; onClose: () => void }) {
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="drawer-header">
+          <h2>角色 / 系統面板</h2>
+          <button className="ghost" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <StatusPanel state={state} />
+        <NpcPanel state={state} />
+      </aside>
+    </div>
   );
 }
 
