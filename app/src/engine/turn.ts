@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
+import { logger as defaultLogger, type Logger } from "../logger.js";
 import { loadState, parseNow, applyPointsDelta, type GameState } from "./context.js";
 import { appendJournal } from "./journal.js";
 import { applyNowChanges, serializeNow, bumpNowUpdated } from "./now.js";
@@ -23,6 +24,8 @@ export interface TurnDeps {
   today?: () => string;
   /** 本回合預擲骰池（測試可注入；預設 crypto 真隨機 6 顆 d100） */
   dicePool?: number[];
+  /** 未提供時退回共用的預設 logger（測試環境下為 silent） */
+  logger?: Logger;
 }
 
 export type TurnEvent =
@@ -183,7 +186,9 @@ async function* runTurnCore(
   dicePool: number[],
   today: string,
   plan: TurnPlan,
+  log: Logger,
 ): AsyncGenerator<TurnEvent> {
+  log.debug({ dicePool }, "回合開始");
   const splitter = createNarrativeSplitter();
   for await (const delta of deps.client.streamChat(plan.messages)) {
     const text = splitter.push(delta);
@@ -200,11 +205,17 @@ async function* runTurnCore(
     control = parsed.control;
     narrative = parsed.narrative;
   } catch (err) {
+    // 保留完整原始輸出：解析失敗時這是唯一能還原模型實際吐了什麼的線索
+    log.error({ err, raw: full }, "結構化輸出解析失敗，本回合僅保留敘事並暫停");
     yield {
       type: "warning",
       message: `結構化輸出解析失敗，本回合僅保留敘事並暫停：${(err as Error).message}`,
     };
     narrative = full.trim();
+  }
+
+  if (control && control.rolls.length > 0) {
+    log.debug({ rolls: control.rolls }, "本回合擲骰結果");
   }
 
   const summary = control?.commit_summary || deriveSummary(narrative);
@@ -246,6 +257,15 @@ async function* runTurnCore(
   // 5. commit
   const committed = await deps.commit(summary);
 
+  log.info(
+    {
+      committed,
+      awaitingUserInput: control?.awaiting_user_input ?? true,
+      modeTransition: control?.mode_transition ?? null,
+    },
+    "回合結束",
+  );
+
   yield {
     type: "done",
     narrative,
@@ -259,40 +279,59 @@ async function* runTurnCore(
 
 /** 主空間敘事回合 */
 export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
+  const log = (deps.logger ?? defaultLogger).child({ mode: "main-space" });
   const today = (deps.today ?? todayISO)();
   const dicePool = deps.dicePool ?? rollPool(6);
-  const state = await loadState(deps.worldDir);
+  const state = await loadState(deps.worldDir, log);
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
 
-  yield* runTurnCore(deps, input, state, dicePool, today, {
-    messages: buildMainSpaceMessages({ settingText, state, input, dicePool }),
-    appendRaw: (entry) => appendJournal(deps.worldDir, entry),
-  });
+  yield* runTurnCore(
+    deps,
+    input,
+    state,
+    dicePool,
+    today,
+    {
+      messages: buildMainSpaceMessages({ settingText, state, input, dicePool }),
+      appendRaw: (entry) => appendJournal(deps.worldDir, entry),
+    },
+    log,
+  );
 }
 
 /** 副本敘事回合（讀當前 now.md 的進行中副本，落地到 runs/*.md、提煉 wiki） */
 export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
+  const baseLog = deps.logger ?? defaultLogger;
   const today = (deps.today ?? todayISO)();
   const dicePool = deps.dicePool ?? rollPool(6);
-  const state = await loadState(deps.worldDir);
+  const state = await loadState(deps.worldDir, baseLog);
   const active = parseActiveDungeon(state.now.activeDungeon);
   if (!active) {
     // 不在副本中卻被呼叫 → 退回主空間回合
     yield* runMainSpaceTurn(deps, input);
     return;
   }
+  const log = baseLog.child({ mode: "dungeon", dungeonId: active.dungeonId, runId: active.runId });
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
-  const lore = await loadDungeonLore(deps.worldDir, active.dungeonId);
+  const lore = await loadDungeonLore(deps.worldDir, active.dungeonId, log);
 
-  yield* runTurnCore(deps, input, state, dicePool, today, {
-    messages: buildDungeonMessages({
-      settingText, state, input, dicePool,
-      dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
-    }),
-    appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
-    distill: (control, date) =>
-      appendWikiReveals(deps.worldDir, active.dungeonId, control.state_changes.wiki_reveals ?? [], date),
-  });
+  yield* runTurnCore(
+    deps,
+    input,
+    state,
+    dicePool,
+    today,
+    {
+      messages: buildDungeonMessages({
+        settingText, state, input, dicePool,
+        dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
+      }),
+      appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
+      distill: (control, date) =>
+        appendWikiReveals(deps.worldDir, active.dungeonId, control.state_changes.wiki_reveals ?? [], date, log),
+    },
+    log,
+  );
 }
 
 const AUTO_CONTINUE_INPUT = "（系統自動推進：延續上一刻，繼續敘事，玩家未介入）";
@@ -335,11 +374,12 @@ export async function* runTurnLoop(
   input: string,
   maxAuto: number,
 ): AsyncGenerator<TurnEvent> {
+  const log = deps.logger ?? defaultLogger;
   const today = (deps.today ?? todayISO)();
   let currentInput = input;
 
   for (let i = 0; i <= maxAuto; i++) {
-    const state = await loadState(deps.worldDir);
+    const state = await loadState(deps.worldDir, log);
     const gen = state.mode === "dungeon" ? runDungeonTurn(deps, currentInput) : runMainSpaceTurn(deps, currentInput);
 
     let done: Extract<TurnEvent, { type: "done" }> | null = null;
@@ -352,15 +392,20 @@ export async function* runTurnLoop(
 
     // 進入副本：生成 secrets、建 run、設 now，再自動接續第一個副本回合
     if (done.modeTransition === "enter_dungeon" && done.transitionDungeonId) {
+      log.info({ dungeonId: done.transitionDungeonId }, "觸發 mode_transition：enter_dungeon");
       const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
       const secretsText = await generateSecrets(deps.client, settingText, done.transitionDungeonId);
-      const active = await enterDungeon(deps.worldDir, {
-        dungeonId: done.transitionDungeonId,
-        today,
-        protagonistSummary: `${state.protagonist.name}（積分 ${state.protagonist.points}）`,
-        goal: "（待劇情揭露）",
-        secretsText,
-      });
+      const active = await enterDungeon(
+        deps.worldDir,
+        {
+          dungeonId: done.transitionDungeonId,
+          today,
+          protagonistSummary: `${state.protagonist.name}（積分 ${state.protagonist.points}）`,
+          goal: "（待劇情揭露）",
+          secretsText,
+        },
+        log,
+      );
       await setNowActiveDungeon(deps.worldDir, formatActiveDungeon(active), {
         date: today,
         summary: `進入副本 ${active.dungeonId}`,
@@ -374,6 +419,7 @@ export async function* runTurnLoop(
 
     // 結算副本：清空進行中副本欄，回主空間，交還玩家
     if (done.modeTransition === "settle_dungeon") {
+      log.info({ dungeonId: state.now.activeDungeon }, "觸發 mode_transition：settle_dungeon");
       await setNowActiveDungeon(deps.worldDir, "無", { date: today, summary: "副本結算，返回安全區" });
       await deps.commit("副本結算，返回安全區");
       yield { type: "transition", to: "main-space" };
@@ -382,6 +428,7 @@ export async function* runTurnLoop(
 
     if (done.awaitingUserInput) break;
     if (i === maxAuto) break;
+    log.debug({ index: i + 1 }, "自動推進到下一回合");
     yield { type: "auto-advance", index: i + 1 };
   }
 }

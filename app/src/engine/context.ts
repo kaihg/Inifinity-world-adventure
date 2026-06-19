@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { logger as defaultLogger, type Logger } from "../logger.js";
 
 /** world/now.md 的七個固定欄位（對應回合收束協議的覆寫頁） */
 export interface NowState {
@@ -165,19 +166,22 @@ export function parseProtagonist(md: string): ProtagonistSummary {
 }
 
 /** 決定論地讀取 world/ 並組出當前遊戲狀態（resume 入口） */
-async function readOrEmpty(file: string): Promise<string> {
+async function readOrEmpty(file: string, logger: Logger): Promise<string> {
   try {
     return await readFile(file, "utf8");
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      logger.warn({ err, file }, "讀取狀態檔案失敗（非檔案不存在）");
+    }
     return "";
   }
 }
 
-export async function loadState(worldDir: string): Promise<GameState> {
+export async function loadState(worldDir: string, logger: Logger = defaultLogger): Promise<GameState> {
   const [nowMd, protagonistMd, indexMd] = await Promise.all([
     readFile(path.join(worldDir, "now.md"), "utf8"),
     readFile(path.join(worldDir, "characters", "protagonist.md"), "utf8"),
-    readOrEmpty(path.join(worldDir, "characters", "index.md")),
+    readOrEmpty(path.join(worldDir, "characters", "index.md"), logger),
   ]);
 
   const now = parseNow(nowMd);

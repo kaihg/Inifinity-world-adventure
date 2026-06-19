@@ -1,13 +1,15 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { AppConfig } from "../config.js";
 import { loadState } from "../engine/context.js";
 import { runTurnLoop } from "../engine/turn.js";
 import { createOpenAiClient, type LlmClient } from "../llm/client.js";
 import { commitWorld } from "../git/commit.js";
+import { createLogger, type Logger } from "../logger.js";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 // app/src/server/app.ts → app/web（dev：原始檔；prod：Vite build 輸出 web-dist）
@@ -18,6 +20,7 @@ const WEB_BUILD_DIR = path.join(APP_ROOT, "web-dist");
 export interface ServerDeps {
   client?: LlmClient;
   commit?: (message: string) => Promise<boolean>;
+  logger?: Logger;
 }
 
 /**
@@ -25,20 +28,21 @@ export interface ServerDeps {
  * deps 用於測試注入 fake client / commit；正式環境留空走真實實作。
  */
 export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyInstance {
-  const server = Fastify({ logger: false });
+  const logger = deps.logger ?? createLogger({ level: config.logLevel });
+  const server = Fastify({ logger: logger as unknown as FastifyBaseLogger });
 
   // 讓後續路由能取用設定
   server.decorate("config", config);
 
   const repoRoot = path.dirname(config.worldDir);
 
-  const makeClient = (): LlmClient => deps.client ?? createOpenAiClient(config);
+  const makeClient = (turnLogger: Logger): LlmClient => deps.client ?? createOpenAiClient(config, turnLogger);
 
-  const commit =
+  const makeCommit = (turnLogger: Logger): ((message: string) => Promise<boolean>) =>
     deps.commit ??
     ((message: string) => {
       if (config.debug) {
-        console.log(`[DEBUG] 偵測到 Debug 模式，跳過自動 commit：${message}`);
+        turnLogger.debug({ message }, "Debug 模式：跳過自動 commit");
         return Promise.resolve(false);
       }
       return commitWorld({
@@ -46,6 +50,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         message,
         authorName: config.git.authorName,
         authorEmail: config.git.authorEmail,
+        logger: turnLogger,
       });
     });
 
@@ -55,12 +60,14 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
 
   // resume 入口：決定論地讀 world/ 回傳當前局勢
   server.get("/api/state", async () => {
-    return loadState(config.worldDir);
+    return loadState(config.worldDir, logger);
   });
 
   // 推進主空間敘事回合（含自動推進），以 SSE 串流 delta/auto-advance/done 事件
   server.post("/api/turn", async (req, reply) => {
     const input = (req.body as { input?: string })?.input ?? "";
+    const turnId = randomUUID();
+    const turnLogger = logger.child({ turnId });
 
     reply.hijack();
     reply.raw.writeHead(200, {
@@ -69,18 +76,28 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       Connection: "keep-alive",
     });
 
+    const startedAt = Date.now();
+    turnLogger.info({ inputLength: input.length }, "/api/turn 開始");
     try {
       // 立刻寫入第一筆 ping 事件，建立首位元組資料，防止反向代理（如 Tailscale Serve）在 LLM 漫長 Prefill 時發生 30s 閘道超時
       reply.raw.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
       for await (const ev of runTurnLoop(
-        { client: makeClient(), worldDir: config.worldDir, commit },
+        {
+          client: makeClient(turnLogger),
+          worldDir: config.worldDir,
+          commit: makeCommit(turnLogger),
+          logger: turnLogger,
+        },
         input,
         config.autoAdvanceMax,
       )) {
+        if (ev.type === "warning") turnLogger.warn({ ev }, "回合警告事件");
         reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`);
       }
+      turnLogger.info({ durationMs: Date.now() - startedAt }, "/api/turn 完成");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      turnLogger.error({ err, durationMs: Date.now() - startedAt }, "/api/turn 失敗");
       reply.raw.write(`data: ${JSON.stringify({ type: "error", message })}\n\n`);
     } finally {
       reply.raw.end();
