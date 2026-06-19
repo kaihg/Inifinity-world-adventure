@@ -8,7 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 「無限恐怖」設定：主角進入由「主神/系統」掌控的空間，反覆進出「副本」執行任務賺取積分，用積分兌換能力成長，直到通關或死亡。具體規則由 `world/setting.md` 定義，**不要憑空套用某部小說的設定，一切以倉庫裡實際寫的規則為準**。
 
-沒有任何應用代碼、構建系統、測試框架——所有「開發」工作都是讀寫 Markdown 文件 + 使用 `.claude/skills/` 下的 skill + git 操作。
+本倉庫有**兩條遊玩路徑**，共用同一份 `world/` canonical 狀態：
+
+1. **CLI + skills（現行主路徑）**：用 Claude Code（或其他 LLM CLI）對話，靠 `.claude/skills/` 下的 skill + git 操作推進。所有「開發」工作都是讀寫 Markdown + 用 skill + git。
+2. **網頁引擎 `app/`（開發中）**：Node.js + TypeScript 服務，把 skill 邏輯用程式碼重實作成「回合引擎」，支援可設定的 OpenAI 相容後端（吃自架模型）、自動推進回合、每回合自動 commit。詳見下方〈網頁引擎路徑〉與 `docs/superpowers/specs/2026-06-19-web-app-architecture-design.md`。**引擎完成後會封存現行遊玩類 skills**（計畫 Phase 7），在那之前 skill 路徑仍是可用的主路徑。
 
 ## 核心循環
 
@@ -46,7 +49,26 @@ archives/
   settle-dungeon/              # 副本結束後的結算 + 合併
 .github/workflows/
   settle-on-merge.yml          # PR 合併到 main 後提醒/觸發結算
+app/                           # 網頁引擎（開發中，Node.js + TypeScript）
+  src/
+    config.ts                  # LLM 後端等設定（OPENAI_BASE_URL/MODEL…），可指自架
+    llm/client.ts              # OpenAI 相容串流 client（介面化、可換端點）
+    engine/                    # 回合引擎：context（狀態載入）、turn（回合）、journal、now
+    git/commit.ts              # 每回合自動 commit world/
+    server/                    # Fastify：/api/state、/api/turn(SSE)、/
+  web/index.html               # 最小前端（resume 面板 + 劇情輸入；完整 UI 為 Phase 6）
+  .env.example                 # 設定範本
 ```
+
+## 網頁引擎路徑（`app/`，開發中）
+
+把 `start-story`／`enter-dungeon`／回合收束協議／`roll-random`／`settle-dungeon` 的邏輯用程式碼重實作，解決三個痛點：手動「繼續」、resume 落差、LLM 後端綁死。
+
+- **劇情 / 開發分離**：`app/` 是劇情遊玩面，**只寫 `world/`**（與副本 branch），永不碰 `CLAUDE.md`／`.claude/skills/`／引擎自身程式碼；改這些屬於開發，走一般 git/PR 流程。
+- **canonical 不變**：引擎沿用同一套 Markdown 契約（`now.md` 七欄、三層模型、回合收束協議）；`world/` 檔案架構不動。
+- **設定化後端**：LLM 端點/模型全走 `app/.env`（`OPENAI_BASE_URL`/`OPENAI_API_KEY`/`MODEL`），部署者可指自架（vLLM/Ollama/LM Studio）。
+- **開發方式**：TDD（Vitest）。本機跑 `cd app && npm install && cp .env.example .env && npm run dev`。
+- **目前進度**：Phase 0（骨架）、1（狀態載入器 + resume 面板）、2（LLM client + 單回合主空間敘事 + 自動 commit）已完成；Phase 3（結構化輸出 + 真隨機）、4（自動推進）、5（副本）、6（完整 UI）、7（封存 skills）待做。計畫見 `docs/superpowers/plans/2026-06-19-web-app-implementation.md`。
 
 ## 關鍵約定
 
