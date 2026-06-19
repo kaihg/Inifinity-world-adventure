@@ -2,14 +2,20 @@ import { z } from "zod";
 import { STATE_SENTINEL } from "./stream-split.js";
 
 /** now.md 七欄的可選覆寫（最後更新由引擎管理，不由模型給） */
+const stringCoerce = z.preprocess((val) => {
+  if (val === null || val === undefined) return "";
+  if (Array.isArray(val)) return val.join(", ");
+  return String(val);
+}, z.string());
+
 const NowChangesSchema = z
   .object({
-    chapter: z.string(),
-    scene: z.string(),
-    companions: z.string(),
-    activeDungeon: z.string(),
-    threads: z.string(),
-    nextStep: z.string(),
+    chapter: stringCoerce,
+    scene: stringCoerce,
+    companions: stringCoerce,
+    activeDungeon: stringCoerce,
+    threads: stringCoerce,
+    nextStep: stringCoerce,
   })
   .partial();
 
@@ -34,9 +40,9 @@ export const TurnControlSchema = z.object({
   rolls: z.array(RollReportSchema).default([]),
   mode_transition: z.enum(["enter_dungeon", "settle_dungeon"]).nullable().default(null),
   /** 配合 mode_transition=enter_dungeon：要進入的副本 id（短 slug） */
-  transition_dungeon_id: z.string().optional(),
+  transition_dungeon_id: z.string().nullable().optional(),
   /** 配合 enter_dungeon：本次副本目標（可選） */
-  transition_dungeon_goal: z.string().optional(),
+  transition_dungeon_goal: z.string().nullable().optional(),
   awaiting_user_input: z.boolean(),
   suggested_actions: z.array(z.string()).default([]),
   commit_summary: z.string().min(1),

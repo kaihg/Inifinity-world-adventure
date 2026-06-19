@@ -284,7 +284,7 @@ async function* runTurnCore(
     awaitingUserInput: control?.awaiting_user_input ?? true,
     suggestedActions,
     modeTransition: control?.mode_transition ?? null,
-    transitionDungeonId: control?.transition_dungeon_id,
+    transitionDungeonId: control?.transition_dungeon_id || undefined,
   };
 }
 

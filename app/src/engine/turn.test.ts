@@ -78,6 +78,7 @@ function makeFakeState(): GameState {
     protagonistDetail: { name: "沈奕", points: "100", attributes: "", skills: "", items: "", buffs: "" },
     npcs: [],
     mode: "main-space",
+    lastTurn: null,
   };
 }
 
