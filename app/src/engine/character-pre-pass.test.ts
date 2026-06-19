@@ -4,6 +4,7 @@ import os from "node:os";
 import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
 import { runCharacterPrePass } from "./character-pre-pass.js";
 import { formatIntentsBlock } from "./character-pre-pass.js";
+import { parseCompanionIds } from "./character-pre-pass.js";
 import type { LlmClient } from "../llm/client.js";
 
 function makeClient(response: string): LlmClient {
@@ -90,6 +91,30 @@ describe("runCharacterPrePass", () => {
     });
     expect(result).toHaveLength(2);
     expect(result.map((r) => r.id).sort()).toEqual(["npc1", "npc2"]);
+  });
+});
+
+describe("parseCompanionIds", () => {
+  const npcs = [
+    { id: "yeqing", name: "葉晴" },
+    { id: "linsiyu", name: "林思雨" },
+    { id: "chenzhe", name: "陳哲" },
+  ];
+
+  it("把在場名稱對應成 ID", () => {
+    expect(parseCompanionIds("葉晴\n林思雨", npcs)).toEqual(["yeqing", "linsiyu"]);
+  });
+
+  it("找不到對應的名稱靜默略過", () => {
+    expect(parseCompanionIds("葉晴\n路人甲", npcs)).toEqual(["yeqing"]);
+  });
+
+  it("空字串回傳空陣列", () => {
+    expect(parseCompanionIds("", npcs)).toEqual([]);
+  });
+
+  it("支援 list marker 前綴（- 葉晴）", () => {
+    expect(parseCompanionIds("- 葉晴\n- 林思雨", npcs)).toEqual(["yeqing", "linsiyu"]);
   });
 });
 

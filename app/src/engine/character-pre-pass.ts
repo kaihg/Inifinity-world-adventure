@@ -84,6 +84,24 @@ export async function runCharacterPrePass(
   return results.filter((r): r is CharacterIntent => r !== null);
 }
 
+/**
+ * 從 now.companions 欄位文字解析在場 NPC 的 ID 列表。
+ * 先對照 state.npcs 的 name→id 對應表，把提到的名稱轉為 ID；
+ * 找不到對應 ID 的名稱靜默忽略（可能是主敘事提到的路人）。
+ */
+export function parseCompanionIds(
+  companionsText: string,
+  npcs: Array<{ id: string; name: string }>,
+): string[] {
+  const nameToId = new Map(npcs.map((n) => [n.name, n.id]));
+  return companionsText
+    .split("\n")
+    .map((line) => line.replace(/^[-*]\s*/, "").trim())
+    .filter((name) => name.length > 0)
+    .map((name) => nameToId.get(name))
+    .filter((id): id is string => id !== undefined);
+}
+
 /** 把 CharacterIntent[] 格式化為注入 system prompt 的區塊 */
 export function formatIntentsBlock(
   intents: CharacterIntent[],

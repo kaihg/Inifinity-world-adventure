@@ -18,6 +18,7 @@ import {
 import {
   runCharacterPrePass,
   formatIntentsBlock,
+  parseCompanionIds,
 } from "./character-pre-pass.js";
 
 export interface TurnDeps {
@@ -273,7 +274,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
 
   const charClient = deps.characterClient ?? deps.client;
-  const npcIds = state.npcs.map((n) => n.id);
+  const npcIds = parseCompanionIds(state.now.companions, state.npcs);
   const npcNames = Object.fromEntries(state.npcs.map((n) => [n.id, n.name]));
   let intentsBlock = "";
   if (npcIds.length > 0) {
@@ -285,9 +286,19 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
         worldDir: deps.worldDir,
         client: charClient,
       });
+      if (intents.length < npcIds.length) {
+        const missing = npcIds.filter((id) => !intents.find((i) => i.id === id));
+        yield {
+          type: "warning" as const,
+          message: `character pre-pass 部分失敗，略過：${missing.join(", ")}`,
+        };
+      }
       intentsBlock = formatIntentsBlock(intents, npcNames);
-    } catch {
-      // pre-pass 失敗不 block 回合
+    } catch (err) {
+      yield {
+        type: "warning" as const,
+        message: `character pre-pass 全部失敗：${(err as Error).message}`,
+      };
     }
   }
 
@@ -312,7 +323,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const lore = await loadDungeonLore(deps.worldDir, active.dungeonId);
 
   const charClient = deps.characterClient ?? deps.client;
-  const npcIds = state.npcs.map((n) => n.id);
+  const npcIds = parseCompanionIds(state.now.companions, state.npcs);
   const npcNames = Object.fromEntries(state.npcs.map((n) => [n.id, n.name]));
   let intentsBlock = "";
   if (npcIds.length > 0) {
@@ -324,9 +335,19 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
         worldDir: deps.worldDir,
         client: charClient,
       });
+      if (intents.length < npcIds.length) {
+        const missing = npcIds.filter((id) => !intents.find((i) => i.id === id));
+        yield {
+          type: "warning" as const,
+          message: `character pre-pass 部分失敗，略過：${missing.join(", ")}`,
+        };
+      }
       intentsBlock = formatIntentsBlock(intents, npcNames);
-    } catch {
-      // pre-pass 失敗不 block 回合
+    } catch (err) {
+      yield {
+        type: "warning" as const,
+        message: `character pre-pass 全部失敗：${(err as Error).message}`,
+      };
     }
   }
 
