@@ -1,5 +1,12 @@
 import { readFile, writeFile, appendFile, mkdir, readdir, access } from "node:fs/promises";
 import path from "node:path";
+import { logger as defaultLogger, type Logger } from "../logger.js";
+
+/** 檔案不存在（ENOENT）是預期狀況；其他 I/O 錯誤才值得記錄 */
+function logUnexpectedReadError(logger: Logger, file: string, err: unknown): void {
+  if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return;
+  logger.warn({ err, file }, "讀取副本檔案失敗（非檔案不存在）");
+}
 
 export interface ActiveDungeon {
   dungeonId: string;
@@ -33,11 +40,12 @@ function dungeonDir(worldDir: string, dungeonId: string): string {
   return path.join(worldDir, "dungeons", dungeonId);
 }
 
-async function exists(p: string): Promise<boolean> {
+async function exists(p: string, logger: Logger = defaultLogger): Promise<boolean> {
   try {
     await access(p);
     return true;
-  } catch {
+  } catch (err) {
+    logUnexpectedReadError(logger, p, err);
     return false;
   }
 }
@@ -59,6 +67,7 @@ export interface EnterDungeonParams {
 export async function enterDungeon(
   worldDir: string,
   params: EnterDungeonParams,
+  logger: Logger = defaultLogger,
 ): Promise<ActiveDungeon> {
   const dir = dungeonDir(worldDir, params.dungeonId);
   const runsDir = path.join(dir, "runs");
@@ -67,10 +76,12 @@ export async function enterDungeon(
   let existing: string[] = [];
   try {
     existing = await readdir(runsDir);
-  } catch {
+  } catch (err) {
+    logUnexpectedReadError(logger, runsDir, err);
     existing = [];
   }
   const runId = nextRunId(existing);
+  logger.info({ dungeonId: params.dungeonId, runId }, "進入副本");
 
   const header = [
     `# 副本 ${params.dungeonId} · ${runId}`,
@@ -85,7 +96,8 @@ export async function enterDungeon(
   await writeFile(path.join(runsDir, `${runId}.md`), header, "utf8");
 
   const secretsPath = path.join(dir, "secrets.md");
-  if (!(await exists(secretsPath))) {
+  if (!(await exists(secretsPath, logger))) {
+    logger.debug({ dungeonId: params.dungeonId }, "首次進入，寫入隱藏設定 secrets.md");
     await writeFile(
       secretsPath,
       `# 副本隱藏真相（${params.dungeonId}）\n\n> 劇透文件：僅供敘事暗線一致，不可提前揭露給玩家。\n\n${params.secretsText.trim()}\n`,
@@ -117,12 +129,15 @@ export async function appendRun(
 export async function loadDungeonLore(
   worldDir: string,
   dungeonId: string,
+  logger: Logger = defaultLogger,
 ): Promise<{ wiki: string; secrets: string }> {
   const dir = dungeonDir(worldDir, dungeonId);
   const read = async (name: string): Promise<string> => {
+    const file = path.join(dir, name);
     try {
-      return await readFile(path.join(dir, name), "utf8");
-    } catch {
+      return await readFile(file, "utf8");
+    } catch (err) {
+      logUnexpectedReadError(logger, file, err);
       return "";
     }
   };
@@ -135,10 +150,12 @@ export async function appendWikiReveals(
   dungeonId: string,
   reveals: string[],
   date: string,
+  logger: Logger = defaultLogger,
 ): Promise<void> {
   if (reveals.length === 0) return;
+  logger.debug({ dungeonId, count: reveals.length }, "提煉 wiki_reveals 進 wiki.md");
   const file = path.join(dungeonDir(worldDir, dungeonId), "wiki.md");
-  if (!(await exists(file))) {
+  if (!(await exists(file, logger))) {
     await writeFile(
       file,
       `# 副本 ${dungeonId} · 已揭露知識（Wiki）\n\n> 累積式：多次進入間延續。raw 流水帳在 runs/*.md。\n`,
