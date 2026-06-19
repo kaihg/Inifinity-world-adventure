@@ -3,6 +3,11 @@ import path from "node:path";
 import { z } from "zod";
 import type { LlmClient, ChatMessage } from "../llm/client.js";
 
+/** 把 intent 值中可能破壞 Markdown 結構的字元移除，防止 prompt injection */
+function sanitizeIntentValue(value: string): string {
+  return value.replace(/[\r\n]/g, " ").replace(/^#+\s*/gm, "");
+}
+
 export interface CharacterIntent {
   id: string;
   stance: string;
@@ -52,11 +57,16 @@ async function fetchIntent(
   let raw = "";
   try {
     for await (const delta of client.streamChat(messages)) raw += delta;
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    if (start === -1 || end === -1) return null;
-    const parsed = IntentSchema.parse(JSON.parse(raw.slice(start, end + 1)));
-    return { id, ...parsed };
+    // 用 regex 找第一個完整 JSON 物件，比 lastIndexOf 更能應對值中含括號的情況
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = IntentSchema.parse(JSON.parse(match[0]));
+    return {
+      id,
+      stance: sanitizeIntentValue(parsed.stance),
+      intent: sanitizeIntentValue(parsed.intent),
+      tone: sanitizeIntentValue(parsed.tone),
+    };
   } catch {
     return null;
   }
@@ -70,6 +80,8 @@ export async function runCharacterPrePass(
 
   const results = await Promise.all(
     npcIds.map(async (id): Promise<CharacterIntent | null> => {
+      // 防止路徑穿越：只允許英數字、連字號、底線、點（不含路徑分隔符）
+      if (!/^[\w.-]+$/.test(id)) return null;
       const filePath = path.join(worldDir, "characters", `${id}.md`);
       let characterMd: string;
       try {
@@ -94,12 +106,30 @@ export function parseCompanionIds(
   npcs: Array<{ id: string; name: string }>,
 ): string[] {
   const nameToId = new Map(npcs.map((n) => [n.name, n.id]));
-  return companionsText
-    .split("\n")
-    .map((line) => line.replace(/^[-*]\s*/, "").trim())
-    .filter((name) => name.length > 0)
-    .map((name) => nameToId.get(name))
-    .filter((id): id is string => id !== undefined);
+
+  // 把逗號與換行都當分隔符，同時處理「名稱（id）」格式取括號前的名稱
+  const tokens = companionsText
+    .split(/[\n,]/)
+    .map((token) =>
+      token
+        .replace(/^[\d.]+\s*/, "")   // 移除數字序號「1. 」
+        .replace(/^[-*]\s*/, "")     // 移除 markdown bullet
+        .replace(/（[^）]*）$/, "")  // 移除括號後綴「（linsiyu）」
+        .trim(),
+    )
+    .filter((name) => name.length > 0);
+
+  // 去重後對應 id
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const name of tokens) {
+    const id = nameToId.get(name);
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
 }
 
 /** 把 CharacterIntent[] 格式化為注入 system prompt 的區塊 */

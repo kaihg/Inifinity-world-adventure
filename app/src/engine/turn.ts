@@ -286,6 +286,49 @@ async function* runTurnCore(
   };
 }
 
+/**
+ * 對在場 NPC 跑角色意圖 pre-pass，回傳 warning events 與格式化後的 intentsBlock。
+ * 失敗靜默降級——不 block 回合，但 yield warning 讓前端可觀察。
+ */
+async function* runPrePassBlock(
+  deps: TurnDeps,
+  state: GameState,
+  input: string,
+): AsyncGenerator<TurnEvent, string> {
+  const charClient = deps.characterClient ?? deps.client;
+  const npcIds = parseCompanionIds(state.now.companions, state.npcs);
+  const npcNames = Object.fromEntries(state.npcs.map((n) => [n.id, n.name]));
+  if (npcIds.length === 0) return "";
+
+  let intents: import("./character-pre-pass.js").CharacterIntent[];
+  try {
+    intents = await runCharacterPrePass({
+      npcIds,
+      scene: state.now.scene,
+      playerInput: input,
+      worldDir: deps.worldDir,
+      client: charClient,
+    });
+  } catch (err) {
+    yield {
+      type: "warning" as const,
+      message: `character pre-pass 全部失敗：${(err as Error).message}`,
+    };
+    return "";
+  }
+
+  if (intents.length < npcIds.length) {
+    const returnedIds = new Set(intents.map((i) => i.id));
+    const missing = npcIds.filter((id) => !returnedIds.has(id));
+    yield {
+      type: "warning" as const,
+      message: `character pre-pass 部分失敗，略過：${missing.join(", ")}`,
+    };
+  }
+
+  return formatIntentsBlock(intents, npcNames);
+}
+
 /** 主空間敘事回合 */
 export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
   const log = (deps.logger ?? defaultLogger).child({ mode: "main-space" });
@@ -294,34 +337,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const state = await loadState(deps.worldDir, log);
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
 
-  const charClient = deps.characterClient ?? deps.client;
-  const npcIds = parseCompanionIds(state.now.companions, state.npcs);
-  const npcNames = Object.fromEntries(state.npcs.map((n) => [n.id, n.name]));
-  let intentsBlock = "";
-  if (npcIds.length > 0) {
-    try {
-      const intents = await runCharacterPrePass({
-        npcIds,
-        scene: state.now.scene,
-        playerInput: input,
-        worldDir: deps.worldDir,
-        client: charClient,
-      });
-      if (intents.length < npcIds.length) {
-        const missing = npcIds.filter((id) => !intents.find((i) => i.id === id));
-        yield {
-          type: "warning" as const,
-          message: `character pre-pass 部分失敗，略過：${missing.join(", ")}`,
-        };
-      }
-      intentsBlock = formatIntentsBlock(intents, npcNames);
-    } catch (err) {
-      yield {
-        type: "warning" as const,
-        message: `character pre-pass 全部失敗：${(err as Error).message}`,
-      };
-    }
-  }
+  const intentsBlock = yield* runPrePassBlock(deps, state, input);
 
   yield* runTurnCore(
     deps,
@@ -353,34 +369,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
   const lore = await loadDungeonLore(deps.worldDir, active.dungeonId, log);
 
-  const charClient = deps.characterClient ?? deps.client;
-  const npcIds = parseCompanionIds(state.now.companions, state.npcs);
-  const npcNames = Object.fromEntries(state.npcs.map((n) => [n.id, n.name]));
-  let intentsBlock = "";
-  if (npcIds.length > 0) {
-    try {
-      const intents = await runCharacterPrePass({
-        npcIds,
-        scene: state.now.scene,
-        playerInput: input,
-        worldDir: deps.worldDir,
-        client: charClient,
-      });
-      if (intents.length < npcIds.length) {
-        const missing = npcIds.filter((id) => !intents.find((i) => i.id === id));
-        yield {
-          type: "warning" as const,
-          message: `character pre-pass 部分失敗，略過：${missing.join(", ")}`,
-        };
-      }
-      intentsBlock = formatIntentsBlock(intents, npcNames);
-    } catch (err) {
-      yield {
-        type: "warning" as const,
-        message: `character pre-pass 全部失敗：${(err as Error).message}`,
-      };
-    }
-  }
+  const intentsBlock = yield* runPrePassBlock(deps, state, input);
 
   yield* runTurnCore(
     deps,

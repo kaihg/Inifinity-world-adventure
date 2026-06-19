@@ -39,20 +39,22 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
 
   const makeClient = (turnLogger: Logger): LlmClient => deps.client ?? createOpenAiClient(config, turnLogger);
 
-  const makeCharacterClient = (): LlmClient | undefined => {
-    if (deps.characterClient) return deps.characterClient;
-    if (config.character) {
-      return createOpenAiClient({
-        ...config,
-        openai: {
-          baseUrl: config.character.baseUrl,
-          apiKey: config.openai.apiKey,
-          model: config.character.model,
-        },
-      });
-    }
-    return undefined;
-  };
+  // 啟動時建立一次，避免每回合重複建立 HTTP client
+  const characterClient: LlmClient | undefined =
+    deps.characterClient ??
+    (config.character
+      ? createOpenAiClient(
+          {
+            ...config,
+            openai: {
+              baseUrl: config.character.baseUrl,
+              apiKey: config.openai.apiKey,
+              model: config.character.model,
+            },
+          },
+          logger,
+        )
+      : undefined);
 
   const makeCommit = (turnLogger: Logger): ((message: string) => Promise<boolean>) =>
     deps.commit ??
@@ -100,7 +102,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       for await (const ev of runTurnLoop(
         {
           client: makeClient(turnLogger),
-          characterClient: makeCharacterClient(),
+          characterClient,
           worldDir: config.worldDir,
           commit: makeCommit(turnLogger),
           logger: turnLogger,
