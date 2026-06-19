@@ -12,8 +12,8 @@ async function main(): Promise<void> {
   const server = buildServer(config);
 
   try {
-    await server.listen({ port: config.port, host: "127.0.0.1" });
-    console.log(`無限世界冒險引擎已啟動：http://127.0.0.1:${config.port}`);
+    await server.listen({ port: config.port, host: config.host });
+    console.log(`無限世界冒險引擎已啟動：http://${config.host}:${config.port}`);
     console.log(`LLM 後端：${config.openai.baseUrl}（model: ${config.openai.model}）`);
     console.log(`world/ 目錄：${config.worldDir}`);
   } catch (err) {

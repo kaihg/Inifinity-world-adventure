@@ -8,6 +8,7 @@ export interface AppConfig {
     model: string;
   };
   port: number;
+  host: string;
   git: {
     authorName: string;
     authorEmail: string;
@@ -22,6 +23,7 @@ const DEFAULTS = {
   baseUrl: "https://api.openai.com/v1",
   model: "gpt-4o",
   port: 5173,
+  host: "127.0.0.1",
   authorName: "Infinity World Engine",
   authorEmail: "engine@localhost",
   autoAdvanceMax: 4,
@@ -50,6 +52,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       model: env.MODEL || DEFAULTS.model,
     },
     port: parsePositiveInt(env.PORT, DEFAULTS.port),
+    host: env.HOST || DEFAULTS.host,
     git: {
       authorName: env.GIT_AUTHOR_NAME || DEFAULTS.authorName,
       authorEmail: env.GIT_AUTHOR_EMAIL || DEFAULTS.authorEmail,
