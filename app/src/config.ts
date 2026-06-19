@@ -18,6 +18,11 @@ export interface AppConfig {
   autoAdvanceMax: number;
   /** world/ 狀態目錄的絕對路徑 */
   worldDir: string;
+  /** 角色意圖 LLM（選填）；缺省時 engine 沿用主 client */
+  character?: {
+    baseUrl: string;
+    model: string;
+  };
 }
 
 const DEFAULTS = {
@@ -61,6 +66,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     autoAdvanceMax: parsePositiveInt(env.AUTO_ADVANCE_MAX, DEFAULTS.autoAdvanceMax),
     worldDir: env.WORLD_DIR ? path.resolve(env.WORLD_DIR) : defaultWorldDir(),
+    character:
+      env.CHARACTER_OPENAI_BASE_URL && env.CHARACTER_MODEL
+        ? {
+            baseUrl: env.CHARACTER_OPENAI_BASE_URL,
+            model: env.CHARACTER_MODEL,
+          }
+        : undefined,
   };
 }
 
