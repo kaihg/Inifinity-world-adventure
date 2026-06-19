@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   parseNow,
   isInDungeon,
@@ -160,5 +163,61 @@ describe("loadState（讀實際 world/）", () => {
     expect(state.now.chapter).not.toBe("");
     expect(state.protagonist.name).toBe("沈奕");
     expect(["main-space", "dungeon"]).toContain(state.mode);
+    expect(state.lastTurn).not.toBeNull();
+    expect(state.lastTurn!.narrative.length).toBeGreaterThan(0);
+  });
+});
+
+describe("loadState — lastTurn 還原（fixture worldDir）", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "iwa-context-lastturn-"));
+    await mkdir(path.join(dir, "characters"), { recursive: true });
+    await writeFile(path.join(dir, "characters", "protagonist.md"), "- 姓名：測試\n- 當前積分：0\n", "utf8");
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const nowMd = (activeDungeon: string) =>
+    [
+      "- 當前篇章：測試",
+      "- 此刻場景/地點：測試",
+      "- 在場同伴/相關 NPC：無",
+      `- 進行中的副本：${activeDungeon}`,
+      "- 未解懸念/伏筆：無",
+      "- 主角下一步打算：無",
+      "- 最後更新：[2026-06-19] 測試",
+      "",
+    ].join("\n");
+
+  it("主空間：從 journal.md 還原最後一段敘事", async () => {
+    await writeFile(path.join(dir, "now.md"), nowMd("無"), "utf8");
+    await writeFile(
+      path.join(dir, "journal.md"),
+      "## [2026-06-19] 回合\n\n玩家行動：等待\n骰池：[1]\n\n主空間敘事內容。\n",
+      "utf8",
+    );
+    const state = await loadState(dir);
+    expect(state.lastTurn).toEqual({ narrative: "主空間敘事內容。", suggestedActions: [] });
+  });
+
+  it("副本中：從對應 runs/<run-id>.md 還原，而非 journal.md", async () => {
+    await writeFile(path.join(dir, "now.md"), nowMd("U-001 + run-1"), "utf8");
+    await writeFile(path.join(dir, "journal.md"), "## [2026-06-18] 舊\n\n玩家行動：x\n骰池：[1]\n\n主空間舊敘事。\n", "utf8");
+    await mkdir(path.join(dir, "dungeons", "U-001", "runs"), { recursive: true });
+    await writeFile(
+      path.join(dir, "dungeons", "U-001", "runs", "run-1.md"),
+      "## [2026-06-19] 回合\n\n玩家行動：戰鬥\n骰池：[1]\n\n副本敘事內容。\n\n建議動作：撤退、繼續",
+      "utf8",
+    );
+    const state = await loadState(dir);
+    expect(state.lastTurn).toEqual({ narrative: "副本敘事內容。", suggestedActions: ["撤退", "繼續"] });
+  });
+
+  it("raw 檔不存在時 lastTurn 為 null（不報錯）", async () => {
+    await writeFile(path.join(dir, "now.md"), nowMd("無"), "utf8");
+    const state = await loadState(dir);
+    expect(state.lastTurn).toBeNull();
   });
 });

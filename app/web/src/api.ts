@@ -24,12 +24,18 @@ export interface NpcEntry {
   status: string;
 }
 
+export interface LastTurnRecord {
+  narrative: string;
+  suggestedActions: string[];
+}
+
 export interface GameState {
   now: NowState;
   protagonist: { name: string; points: string };
   protagonistDetail: ProtagonistDetail;
   npcs: NpcEntry[];
   mode: "main-space" | "dungeon";
+  lastTurn: LastTurnRecord | null;
 }
 
 export async function fetchState(): Promise<GameState> {

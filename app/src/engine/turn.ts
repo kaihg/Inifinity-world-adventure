@@ -225,10 +225,12 @@ async function* runTurnCore(
     control && control.rolls.length > 0
       ? `\n\n擲骰：${control.rolls.map((r) => `${r.desc}=${r.value}${r.success === undefined ? "" : r.success ? "(成功)" : "(失敗)"}`).join("、")}`
       : "";
+  const suggestedActions = control?.suggested_actions ?? [];
+  const suggestedLine = suggestedActions.length > 0 ? `\n\n建議動作：${suggestedActions.join("、")}` : "";
   await plan.appendRaw({
     date: today,
     title: summary,
-    body: `玩家行動：${input}\n骰池：[${dicePool.join(", ")}]\n\n${narrative}${rollsLine}`,
+    body: `玩家行動：${input}\n骰池：[${dicePool.join(", ")}]\n\n${narrative}${rollsLine}${suggestedLine}`,
   });
 
   // 2. 提煉頁 now.md
@@ -271,7 +273,7 @@ async function* runTurnCore(
     narrative,
     committed,
     awaitingUserInput: control?.awaiting_user_input ?? true,
-    suggestedActions: control?.suggested_actions ?? [],
+    suggestedActions,
     modeTransition: control?.mode_transition ?? null,
     transitionDungeonId: control?.transition_dungeon_id,
   };
