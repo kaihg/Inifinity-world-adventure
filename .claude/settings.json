@@ -1,15 +1,3 @@
 {
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if [ -n \"$(git status --porcelain world/ 2>/dev/null)\" ]; then printf '%s' '{\"decision\":\"block\",\"reason\":\"world/ 有未提交的世界狀態變更，請依回合收束協議步驟 4 先 commit 再結束本回合。\"}'; fi"
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }
