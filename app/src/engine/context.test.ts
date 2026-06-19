@@ -3,6 +3,8 @@ import {
   parseNow,
   isInDungeon,
   parseProtagonist,
+  parseProtagonistDetail,
+  parseCharacterIndex,
   applyPointsDelta,
   loadState,
 } from "./context.js";
@@ -89,6 +91,55 @@ describe("parseProtagonist", () => {
     const p = parseProtagonist(md);
     expect(p.name).toBe("沈奕");
     expect(p.points).toBe("12");
+  });
+});
+
+describe("parseProtagonistDetail", () => {
+  const md = `# 主角檔案
+## 基本資訊
+- 姓名：沈奕
+## 積分與兌換
+- 當前積分：7
+## 屬性
+- 力量：中等偏上
+- 敏捷：中等
+## 技能 / 異能
+- （無）
+## 物品欄
+- 戰術刀
+## Buff / Debuff / 狀態
+- 輕傷
+## 備註
+- 新手保護：3 次
+`;
+  it("擷取各區塊內容", () => {
+    const d = parseProtagonistDetail(md);
+    expect(d.name).toBe("沈奕");
+    expect(d.points).toBe("7");
+    expect(d.attributes).toContain("力量：中等偏上");
+    expect(d.skills).toContain("（無）");
+    expect(d.items).toContain("戰術刀");
+    expect(d.buffs).toContain("輕傷");
+    // 不可把下一個區塊吃進來
+    expect(d.attributes).not.toContain("技能");
+  });
+});
+
+describe("parseCharacterIndex", () => {
+  const md = `# 角色索引
+| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |
+|----|------|------|----------|--------------|
+| protagonist | 沈奕 | 主角 | 安全區 | - |
+| yeqing | 葉晴 | NPC / 潛在隊友 | 結盟 | - |
+| linsiyu | 林思雨 | NPC | 跟隨 | - |
+
+## 鎖定事實
+`;
+  it("解析表格、排除 protagonist", () => {
+    const npcs = parseCharacterIndex(md);
+    expect(npcs).toHaveLength(2);
+    expect(npcs[0]).toEqual({ id: "yeqing", name: "葉晴", role: "NPC / 潛在隊友", status: "結盟" });
+    expect(npcs.map((n) => n.id)).not.toContain("protagonist");
   });
 });
 

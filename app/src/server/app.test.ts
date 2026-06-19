@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildServer } from "./app.js";
@@ -40,6 +40,45 @@ describe("buildServer", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("text/html");
     expect(res.body).toContain("無限世界冒險");
+    await server.close();
+  });
+
+  it("GET /api/state 含 protagonistDetail 與 npcs", async () => {
+    const server = buildServer(loadConfig({}));
+    const res = await server.inject({ method: "GET", url: "/api/state" });
+    const body = res.json();
+    expect(body.protagonistDetail).toBeDefined();
+    expect(Array.isArray(body.npcs)).toBe(true);
+    await server.close();
+  });
+});
+
+describe("/api/config", () => {
+  let envPath: string;
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "iwa-cfg-"));
+    envPath = path.join(dir, ".env");
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("GET 回傳 baseUrl/model，不外露 apiKey", async () => {
+    const server = buildServer(loadConfig({ OPENAI_API_KEY: "sk-secret", MODEL: "m1" }), { envPath });
+    const res = await server.inject({ method: "GET", url: "/api/config" });
+    const body = res.json();
+    expect(body.model).toBe("m1");
+    expect(JSON.stringify(body)).not.toContain("sk-secret");
+    await server.close();
+  });
+
+  it("POST 更新 model 並寫回 .env", async () => {
+    const server = buildServer(loadConfig({ MODEL: "m1" }), { envPath });
+    const res = await server.inject({ method: "POST", url: "/api/config", payload: { model: "qwen2.5" } });
+    expect(res.json().model).toBe("qwen2.5");
+    const env = await readFile(envPath, "utf8");
+    expect(env).toContain("MODEL=qwen2.5");
     await server.close();
   });
 });

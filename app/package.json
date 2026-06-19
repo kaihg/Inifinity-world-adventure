@@ -8,24 +8,37 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "tsx watch src/server/index.ts",
+    "dev": "concurrently -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:web": "vite",
     "start": "node dist/server/index.js",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && vite build",
+    "build:server": "tsc -p tsconfig.build.json",
+    "build:web": "vite build",
+    "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@fastify/static": "^7.0.4",
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
     "openai": "^4.67.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "simple-git": "^3.27.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^10.0.3",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",
+    "vite": "^5.4.21",
     "vitest": "^2.1.3"
   }
 }

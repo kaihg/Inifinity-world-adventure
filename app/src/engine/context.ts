@@ -17,11 +17,27 @@ export interface ProtagonistSummary {
   points: string;
 }
 
+export interface ProtagonistDetail extends ProtagonistSummary {
+  attributes: string;
+  skills: string;
+  items: string;
+  buffs: string;
+}
+
+export interface NpcEntry {
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+}
+
 export type GameMode = "main-space" | "dungeon";
 
 export interface GameState {
   now: NowState;
   protagonist: ProtagonistSummary;
+  protagonistDetail: ProtagonistDetail;
+  npcs: NpcEntry[];
   mode: GameMode;
 }
 
@@ -91,6 +107,47 @@ export function isInDungeon(now: NowState): boolean {
   return v !== "" && v !== "無";
 }
 
+/** 取出 `## <含 titleIncludes 的標題>` 區塊內容，直到下一個 `## ` 為止 */
+function extractSection(md: string, titleIncludes: string): string {
+  const lines = md.split("\n");
+  const out: string[] = [];
+  let inSection = false;
+  for (const line of lines) {
+    if (/^##\s+/.test(line)) {
+      inSection = line.includes(titleIncludes);
+      continue;
+    }
+    if (inSection) out.push(line);
+  }
+  return out.join("\n").trim();
+}
+
+/** 解析 protagonist.md 的細節區塊（屬性/技能/物品/buff）供狀態面板用 */
+export function parseProtagonistDetail(md: string): ProtagonistDetail {
+  return {
+    ...parseProtagonist(md),
+    attributes: extractSection(md, "屬性"),
+    skills: extractSection(md, "技能"),
+    items: extractSection(md, "物品"),
+    buffs: extractSection(md, "Buff"),
+  };
+}
+
+/** 解析 characters/index.md 的角色表格，排除 protagonist，供 NPC 面板用 */
+export function parseCharacterIndex(md: string): NpcEntry[] {
+  const npcs: NpcEntry[] = [];
+  for (const line of md.split("\n")) {
+    const m = line.match(/^\|(.+)\|\s*$/);
+    if (!m) continue;
+    const cells = m[1].split("|").map((c) => c.trim());
+    if (cells.length < 4) continue;
+    const [id, name, role, status] = cells;
+    if (id === "ID" || /^-+$/.test(id) || id === "" || id === "protagonist") continue;
+    npcs.push({ id, name, role, status });
+  }
+  return npcs;
+}
+
 /** 對 protagonist.md 的「當前積分」套用增減量（結算/回合積分變動用） */
 export function applyPointsDelta(md: string, delta: number): string {
   if (!delta) return md;
@@ -108,16 +165,28 @@ export function parseProtagonist(md: string): ProtagonistSummary {
 }
 
 /** 決定論地讀取 world/ 並組出當前遊戲狀態（resume 入口） */
+async function readOrEmpty(file: string): Promise<string> {
+  try {
+    return await readFile(file, "utf8");
+  } catch {
+    return "";
+  }
+}
+
 export async function loadState(worldDir: string): Promise<GameState> {
-  const [nowMd, protagonistMd] = await Promise.all([
+  const [nowMd, protagonistMd, indexMd] = await Promise.all([
     readFile(path.join(worldDir, "now.md"), "utf8"),
     readFile(path.join(worldDir, "characters", "protagonist.md"), "utf8"),
+    readOrEmpty(path.join(worldDir, "characters", "index.md")),
   ]);
 
   const now = parseNow(nowMd);
+  const detail = parseProtagonistDetail(protagonistMd);
   return {
     now,
-    protagonist: parseProtagonist(protagonistMd),
+    protagonist: { name: detail.name, points: detail.points },
+    protagonistDetail: detail,
+    npcs: parseCharacterIndex(indexMd),
     mode: isInDungeon(now) ? "dungeon" : "main-space",
   };
 }

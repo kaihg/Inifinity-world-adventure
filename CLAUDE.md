@@ -56,7 +56,8 @@ app/                           # 網頁引擎（開發中，Node.js + TypeScript
     engine/                    # 回合引擎：context（載入）、turn（回合/自動推進/模式路由）、dungeon（副本，非 branch）、schema、roll、stream-split、journal、now
     git/commit.ts              # 每回合自動 commit world/
     server/                    # Fastify：/api/state、/api/turn(SSE)、/
-  web/index.html               # 最小前端（resume 面板 + 劇情輸入；完整 UI 為 Phase 6）
+  web/                         # 前端（Vite + React）：狀態/NPC 面板、串流劇情、建議動作、設定頁
+  vite.config.ts               # 前端 build/dev（dev 跑 5174 proxy /api 到後端 5173）
   .env.example                 # 設定範本
 ```
 
@@ -67,8 +68,8 @@ app/                           # 網頁引擎（開發中，Node.js + TypeScript
 - **劇情 / 開發分離**：`app/` 是劇情遊玩面，**只寫 `world/`**（與副本 branch），永不碰 `CLAUDE.md`／`.claude/skills/`／引擎自身程式碼；改這些屬於開發，走一般 git/PR 流程。
 - **canonical 不變**：引擎沿用同一套 Markdown 契約（`now.md` 七欄、三層模型、回合收束協議）；`world/` 檔案架構不動。
 - **設定化後端**：LLM 端點/模型全走 `app/.env`（`OPENAI_BASE_URL`/`OPENAI_API_KEY`/`MODEL`），部署者可指自架（vLLM/Ollama/LM Studio）。
-- **開發方式**：TDD（Vitest）。本機跑 `cd app && npm install && cp .env.example .env && npm run dev`。
-- **目前進度**：Phase 0–5 已完成——骨架、狀態載入器 + resume 面板、LLM client + 單回合敘事 + 自動 commit、結構化輸出（`===STATE===` sentinel + JSON）+ 伺服器端真隨機骰、自動推進回合（`awaiting_user_input` 驅動，消滅手動「繼續」）、**副本模式（mode-aware 路由，`runs/*.md` raw + `wiki.md` 提煉 + 首次生成 `secrets.md`，enter/settle 由 `mode_transition` 驅動，不切 git branch）**。Phase 6（完整 UI）、7（封存 skills）待做。計畫見 `docs/superpowers/plans/2026-06-19-web-app-implementation.md`。
+- **開發方式**：TDD（Vitest）。本機跑 `cd app && npm install && cp .env.example .env && npm run dev`（同時起後端 5173 與 Vite 5174）；`npm run build` 後 `npm start` 由後端服務 React build。
+- **目前進度**：Phase 0–6 已完成——骨架、狀態載入器 + resume 面板、LLM client + 單回合敘事 + 自動 commit、結構化輸出（`===STATE===` sentinel + JSON）+ 伺服器端真隨機骰、自動推進回合（`awaiting_user_input` 驅動，消滅手動「繼續」）、**副本模式（mode-aware 路由，`runs/*.md` raw + `wiki.md` 提煉 + 首次生成 `secrets.md`，enter/settle 由 `mode_transition` 驅動，不切 git branch）**。**完整 UI（Vite + React：主角狀態/屬性/技能/buff 面板、NPC 面板、串流劇情、建議動作按鈕、LLM 設定頁，`/api/config` 可執行期改端點/模型並寫回 .env）**。Phase 7（封存 skills + CLAUDE.md 全面改寫）待做。計畫見 `docs/superpowers/plans/2026-06-19-web-app-implementation.md`。
 
 ## 關鍵約定
 

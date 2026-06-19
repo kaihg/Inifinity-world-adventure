@@ -46,6 +46,8 @@ const sampleState: GameState = {
     activeDungeon: "無", threads: "", nextStep: "", lastUpdated: "",
   },
   protagonist: { name: "沈奕", points: "0" },
+  protagonistDetail: { name: "沈奕", points: "0", attributes: "", skills: "", items: "", buffs: "" },
+  npcs: [],
   mode: "main-space",
 };
 
