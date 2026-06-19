@@ -5,27 +5,31 @@ description: Settle a finished dungeon run (cleared, died, or retreated) - disti
 
 # settle-dungeon
 
-副本结束后的结算流程。**无论通关、死亡还是中途撤退，都走这个流程并合并回 main**——死亡不代表丢弃这个 PR，新手保护等后果由结算规则处理。
+副本結束後的結算流程。**無論通關、死亡還是中途撤退，都走這個流程並合併回 main**——死亡不代表丟棄這個 PR，新手保護等後果由結算規則處理。
 
-## 步骤
+## 步驟
 
-1. **读取本次 run 的完整记录**：`world/dungeons/<dungeon-id>/runs/<run-id>.md`（即该 PR branch 上累积的全部 commit 内容）。
-   - **若这份 log 很长**（多轮对话、篇幅明显超过一般单次副本），不要自己整篇读完去消化，改用 Agent 工具派一个 `Explore` subagent 去读 `runs/<run-id>.md`（必要时也带上现有的 `wiki.md`、相关 `characters/*.md` 做对照），请它回报**结构化结论**：本次积分增减依据、哪些 NPC 状态有变化（要具体到「变化前→变化后」）、wiki 该新增哪些条目、是否有死亡/重伤等关键事件。subagent 只负责消化文本、回报结论，不直接写文件，也不能代替步骤 2～5 的规则判定。
-   - 若 log 不长，直接自己读即可，不必为了短文件也派 subagent。
-2. **判定结束类型**：通关 / 死亡 / 中途撤退，并依 `world/setting.md` 当前规则（含新手保护条款）决定积分增减、惩罚或奖励。
-3. **提炼进 wiki（不是复制粘贴全文）**：
-   - 更新（或新建）`world/dungeons/<dungeon-id>/wiki.md`：本次新发现的地图/机关/规则/NPC，已经死亡或消耗掉的资源。
-   - 对照 `world/dungeons/<dungeon-id>/secrets.md`（若存在）与 `world/gm-notes.md`：**只把这次剧情里实际揭露出来的部分**写进 `wiki.md`，未揭露的隐藏真相留在 secrets/gm-notes 里，不要因为结算而提前曝光。若本次有揭露，在 `gm-notes.md` 的「揭露记录」补一笔。
-   - 原始 `runs/<run-id>.md` 保留不删，作为可回溯的原始记录。
-4. **更新角色状态**：
-   - `world/characters/protagonist.md`：积分、属性变化、新增/消耗的技能与物品、buff/debuff、新手保护剩余次数等。
-   - 涉及到的 NPC：更新对应 `world/characters/<id>.md`，若是新出现的重要角色，新建档案并在 `index.md` 加一行。
-5. **死亡的特殊处理**：若设定中新手保护允许死亡不等于 game over，依规则记录「死亡惩罚」（例如扣积分、清空部分物品、留下后遗症 debuff），而不是直接结束故事——除非设定明确写了保护已用尽。
-6. **提交并合并**：
-   - 把以上更新 commit 到该 dungeon run 的 branch。
-   - 合并 PR 回 main（无论结果好坏都合并）。
-   - 合并后可删除该 run 的临时分支（`runs/<run-id>.md` 内容已经在 main 上保留，不会丢失）。
+1. **讀取本次 run 的完整記錄**：`world/dungeons/<dungeon-id>/runs/<run-id>.md`（即該 PR branch 上累積的全部 commit 內容）。
+   - **若這份 log 很長**（多輪對話、篇幅明顯超過一般單次副本），不要自己整篇讀完去消化，改用 Agent 工具派一個 `Explore` subagent 去讀 `runs/<run-id>.md`（必要時也帶上現有的 `wiki.md`、相關 `characters/*.md` 做對照），請它回報**結構化結論**：本次積分增減依據、哪些 NPC 狀態有變化（要具體到「變化前→變化後」）、wiki 該新增哪些條目、是否有死亡/重傷等關鍵事件。subagent 只負責消化文本、回報結論，不直接寫文件，也不能代替步驟 3～7 的規則判定。
+   - 若 log 不長，直接自己讀即可，不必為了短文件也派 subagent。
+2. **一致性檢查（lint）**：在提煉進 wiki 前，派一個 `Explore` subagent，拿 `runs/<run-id>.md` 比對既有 `world/dungeons/<dungeon-id>/wiki.md`、相關 `world/characters/*.md`、`world/characters/index.md` 的「鎖定事實」，請它回報**矛盾清單**：NPC 細節漂移（外觀/身份/關係與鎖定事實不符）、過時宣稱、劇情前後牴觸、孤立或無依據的新事實。
+   - **重要**：`world/gm-notes.md`／`world/dungeons/<dungeon-id>/secrets.md` 牴觸 `setting.md`／`wiki.md` 是**設計上的隱藏層（隱藏 vs 揭露）**，**不是矛盾**，subagent 不可把它列為矛盾——必須在派工說明裡明確告知這點。
+   - 有矛盾 → 在後續提煉/更新角色狀態時**先修正敘事認定或明確標註**，再合併；不要把矛盾原樣寫進 canonical 檔。
+   - subagent 只負責回報結論，不直接寫文件。
+3. **判定結束類型**：通關 / 死亡 / 中途撤退，並依 `world/setting.md` 當前規則（含新手保護條款）決定積分增減、懲罰或獎勵。
+4. **提煉進 wiki（不是複製貼上全文）**：
+   - 更新（或新建）`world/dungeons/<dungeon-id>/wiki.md`：本次新發現的地圖/機關/規則/NPC，已經死亡或消耗掉的資源。
+   - 對照 `world/dungeons/<dungeon-id>/secrets.md`（若存在）與 `world/gm-notes.md`：**只把這次劇情裡實際揭露出來的部分**寫進 `wiki.md`，未揭露的隱藏真相留在 secrets/gm-notes 裡，不要因為結算而提前曝光。若本次有揭露，在 `gm-notes.md` 的「揭露記錄」補一筆。
+   - 原始 `runs/<run-id>.md` 保留不刪，作為可回溯的原始記錄。
+5. **更新角色狀態**：
+   - `world/characters/protagonist.md`：積分、屬性變化、新增/消耗的技能與物品、buff/debuff、新手保護剩餘次數等。
+   - 涉及到的 NPC：更新對應 `world/characters/<id>.md`，若是新出現的重要角色，新建檔案並在 `index.md` 加一行。
+6. **死亡的特殊處理**：若設定中新手保護允許死亡不等於 game over，依規則記錄「死亡懲罰」（例如扣積分、清空部分物品、留下後遺症 debuff），而不是直接結束故事——除非設定明確寫了保護已用盡。
+7. **提交並合併**：
+   - 把以上更新 commit 到該 dungeon run 的 branch。
+   - 合併 PR 回 main（無論結果好壞都合併）。
+   - 合併後可刪除該 run 的臨時分支（`runs/<run-id>.md` 內容已經在 main 上保留，不會丟失）。
 
 ## 注意
 
-- 这个 skill 也是 `.github/workflows/settle-on-merge.yml` 在 PR 合并后会提示调用的同一套逻辑；手动结算与 Action 触发的结算必须遵守同一份规则，不要为了自动化场景简化判定标准。
+- 這個 skill 也是 `.github/workflows/settle-on-merge.yml` 在 PR 合併後會提示調用的同一套邏輯；手動結算與 Action 觸發的結算必須遵守同一份規則，不要為了自動化場景簡化判定標準。

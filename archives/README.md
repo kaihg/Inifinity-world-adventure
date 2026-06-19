@@ -1,9 +1,9 @@
-# 世界存档（Archives）
+# 世界存檔（Archives）
 
-每次执行 `/init-world` 重置世界前，会把当前 `world/` 整份打包封存到：
+每次執行 `/init-world` 重置世界前，會把當前 `world/` 整份打包封存到：
 
 ```
 archives/<timestamp>/world/...
 ```
 
-封存只读，不再修改，仅供回溯查阅前一世（lifetime）的设定与角色结局。
+封存只讀，不再修改，僅供回溯查閱前一世（lifetime）的設定與角色結局。

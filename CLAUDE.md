@@ -2,58 +2,62 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 项目定位
+## 項目定位
 
-这个 repo 不是传统软件项目，而是一个**「无限恐怖」类型小说的文本保存站与对话中心**：单一主角、单一世界，由使用者与 Claude Code（或其他 LLM CLI）对话推进剧情，所有世界状态、角色档案、副本记录都以 Markdown 文件保存在仓库里，git 历史本身就是故事的版本记录。
+這個 repo 不是傳統軟體項目，而是一個**「無限恐怖」類型小說的文本保存站與對話中心**：單一主角、單一世界，由使用者與 Claude Code（或其他 LLM CLI）對話推進劇情，所有世界狀態、角色檔案、副本記錄都以 Markdown 文件保存在倉庫裡，git 歷史本身就是故事的版本記錄。
 
-「无限恐怖」设定：主角进入由「主神/系统」掌控的空间，反复进出「副本」执行任务赚取积分，用积分兑换能力成长，直到通关或死亡。具体规则由 `world/setting.md` 定义，**不要凭空套用某部小说的设定，一切以仓库里实际写的规则为准**。
+「無限恐怖」設定：主角進入由「主神/系統」掌控的空間，反覆進出「副本」執行任務賺取積分，用積分兌換能力成長，直到通關或死亡。具體規則由 `world/setting.md` 定義，**不要憑空套用某部小說的設定，一切以倉庫裡實際寫的規則為準**。
 
-没有任何应用代码、构建系统、测试框架——所有"开发"工作都是读写 Markdown 文件 + 使用 `.claude/skills/` 下的 skill + git 操作。
+沒有任何應用代碼、構建系統、測試框架——所有「開發」工作都是讀寫 Markdown 文件 + 使用 `.claude/skills/` 下的 skill + git 操作。
 
-## 核心循环
+## 核心循環
 
-1. **世界状态**存在 `world/`，是当前 lifetime 的唯一真相来源（canonical truth）。
-2. **剧情模式切换** = `start-story` skill。这是跟一般仓库维护对话（改 CLAUDE.md、调 skill、讨论架构）的分界线——只有 `start-story` 之后的对话才代入主神/系统语气与主角视角。主空间（副本之间：兑换积分、休整、NPC 互动）直接在当前分支对话+commit，不需要开 PR。
-3. **进入副本** = 开一个 git branch + PR（`enter-dungeon` skill）。整个副本期间的剧情对话，逐步以 commit 落到该 branch 的 run log 里。进入副本通常是**半强制**的：使用者可以主动要求，LLM 也要在 `start-story` 对话中依设定判断「系统强制开启副本」的剧情节点主动触发，不必每次等使用者下指令。
-4. **副本结束**（通关 / 死亡 / 撤退）都要**合并回 main**（`settle-dungeon` skill）——死亡不等于丢弃 PR，新手保护等后果由结算规则处理，不是靠不合并来逃避。
-5. **合并后**触发 `.github/workflows/settle-on-merge.yml`，提醒/触发把本次 run 的内容提炼进角色档案与副本 wiki。
-6. **`/init-world`** 是唯一的"重开"入口：封存当前 `world/` 到 `archives/<timestamp>/`，再与用户对话生成全新世界设定。
+1. **世界狀態**存在 `world/`，是當前 lifetime 的唯一真相來源（canonical truth）。
+2. **劇情模式切換** = `start-story` skill。這是跟一般倉庫維護對話（改 CLAUDE.md、調 skill、討論架構）的分界線——只有 `start-story` 之後的對話才代入主神/系統語氣與主角視角。主空間（副本之間：兌換積分、休整、NPC 互動）直接在當前分支對話+commit，不需要開 PR。每個敘事回合結束都要跑「回合收束協議」（記錄→提煉→索引→覆寫 now.md→提交），主空間 raw 記到 `world/journal.md`、副本記到 `runs/<run-id>.md`，並覆寫 `world/now.md` 當前局勢；協議定義見 `start-story`／`enter-dungeon` skill。**resume（新 session 接劇情）讀 `world/now.md`，不讀 `journal.md`**；`now.md` 的「進行中的副本」欄決定停在主空間或交給 `enter-dungeon`。
+3. **進入副本** = 開一個 git branch + PR（`enter-dungeon` skill）。整個副本期間的劇情對話，逐步以 commit 落到該 branch 的 run log 裡。進入副本通常是**半強制**的：使用者可以主動要求，LLM 也要在 `start-story` 對話中依設定判斷「系統強制開啟副本」的劇情節點主動觸發，不必每次等使用者下指令。
+4. **副本結束**（通關 / 死亡 / 撤退）都要**合併回 main**（`settle-dungeon` skill）——死亡不等於丟棄 PR，新手保護等後果由結算規則處理，不是靠不合併來逃避。
+5. **合併後**觸發 `.github/workflows/settle-on-merge.yml`，提醒/觸發把本次 run 的內容提煉進角色檔案與副本 wiki。
+6. **`/init-world`** 是唯一的「重開」入口：封存當前 `world/` 到 `archives/<timestamp>/`，再與用戶對話生成全新世界設定。
 
-## 目录结构
+## 目錄結構
 
 ```
 world/
-  setting.md              # 玩家可见：主神表面规则、世界基调、当前篇章、新手保护条款——叙事必须严格遵守
-  gm-notes.md              # 剧透文件：主神真实动机、世界真相、暗线，仅供保持一致，不可提前揭露
+  setting.md              # 玩家可見：主神表面規則、世界基調、當前篇章、新手保護條款——敘事必須嚴格遵守
+  gm-notes.md              # 劇透文件：主神真實動機、世界真相、暗線，僅供保持一致，不可提前揭露
+  journal.md              # 主空間 raw 層：append-only、帶時間戳的原始時間線（與副本 runs/*.md 對稱）
+  now.md                  # 主空間提煉頁：覆寫式「當前局勢」快照，resume 入口（對稱副本 wiki.md）；讀這份接劇情，不讀 journal.md
   characters/
-    index.md               # 轻量角色索引（先读这个，不要一次读全部角色档案）
-    protagonist.md          # 主角：积分、属性、技能、物品、buff/debuff
-    <npc-id>.md             # 重要 NPC/队友/敌人档案，随故事持续更新
+    index.md               # 輕量角色索引（先讀這個，不要一次讀全部角色檔案）
+    protagonist.md          # 主角：積分、屬性、技能、物品、buff/debuff
+    <npc-id>.md             # 重要 NPC/隊友/敵人檔案，隨故事持續更新
   dungeons/
     <dungeon-id>/
-      wiki.md               # 该副本已揭露的累积知识（地图/机关/规则），多次进入间延续，进副本时优先读这份
-      secrets.md            # 剧透文件：该副本真正的机关原理/NPC真实动机，首次进入时生成一次
-      runs/<run-id>.md       # 单次进入的原始对话 log，append-only，对应一个 PR/branch
+      wiki.md               # 該副本已揭露的累積知識（地圖/機關/規則），多次進入間延續，進副本時優先讀這份
+      secrets.md            # 劇透文件：該副本真正的機關原理/NPC真實動機，首次進入時生成一次
+      runs/<run-id>.md       # 單次進入的原始對話 log，append-only，對應一個 PR/branch
 archives/
-  <timestamp>/world/...      # /init-world 重置前的整份世界快照，只读
+  <timestamp>/world/...      # /init-world 重置前的整份世界快照，只讀
 .claude/skills/
   init-world/                # 重置世界
-  start-story/                # 切换成剧情模式，处理副本之间的主空间对话
-  enter-dungeon/              # 开副本（建分支+PR，开始叙事），含半强制触发判断
-  roll-random/                # 产生可验证随机数，机率判定专用
-  settle-dungeon/              # 副本结束后的结算 + 合并
+  start-story/                # 切換成劇情模式，處理副本之間的主空間對話
+  enter-dungeon/              # 開副本（建分支+PR，開始敘事），含半強制觸發判斷
+  roll-random/                # 產生可驗證隨機數，機率判定專用
+  settle-dungeon/              # 副本結束後的結算 + 合併
 .github/workflows/
-  settle-on-merge.yml          # PR 合并到 main 后提醒/触发结算
+  settle-on-merge.yml          # PR 合併到 main 後提醒/觸發結算
 ```
 
-## 关键约定
+## 關鍵約定
 
-- **状态文件用 Markdown，不用 JSON**：因为故事和角色关系会越来越复杂，类似 wiki 持续生长，结构化字段会限制叙事弹性。读写状态时维持人类可读、分段清晰，方便 LLM 增量编辑而不是整篇重写。
-- **`index.md` 类文件是为了省 context**：角色一多就不能每次全读，先读索引，需要细节再读对应档案。`dungeons/<id>/wiki.md` 同理优先于 `runs/*.md` 全文。
-- **`wiki.md`（提炼知识）与 `runs/*.md`（原始记录）分离**：`runs/*.md` 是不可篡改的流水账（靠 git 历史天然防止事后改写），`wiki.md`/角色档案才是下次对话真正会读的「canonical truth」。结算时必须把 run log 提炼进 wiki，而不是整段复制。
-- **机率事件必须真随机**：技能命中率、暴击、随机事件等一律先用 `roll-random` skill（实际跑 `python3 -c "import random; ..."` 之类命令）取得数值，再依数值叙事。禁止 LLM 直接「演」出一个机率结果而不掷骰，也禁止先编故事再凑一个随机数。
-- **死亡也要合并 PR**：新手保护机制是靠 `settle-dungeon` 按 `world/setting.md` 规则做结算（扣分、清状态等），而不是不合并 PR 来回避后果。
-- **剧情模式 vs 维护对话要分清**：没有进入 `start-story` 的对话（例如改这份 CLAUDE.md、调整 skill）不要代入主神/系统角色语气；副本进入可以由叙事内容半强制触发，不是只能等使用者明确下指令。
-- **隐藏设定逐步揭露**：`gm-notes.md`（世界层）与 `dungeons/<id>/secrets.md`（副本层）由 LLM 在 `init-world`/`enter-dungeon` 首次生成时自主写入，**不跟使用者讨论或预览**，只用来让叙事的暗线保持一致；只有剧情真正发展到揭露节点，才把对应内容写进 `setting.md`/`wiki.md`/对话叙事。commit message 提到这类文件时只写事实（「生成隐藏设定」），不写具体内容，避免 git log 剧透。
-- **单一主角、单一世界**：本仓库只服务一条故事线；其他人想玩自己的版本应该 fork 仓库，而不是在这里加第二个主角或第二个世界。
-- **GitHub Action 默认零成本**：`settle-on-merge.yml` 默认只留言提醒，由使用者手动在 Claude Code 里跑 `settle-dungeon`。如果要让 Action 自动呼叫 Claude API 完成结算（会产生费用），需要自己加 `ANTHROPIC_API_KEY` secret 并按 workflow 文件里的注释打开 `auto-settle` job。
+- **狀態文件用 Markdown，不用 JSON**：因為故事和角色關係會越來越複雜，類似 wiki 持續生長，結構化字段會限制敘事彈性。讀寫狀態時維持人類可讀、分段清晰，方便 LLM 增量編輯而不是整篇重寫。
+- **`index.md` 類文件是為了省 context**：角色一多就不能每次全讀，先讀索引，需要細節再讀對應檔案。`dungeons/<id>/wiki.md` 同理優先於 `runs/*.md` 全文。
+- **`wiki.md`（提煉知識）與 `runs/*.md`（原始記錄）分離**：`runs/*.md` 是不可篡改的流水帳（靠 git 歷史天然防止事後改寫），`wiki.md`/角色檔案才是下次對話真正會讀的「canonical truth」。結算時必須把 run log 提煉進 wiki，而不是整段複製。
+- **raw log 用檔案 append，不用 commit message 當 log，不用 sqlite**：原始記錄逐回合 append 到 `runs/*.md`／`journal.md`，commit message 只寫摘要。否決 sqlite（二進位殺掉 git 防竄改與 PR 合併、違背 markdown 哲學）與「commit message 當 log」（純敘事回合需空 commit 當載體、提煉要靠 git log 撈）。
+- **回合收束 + Stop hook 兜底**：狀態變動在發生的同一回合就寫入 canonical 檔（不留延遲結帳點）；`.claude/settings.json` 的 Stop hook 會在 `world/` 有未提交改動時提醒先 commit。一致性靠「敘事前讀 index 鎖定事實」與「settle 時的 lint subagent」雙重把關。
+- **機率事件必須真隨機**：技能命中率、暴擊、隨機事件等一律先用 `roll-random` skill（實際跑 `python3 -c "import random; ..."` 之類命令）取得數值，再依數值敘事。禁止 LLM 直接「演」出一個機率結果而不擲骰，也禁止先編故事再湊一個隨機數。
+- **死亡也要合併 PR**：新手保護機制是靠 `settle-dungeon` 按 `world/setting.md` 規則做結算（扣分、清狀態等），而不是不合併 PR 來迴避後果。
+- **劇情模式 vs 維護對話要分清**：沒有進入 `start-story` 的對話（例如改這份 CLAUDE.md、調整 skill）不要代入主神/系統角色語氣；副本進入可以由劇情內容半強制觸發，不是只能等使用者明確下指令。
+- **隱藏設定逐步揭露**：`gm-notes.md`（世界層）與 `dungeons/<id>/secrets.md`（副本層）由 LLM 在 `init-world`/`enter-dungeon` 首次生成時自主寫入，**不跟使用者討論或預覽**，只用來讓敘事的暗線保持一致；只有劇情真正發展到揭露節點，才把對應內容寫進 `setting.md`/`wiki.md`/對話敘事。commit message 提到這類文件時只寫事實（「生成隱藏設定」），不寫具體內容，避免 git log 劇透。
+- **單一主角、單一世界**：本倉庫只服務一條故事線；其他人想玩自己的版本應該 fork 倉庫，而不是在這裡加第二個主角或第二個世界。
+- **GitHub Action 默認零成本**：`settle-on-merge.yml` 默認只留言提醒，由使用者手動在 Claude Code 裡跑 `settle-dungeon`。如果要讓 Action 自動呼叫 Claude API 完成結算（會產生費用），需要自己加 `ANTHROPIC_API_KEY` secret 並按 workflow 文件裡的註解打開 `auto-settle` job。
