@@ -3,6 +3,7 @@ import {
   parseNow,
   isInDungeon,
   parseProtagonist,
+  applyPointsDelta,
   loadState,
 } from "./context.js";
 import { loadConfig } from "../config.js";
@@ -88,6 +89,16 @@ describe("parseProtagonist", () => {
     const p = parseProtagonist(md);
     expect(p.name).toBe("沈奕");
     expect(p.points).toBe("12");
+  });
+});
+
+describe("applyPointsDelta", () => {
+  it("正負 delta 都正確累加", () => {
+    expect(applyPointsDelta("- 當前積分：5\n", 3)).toContain("- 當前積分：8");
+    expect(applyPointsDelta("- 當前積分：10\n", -4)).toContain("- 當前積分：6");
+  });
+  it("delta 為 0 時原樣返回", () => {
+    expect(applyPointsDelta("- 當前積分：5\n", 0)).toBe("- 當前積分：5\n");
   });
 });
 

@@ -132,8 +132,14 @@
                 }
                 storyEl.textContent += ev.text;
               }
+              else if (ev.type === "auto-advance") {
+                storyEl.textContent += "\n\n—— 系統自動推進 ——\n\n";
+              }
+              else if (ev.type === "warning")
+                storyEl.innerHTML += '<span style="color:#eab308">\n[提示] ' + ev.message + "</span>";
               else if (ev.type === "error")
                 storyEl.innerHTML += '<span class="err">\n[錯誤] ' + ev.message + "</span>";
+              // ping / done 不顯示；done 後由 load() 刷新面板
             }
           }
           await load(); // 回合結束後刷新 canonical 面板

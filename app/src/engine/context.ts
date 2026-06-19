@@ -91,6 +91,15 @@ export function isInDungeon(now: NowState): boolean {
   return v !== "" && v !== "無";
 }
 
+/** 對 protagonist.md 的「當前積分」套用增減量（結算/回合積分變動用） */
+export function applyPointsDelta(md: string, delta: number): string {
+  if (!delta) return md;
+  return md.replace(
+    /^(-\s*當前積分：)\s*(-?\d+)/m,
+    (_m, prefix: string, n: string) => `${prefix}${Number(n) + delta}`,
+  );
+}
+
 /** 從 protagonist.md 擷取輕量摘要（姓名、當前積分） */
 export function parseProtagonist(md: string): ProtagonistSummary {
   const name = md.match(/^-\s*姓名：(.*)$/m)?.[1].trim() ?? "";

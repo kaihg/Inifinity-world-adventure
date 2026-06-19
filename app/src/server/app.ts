@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { AppConfig } from "../config.js";
 import { loadState } from "../engine/context.js";
-import { runMainSpaceTurn } from "../engine/turn.js";
+import { runMainSpaceTurnLoop } from "../engine/turn.js";
 import { createOpenAiClient, type LlmClient } from "../llm/client.js";
 import { commitWorld } from "../git/commit.js";
 
@@ -53,7 +53,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     return loadState(config.worldDir);
   });
 
-  // 推進一個主空間敘事回合，以 SSE 串流 delta/done 事件
+  // 推進主空間敘事回合（含自動推進），以 SSE 串流 delta/auto-advance/done 事件
   server.post("/api/turn", async (req, reply) => {
     const input = (req.body as { input?: string })?.input ?? "";
 
@@ -67,7 +67,11 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     try {
       // 立刻寫入第一筆 ping 事件，建立首位元組資料，防止反向代理（如 Tailscale Serve）在 LLM 漫長 Prefill 時發生 30s 閘道超時
       reply.raw.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
-      for await (const ev of runMainSpaceTurn({ client, worldDir: config.worldDir, commit }, input)) {
+      for await (const ev of runMainSpaceTurnLoop(
+        { client, worldDir: config.worldDir, commit },
+        input,
+        config.autoAdvanceMax,
+      )) {
         reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`);
       }
     } catch (err) {
