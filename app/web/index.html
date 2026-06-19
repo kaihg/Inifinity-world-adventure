@@ -25,6 +25,18 @@
         font-size: 0.75rem; background: #1f2937; color: #93c5fd;
       }
       .err { color: #f87171; }
+      #story { white-space: pre-wrap; min-height: 4rem; }
+      .row { display: flex; gap: 0.5rem; max-width: 760px; margin-top: 0.75rem; }
+      #input {
+        flex: 1; background: #0f1115; color: #e6e6e6;
+        border: 1px solid #262b34; border-radius: 8px; padding: 0.6rem 0.8rem;
+        font: inherit;
+      }
+      button {
+        background: #2563eb; color: #fff; border: 0; border-radius: 8px;
+        padding: 0 1.1rem; font: inherit; cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
     </style>
   </head>
   <body>
@@ -50,6 +62,15 @@
       <div class="value" id="lastUpdated"></div>
     </div>
 
+    <div class="panel">
+      <div class="label">劇情</div>
+      <div class="value" id="story">輸入你的行動，開始推進劇情。</div>
+      <div class="row">
+        <input id="input" placeholder="你的行動，例如：去資訊室找葉晴" />
+        <button id="send">送出</button>
+      </div>
+    </div>
+
     <script>
       const set = (id, text) => { document.getElementById(id).textContent = text || "—"; };
       async function load() {
@@ -73,6 +94,51 @@
         }
       }
       load();
+
+      const inputEl = document.getElementById("input");
+      const sendEl = document.getElementById("send");
+      const storyEl = document.getElementById("story");
+
+      async function sendTurn() {
+        const input = inputEl.value.trim();
+        if (!input) return;
+        sendEl.disabled = true;
+        inputEl.value = "";
+        storyEl.textContent = "";
+        try {
+          const res = await fetch("/api/turn", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ input }),
+          });
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const parts = buf.split("\n\n");
+            buf = parts.pop();
+            for (const part of parts) {
+              const line = part.replace(/^data: /, "");
+              if (!line) continue;
+              const ev = JSON.parse(line);
+              if (ev.type === "delta") storyEl.textContent += ev.text;
+              else if (ev.type === "error")
+                storyEl.innerHTML += '<span class="err">\n[錯誤] ' + ev.message + "</span>";
+            }
+          }
+          await load(); // 回合結束後刷新 canonical 面板
+        } catch (e) {
+          storyEl.innerHTML += '<span class="err">\n[請求失敗] ' + e.message + "</span>";
+        } finally {
+          sendEl.disabled = false;
+        }
+      }
+
+      sendEl.addEventListener("click", sendTurn);
+      inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter") sendTurn(); });
     </script>
   </body>
 </html>
