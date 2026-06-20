@@ -165,3 +165,18 @@ export async function appendWikiReveals(
   const block = `\n## [${date}] 揭露\n\n${reveals.map((r) => `- ${r}`).join("\n")}\n`;
   await appendFile(file, block, "utf8");
 }
+
+/** 列舉 world/dungeons/ 下所有副本子目錄名（id）；dungeons/ 不存在回 [] */
+export async function listDungeonIds(
+  worldDir: string,
+  logger: Logger = defaultLogger,
+): Promise<string[]> {
+  const dir = path.join(worldDir, "dungeons");
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch (err) {
+    logUnexpectedReadError(logger, dir, err);
+    return [];
+  }
+}

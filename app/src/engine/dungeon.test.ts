@@ -10,6 +10,7 @@ import {
   appendRun,
   loadDungeonLore,
   appendWikiReveals,
+  listDungeonIds,
 } from "./dungeon.js";
 
 describe("parseActiveDungeon / formatActiveDungeon", () => {
@@ -88,5 +89,26 @@ describe("enterDungeon / appendRun / loadDungeonLore / appendWikiReveals", () =>
     await appendWikiReveals(world, "U-001", ["入口大廳有三道門"], "2026-06-19");
     const lore2 = await loadDungeonLore(world, "U-001");
     expect(lore2.wiki).toContain("三道門");
+  });
+});
+
+describe("listDungeonIds", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-listdg-"));
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("dungeons/ 不存在時回空陣列", async () => {
+    expect(await listDungeonIds(world)).toEqual([]);
+  });
+
+  it("回傳所有副本子目錄名，忽略檔案", async () => {
+    await enterDungeon(world, { dungeonId: "U-001", today: "d", protagonistSummary: "x", goal: "g", secretsText: "s" });
+    await enterDungeon(world, { dungeonId: "abandoned-hospital", today: "d", protagonistSummary: "x", goal: "g", secretsText: "s" });
+    const ids = await listDungeonIds(world);
+    expect(ids.sort()).toEqual(["U-001", "abandoned-hospital"]);
   });
 });
