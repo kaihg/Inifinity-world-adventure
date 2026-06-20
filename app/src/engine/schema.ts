@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { STATE_SENTINEL } from "./stream-split.js";
 
 /** now.md 七欄的可選覆寫（最後更新由引擎管理，不由模型給） */
 const stringCoerce = z.preprocess((val) => {
@@ -51,37 +50,25 @@ export const TurnControlSchema = z.object({
 export type TurnControl = z.infer<typeof TurnControlSchema>;
 export type NowChanges = z.infer<typeof NowChangesSchema>;
 
-export interface ParsedTurn {
-  narrative: string;
-  control: TurnControl;
-}
-
 /**
- * 從完整模型輸出拆出敘事與控制區塊：
- * sentinel 前為敘事散文，sentinel 後為單一 JSON 物件。
- * 缺 sentinel / JSON 非法 / schema 不符都拋錯（由呼叫端決定重試或降級）。
+ * 從副大腦原始輸出解析出 TurnControl。
+ * 副大腦只負責輸出結構，整段視為一個 JSON 物件（無 sentinel）；
+ * 為容忍模型偶爾前後加客套字，抓第一個 `{` 到最後一個 `}` 之間當 JSON。
+ * 找不到 JSON / JSON 非法 / schema 不符都拋錯（由呼叫端決定降級）。
  */
-export function parseTurnOutput(full: string): ParsedTurn {
-  const idx = full.indexOf(STATE_SENTINEL);
-  if (idx === -1) {
-    throw new Error("模型輸出缺少 ===STATE=== 控制區塊");
-  }
-  const narrative = full.slice(0, idx).trim();
-  const tail = full.slice(idx + STATE_SENTINEL.length);
-
-  const start = tail.indexOf("{");
-  const end = tail.lastIndexOf("}");
+export function parseControlOutput(raw: string): TurnControl {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
   if (start === -1 || end === -1 || end < start) {
-    throw new Error("控制區塊找不到 JSON 物件");
+    throw new Error("副大腦輸出找不到 JSON 物件");
   }
 
-  let raw: unknown;
+  let parsed: unknown;
   try {
-    raw = JSON.parse(tail.slice(start, end + 1));
+    parsed = JSON.parse(raw.slice(start, end + 1));
   } catch (e) {
-    throw new Error(`控制區塊 JSON 解析失敗：${(e as Error).message}`);
+    throw new Error(`副大腦輸出 JSON 解析失敗：${(e as Error).message}`);
   }
 
-  const control = TurnControlSchema.parse(raw);
-  return { narrative, control };
+  return TurnControlSchema.parse(parsed);
 }
