@@ -27,18 +27,26 @@ function sequencedClient(responses: string[]): LlmClient {
   };
 }
 
-function control(awaiting: boolean, summary: string): string {
-  return (
-    `敘事：${summary}\n===STATE===\n` +
-    JSON.stringify({
-      state_changes: {},
-      rolls: [],
-      mode_transition: null,
-      awaiting_user_input: awaiting,
-      suggested_actions: [],
-      commit_summary: summary,
-    })
-  );
+function controlJson(awaiting: boolean, summary: string): string {
+  return JSON.stringify({
+    state_changes: {},
+    rolls: [],
+    mode_transition: null,
+    awaiting_user_input: awaiting,
+    suggested_actions: [],
+    commit_summary: summary,
+  });
+}
+
+/** 兩段式：依序回應，主腦散文與副大腦 JSON 交替由同一序列供應 */
+function twoBrainClient(responses: string[]): LlmClient {
+  let i = 0;
+  return {
+    async *streamChat(_m: ChatMessage[]): AsyncIterable<string> {
+      yield responses[Math.min(i, responses.length - 1)];
+      i++;
+    },
+  };
 }
 
 const sampleState: GameState = {
@@ -178,22 +186,22 @@ describe("buildControlMessages", () => {
 });
 
 describe("runMainSpaceTurn — 結構化輸出", () => {
-  it("串流敘事、套用 now/積分、commit，done 帶 awaitingUserInput/suggestedActions", async () => {
+  it("串流敘事、副大腦套用 now/積分、commit，done 帶 awaitingUserInput/suggestedActions", async () => {
     const commits: string[] = [];
-    const response =
-      "沈奕走進資訊室。\n===STATE===\n" +
-      JSON.stringify({
-        state_changes: { now: { scene: "資訊室", nextStep: "找葉晴" }, protagonist_points_delta: 2 },
-        rolls: [],
-        mode_transition: null,
-        awaiting_user_input: true,
-        suggested_actions: ["找葉晴", "離開"],
-        commit_summary: "沈奕進資訊室",
-      });
+    const narrative = "沈奕走進資訊室。";
+    const ctrl = JSON.stringify({
+      state_changes: { now: { scene: "資訊室", nextStep: "找葉晴" }, protagonist_points_delta: 2 },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: ["找葉晴", "離開"],
+      commit_summary: "沈奕進資訊室",
+    });
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
       {
-        client: fakeClient([response]),
+        client: fakeClient([narrative]),
+        controlClient: fakeClient([ctrl]),
         worldDir: world,
         commit: async (m) => { commits.push(m); return true; },
         today: () => "2026-06-19",
@@ -204,9 +212,9 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
       events.push(ev);
     }
 
-    const narrative = events.filter((e) => e.type === "delta").map((e: any) => e.text).join("");
-    expect(narrative).toContain("沈奕走進資訊室。");
-    expect(narrative).not.toContain("===STATE===");
+    const streamed = events.filter((e) => e.type === "delta").map((e: any) => e.text).join("");
+    expect(streamed).toContain("沈奕走進資訊室。");
+    expect(streamed).not.toContain("===STATE===");
 
     const done: any = events.at(-1);
     expect(done.type).toBe("done");
@@ -228,11 +236,12 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(commits).toEqual(["沈奕進資訊室"]);
   });
 
-  it("缺 sentinel 時降級：保留敘事、發 warning、暫停、仍 commit", async () => {
+  it("副大腦輸出無法解析時降級：保留敘事、發 warning、暫停、仍 commit", async () => {
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
       {
-        client: fakeClient(["這是一段沒有控制區塊的純敘事。"]),
+        client: fakeClient(["這是一段正常敘事。"]),
+        controlClient: fakeClient(["副大腦壞掉了，沒有 JSON"]),
         worldDir: world,
         commit: async () => true,
         today: () => "2026-06-19",
@@ -246,8 +255,33 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     const done: any = events.at(-1);
     expect(done.type).toBe("done");
     expect(done.awaitingUserInput).toBe(true); // 降級保守暫停
+    const streamed = events.filter((e) => e.type === "delta").map((e: any) => e.text).join("");
+    expect(streamed).toContain("這是一段正常敘事。");
     const now = await readFile(path.join(world, "now.md"), "utf8");
     expect(now).toContain("- 最後更新：[2026-06-19]");
+  });
+
+  it("副大腦呼叫整個拋錯時也降級（不中斷回合）", async () => {
+    const throwingControl: LlmClient = {
+      async *streamChat() { throw new Error("control LLM 掛了"); yield ""; },
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient(["敘事正常。"]),
+        controlClient: throwingControl,
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "做點事",
+    )) {
+      events.push(ev);
+    }
+    expect(events.some((e) => e.type === "warning")).toBe(true);
+    const done: any = events.at(-1);
+    expect(done.awaitingUserInput).toBe(true);
   });
 });
 
@@ -256,7 +290,12 @@ describe("runTurnLoop — 自動推進", () => {
     const events: TurnEvent[] = [];
     for await (const ev of runTurnLoop(
       {
-        client: sequencedClient([control(false, "系統倒數推進"), control(true, "需要玩家決定")]),
+        client: twoBrainClient([
+          "系統倒數推進敘事",          // turn 0 主腦
+          controlJson(false, "系統倒數推進"), // turn 0 副大腦
+          "需要玩家決定的敘事",        // turn 1 主腦
+          controlJson(true, "需要玩家決定"),  // turn 1 副大腦
+        ]),
         worldDir: world,
         commit: async () => true,
         today: () => "2026-06-19",
@@ -274,10 +313,15 @@ describe("runTurnLoop — 自動推進", () => {
   });
 
   it("達 maxAuto 上限即停（即使一直 false）", async () => {
+    const responses: string[] = [];
+    for (let k = 0; k < 3; k++) {
+      responses.push(`持續推進敘事 ${k}`);
+      responses.push(controlJson(false, "持續推進"));
+    }
     const events: TurnEvent[] = [];
     for await (const ev of runTurnLoop(
       {
-        client: sequencedClient([control(false, "持續推進")]),
+        client: twoBrainClient(responses),
         worldDir: world,
         commit: async () => true,
         today: () => "2026-06-19",
@@ -287,7 +331,6 @@ describe("runTurnLoop — 自動推進", () => {
     )) {
       events.push(ev);
     }
-    // 1 個初始 + 最多 2 個自動 = 最多 3 個 done
     const dones = events.filter((e) => e.type === "done");
     expect(dones).toHaveLength(3);
   });
@@ -302,20 +345,23 @@ describe("runDungeonTurn", () => {
       path.join(world, "now.md"),
       "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
     );
-    const response =
-      "你踏入大廳，三道門並排。\n===STATE===\n" +
-      JSON.stringify({
-        state_changes: { wiki_reveals: ["入口大廳有三道門"] },
-        rolls: [],
-        mode_transition: null,
-        awaiting_user_input: true,
-        suggested_actions: [],
-        commit_summary: "進入大廳",
-      });
+    const narrative = "你踏入大廳，三道門並排。";
+    const ctrl = JSON.stringify({
+      state_changes: { wiki_reveals: ["入口大廳有三道門"] },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: [],
+      commit_summary: "進入大廳",
+    });
 
     const events: TurnEvent[] = [];
     for await (const ev of runDungeonTurn(
-      { client: fakeClient([response]), worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5] },
+      {
+        client: fakeClient([narrative]),
+        controlClient: fakeClient([ctrl]),
+        worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5],
+      },
       "往前走",
     )) {
       events.push(ev);
@@ -339,18 +385,19 @@ describe("pre-pass 整合測試", () => {
         yield JSON.stringify({ stance: "觀察", intent: "提暗號", tone: "冷靜" });
       },
     };
+    const controlClient: LlmClient = {
+      async *streamChat() {
+        yield JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "test",
+        });
+      },
+    };
     let capturedSystem = "";
     const mainClient: LlmClient = {
       async *streamChat(msgs) {
         capturedSystem = msgs[0].content;
-        yield `敘事\n===STATE===\n${JSON.stringify({
-          state_changes: {},
-          rolls: [],
-          mode_transition: null,
-          awaiting_user_input: true,
-          suggested_actions: [],
-          commit_summary: "test",
-        })}`;
+        yield "純敘事內容";
       },
     };
 
@@ -359,6 +406,7 @@ describe("pre-pass 整合測試", () => {
       const deps: TurnDeps = {
         client: mainClient,
         characterClient: charClient,
+        controlClient,
         worldDir,
         commit: async () => false,
         today: () => "2026-06-19",
@@ -381,15 +429,14 @@ describe("pre-pass 整合測試", () => {
       },
     };
     const mainClient: LlmClient = {
+      async *streamChat() { yield "敘事"; },
+    };
+    const controlClient: LlmClient = {
       async *streamChat() {
-        yield `敘事\n===STATE===\n${JSON.stringify({
-          state_changes: {},
-          rolls: [],
-          mode_transition: null,
-          awaiting_user_input: true,
-          suggested_actions: [],
-          commit_summary: "test",
-        })}`;
+        yield JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "test",
+        });
       },
     };
     const worldDir = await makeTempWorld({ withYeqing: true });
@@ -397,6 +444,7 @@ describe("pre-pass 整合測試", () => {
       const deps: TurnDeps = {
         client: mainClient,
         characterClient: charClient,
+        controlClient,
         worldDir,
         commit: async () => false,
         today: () => "2026-06-19",
@@ -422,10 +470,12 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
       state_changes: { wiki_reveals: ["出口在東側"] }, rolls: [], mode_transition: "settle_dungeon",
       awaiting_user_input: true, suggested_actions: [], commit_summary: "撤離副本",
     });
-    const client = sequencedClient([
-      "系統警報響起。\n===STATE===\n" + enterCtl,   // call 0：主空間 → 進副本
-      "這個副本真正的機關是潮汐淹沒。",              // call 1：secrets 生成（純文字）
-      "你抵達出口。\n===STATE===\n" + settleCtl,    // call 2：副本回合 → 結算
+    const client = twoBrainClient([
+      "系統警報響起。",     // turn 0 主腦（主空間）
+      enterCtl,            // turn 0 副大腦 → enter_dungeon
+      "這個副本真正的機關是潮汐淹沒。", // secrets 生成（generateSecrets 用 deps.client）
+      "你抵達出口。",       // turn 1 主腦（副本）
+      settleCtl,           // turn 1 副大腦 → settle_dungeon
     ]);
 
     const events: TurnEvent[] = [];

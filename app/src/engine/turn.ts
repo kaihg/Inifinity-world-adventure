@@ -6,8 +6,7 @@ import { loadState, parseNow, applyPointsDelta, type GameState } from "./context
 import { appendJournal } from "./journal.js";
 import { applyNowChanges, serializeNow, bumpNowUpdated } from "./now.js";
 import { rollPool } from "./roll.js";
-import { createNarrativeSplitter } from "./stream-split.js";
-import { parseTurnOutput, type TurnControl } from "./schema.js";
+import { parseControlOutput, type TurnControl } from "./schema.js";
 import {
   parseActiveDungeon,
   formatActiveDungeon,
@@ -15,6 +14,7 @@ import {
   appendRun,
   loadDungeonLore,
   appendWikiReveals,
+  listDungeonIds,
 } from "./dungeon.js";
 import {
   runCharacterPrePass,
@@ -25,6 +25,8 @@ import {
 export interface TurnDeps {
   client: LlmClient;
   characterClient?: LlmClient;
+  /** 結構控制抽取 LLM（副大腦）；未提供時退回 deps.client */
+  controlClient?: LlmClient;
   worldDir: string;
   commit: (message: string) => Promise<boolean>;
   today?: () => string;
@@ -242,7 +244,10 @@ export function buildControlMessages(params: BuildControlParams): ChatMessage[] 
 // ---------- 回合核心 ----------
 
 interface TurnPlan {
+  /** 主腦（敘事）訊息 */
   messages: ChatMessage[];
+  /** 副大腦（結構抽取）訊息建構器：拿主腦完整敘事，回傳 control 對話 */
+  buildControl: (narrative: string) => ChatMessage[];
   /** raw 層落地：主空間→journal，副本→runs/<run>.md */
   appendRaw: (entry: { date: string; title: string; body: string }) => Promise<void>;
   /** 額外提煉：副本把 wiki_reveals 寫進 wiki.md */
@@ -259,29 +264,30 @@ async function* runTurnCore(
   log: Logger,
 ): AsyncGenerator<TurnEvent> {
   log.debug({ dicePool }, "回合開始");
-  const splitter = createNarrativeSplitter();
-  for await (const delta of deps.client.streamChat(plan.messages)) {
-    const text = splitter.push(delta);
-    if (text) yield { type: "delta", text };
-  }
-  const tail = splitter.flush();
-  if (tail) yield { type: "delta", text: tail };
 
-  const full = splitter.full();
-  let control: TurnControl | null = null;
+  // 1) 主腦：串流純敘事，delta 直接轉發（不再做 sentinel 切分）
   let narrative = "";
+  for await (const delta of deps.client.streamChat(plan.messages)) {
+    narrative += delta;
+    yield { type: "delta", text: delta };
+  }
+  narrative = narrative.trim();
+
+  // 2) 副大腦：讀完整敘事抽結構；失敗則降級（敘事已落地、暫停等玩家）
+  const controlClient = deps.controlClient ?? deps.client;
+  let control: TurnControl | null = null;
   try {
-    const parsed = parseTurnOutput(full);
-    control = parsed.control;
-    narrative = parsed.narrative;
+    let raw = "";
+    for await (const delta of controlClient.streamChat(plan.buildControl(narrative))) {
+      raw += delta;
+    }
+    control = parseControlOutput(raw);
   } catch (err) {
-    // 保留完整原始輸出：解析失敗時這是唯一能還原模型實際吐了什麼的線索
-    log.error({ err, raw: full }, "結構化輸出解析失敗，本回合僅保留敘事並暫停");
+    log.error({ err }, "副大腦結構抽取失敗，本回合僅保留敘事並暫停");
     yield {
       type: "warning",
-      message: `結構化輸出解析失敗，本回合僅保留敘事並暫停：${(err as Error).message}`,
+      message: `副大腦結構抽取失敗，本回合僅保留敘事並暫停：${(err as Error).message}`,
     };
-    narrative = full.trim();
   }
 
   if (control && control.rolls.length > 0) {
@@ -402,6 +408,8 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
 
+  const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
+
   yield* runTurnCore(
     deps,
     input,
@@ -410,6 +418,8 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
     today,
     {
       messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock }),
+      buildControl: (narrative) =>
+        buildControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
       appendRaw: (entry) => appendJournal(deps.worldDir, entry),
     },
     log,
@@ -434,6 +444,8 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
 
+  const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
+
   yield* runTurnCore(
     deps,
     input,
@@ -446,6 +458,11 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
         dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
         intentsBlock,
       }),
+      buildControl: (narrative) =>
+        buildControlMessages({
+          settingText, state, input, narrative, dicePool, existingDungeonIds,
+          dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
+        }),
       appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
       distill: (control, date) =>
         appendWikiReveals(deps.worldDir, active.dungeonId, control.state_changes.wiki_reveals ?? [], date, log),
