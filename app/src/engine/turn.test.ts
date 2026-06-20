@@ -38,7 +38,12 @@ function controlJson(awaiting: boolean, summary: string): string {
   });
 }
 
-/** 兩段式：依序回應，主腦散文與副大腦 JSON 交替由同一序列供應 */
+/**
+ * sequencedClient 與 twoBrainClient 都在此並存：
+ * - sequencedClient：表達「呼叫順序」語義，每次 streamChat 呼叫時推進索引
+ * - twoBrainClient：表達「主腦散文與副大腦 JSON 交替」語義，同樣透過序列供應
+ * 語意不同，邏輯實作暫無差異，保持兩個獨立函式以便未來擴展（如 twoBrainClient 後續可實作串流分岔）
+ */
 function twoBrainClient(responses: string[]): LlmClient {
   let i = 0;
   return {

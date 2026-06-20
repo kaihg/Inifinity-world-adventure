@@ -276,14 +276,14 @@ async function* runTurnCore(
   // 2) 副大腦：讀完整敘事抽結構；失敗則降級（敘事已落地、暫停等玩家）
   const controlClient = deps.controlClient ?? deps.client;
   let control: TurnControl | null = null;
+  let raw = "";
   try {
-    let raw = "";
     for await (const delta of controlClient.streamChat(plan.buildControl(narrative))) {
       raw += delta;
     }
     control = parseControlOutput(raw);
   } catch (err) {
-    log.error({ err }, "副大腦結構抽取失敗，本回合僅保留敘事並暫停");
+    log.error({ err, raw }, "副大腦結構抽取失敗，本回合僅保留敘事並暫停");
     yield {
       type: "warning",
       message: `副大腦結構抽取失敗，本回合僅保留敘事並暫停：${(err as Error).message}`,
