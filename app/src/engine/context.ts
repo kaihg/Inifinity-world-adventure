@@ -202,7 +202,7 @@ export function applyProtagonistUpdates(md: string, updates: ProtagonistUpdates)
 }
 
 /** 防止路徑穿越：NPC id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
-const NPC_ID_RE = /^[\w.-]+$/;
+export const NPC_ID_RE = /^[\w.-]+$/;
 
 /**
  * 把模型回報的 npc_updates 落地到對應 characters/<id>.md（append，帶日期標頭）。

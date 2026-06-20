@@ -10,6 +10,7 @@ import {
   applyProtagonistUpdates,
   appendNpcUpdates,
   applyIndexStatusUpdates,
+  NPC_ID_RE,
   type GameState,
 } from "./context.js";
 import { summarizeNpcStatus } from "./npc-status-summary.js";
@@ -31,6 +32,8 @@ import {
   formatIntentsBlock,
   parseCompanionIds,
 } from "./character-pre-pass.js";
+import { formatRecallBlock } from "../recall/index.js";
+import type { RecallIndex } from "../recall/store.js";
 
 export interface TurnDeps {
   client: LlmClient;
@@ -42,6 +45,10 @@ export interface TurnDeps {
   dicePool?: number[];
   /** 未提供時退回共用的預設 logger（測試環境下為 silent） */
   logger?: Logger;
+  /** 語意檢索索引（選填；缺省時跳過檢索，不影響既有回合流程） */
+  recall?: RecallIndex;
+  /** 每回合檢索片段數上限，預設 5 */
+  recallTopK?: number;
 }
 
 export type TurnEvent =
@@ -115,6 +122,7 @@ export interface BuildMessagesParams {
   input: string;
   dicePool: number[];
   intentsBlock?: string;
+  recallBlock?: string;
 }
 
 /** 主空間回合的對話訊息（純函式，可測試） */
@@ -140,6 +148,7 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     "",
     canonicalBlock(state),
     ...(params.intentsBlock ? ["", params.intentsBlock] : []),
+    ...(params.recallBlock ? ["", params.recallBlock] : []),
   ].join("\n");
 
   return [
@@ -183,6 +192,7 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
     "",
     canonicalBlock(state),
     ...(params.intentsBlock ? ["", params.intentsBlock] : []),
+    ...(params.recallBlock ? ["", params.recallBlock] : []),
   ].join("\n");
 
   return [
@@ -232,6 +242,28 @@ interface TurnPlan {
   appendRaw: (entry: { date: string; title: string; body: string }) => Promise<void>;
   /** 額外提煉：副本把 wiki_reveals 寫進 wiki.md */
   distill?: (control: TurnControl, date: string) => Promise<void>;
+  /** raw 層檔案絕對路徑（journal.md 或 runs/<run>.md），供回合結束後重建語意索引用 */
+  rawFilePath: string;
+  /** 副本 wiki.md 絕對路徑（僅副本回合有），有 wiki_reveals 時才需重新索引 */
+  wikiFilePath?: string;
+}
+
+/** 把本回合異動的檔案重新切塊嵌入進語意索引（derived cache，失敗只記警告，不影響回合落地） */
+async function reindexTouchedFiles(
+  recall: RecallIndex,
+  worldDir: string,
+  absPaths: string[],
+  log: Logger,
+): Promise<void> {
+  for (const absPath of absPaths) {
+    const relPath = path.relative(worldDir, absPath);
+    try {
+      const content = await readFile(absPath, "utf8");
+      await recall.upsertFile(relPath, content);
+    } catch (err) {
+      log.warn({ err, relPath }, "recall 索引更新失敗，略過");
+    }
+  }
 }
 
 async function* runTurnCore(
@@ -317,11 +349,25 @@ async function* runTurnCore(
   }
 
   // 5. 額外提煉（副本 wiki）
+  const wikiReveals = control?.state_changes.wiki_reveals ?? [];
   if (control && plan.distill) {
     await plan.distill(control, today);
   }
 
-  // 6. commit
+  // 6. 語意檢索索引：把本回合異動的檔案重新切塊嵌入（derived cache，與 git commit 內容無關）
+  if (deps.recall) {
+    const touched = [plan.rawFilePath];
+    if (delta || protagonistUpdates) {
+      touched.push(path.join(deps.worldDir, "characters", "protagonist.md"));
+    }
+    for (const { id } of npcUpdates) {
+      if (NPC_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "characters", `${id}.md`));
+    }
+    if (plan.wikiFilePath && wikiReveals.length > 0) touched.push(plan.wikiFilePath);
+    await reindexTouchedFiles(deps.recall, deps.worldDir, touched, log);
+  }
+
+  // 7. commit
   const committed = await deps.commit(summary);
 
   log.info(
@@ -387,6 +433,23 @@ async function* runPrePassBlock(
   return formatIntentsBlock(intents, npcNames);
 }
 
+const DEFAULT_RECALL_TOP_K = 5;
+
+/**
+ * 對 deps.recall（若有）以玩家輸入做語意檢索，格式化成 recallBlock。
+ * 失敗靜默降級——不 block 回合，但 yield warning 讓前端可觀察。
+ */
+async function* runRecallBlock(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent, string> {
+  if (!deps.recall) return "";
+  try {
+    const hits = await deps.recall.query(input, deps.recallTopK ?? DEFAULT_RECALL_TOP_K);
+    return formatRecallBlock(hits);
+  } catch (err) {
+    yield { type: "warning" as const, message: `recall 檢索失敗，略過：${(err as Error).message}` };
+    return "";
+  }
+}
+
 /** 主空間敘事回合 */
 export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
   const log = (deps.logger ?? defaultLogger).child({ mode: "main-space" });
@@ -396,6 +459,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
+  const recallBlock = yield* runRecallBlock(deps, input);
 
   yield* runTurnCore(
     deps,
@@ -404,8 +468,9 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
     dicePool,
     today,
     {
-      messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock }),
+      messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock }),
       appendRaw: (entry) => appendJournal(deps.worldDir, entry),
+      rawFilePath: path.join(deps.worldDir, "journal.md"),
     },
     log,
   );
@@ -428,6 +493,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const lore = await loadDungeonLore(deps.worldDir, active.dungeonId, log);
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
+  const recallBlock = yield* runRecallBlock(deps, input);
 
   yield* runTurnCore(
     deps,
@@ -439,11 +505,13 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
       messages: buildDungeonMessages({
         settingText, state, input, dicePool,
         dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
-        intentsBlock,
+        intentsBlock, recallBlock,
       }),
       appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
       distill: (control, date) =>
         appendWikiReveals(deps.worldDir, active.dungeonId, control.state_changes.wiki_reveals ?? [], date, log),
+      rawFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "runs", `${active.runId}.md`),
+      wikiFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "wiki.md"),
     },
     log,
   );
