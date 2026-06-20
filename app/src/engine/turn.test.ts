@@ -272,6 +272,37 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(commits).toEqual(["沈奕進資訊室"]);
   });
 
+  it("副大腦試圖用 now.activeDungeon 自行覆寫副本欄時，引擎忽略該欄（由 mode_transition 管理）", async () => {
+    const ctrl = JSON.stringify({
+      state_changes: { now: { scene: "詭異的走廊", activeDungeon: "U-999 + run-1" } },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: [],
+      commit_summary: "場景變化",
+    });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient(["四周突然變得詭異。"]),
+        controlClient: fakeClient([ctrl]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "往前走",
+    )) {
+      events.push(ev);
+    }
+    const now = await readFile(path.join(world, "now.md"), "utf8");
+    // scene 等正常欄位仍套用
+    expect(now).toContain("- 此刻場景/地點：詭異的走廊");
+    // 但 activeDungeon 被引擎忽略，維持「無」，不會繞過 enterDungeon 流程
+    expect(now).toContain("- 進行中的副本：無");
+    expect(now).not.toContain("U-999");
+  });
+
   it("protagonist_updates 落地到 protagonist.md 對應區塊（主角成長記憶）", async () => {
     await writeFile(
       path.join(world, "characters", "protagonist.md"),

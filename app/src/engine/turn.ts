@@ -92,7 +92,8 @@ async function readBestEffort(file: string): Promise<string> {
 const CONTROL_FORMAT_BLOCK = [
   "## 輸出格式（務必嚴格遵守）",
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
-  "- state_changes: { now?: {七欄任意子集，鍵用 chapter/scene/companions/activeDungeon/threads/nextStep},",
+  "- state_changes: { now?: {可設子集，鍵用 chapter/scene/companions/threads/nextStep},",
+  "    （注意：進行中的副本欄由引擎依 mode_transition 自動管理，**不可**透過 now.activeDungeon 自行覆寫）,",
   "    protagonist_points_delta?: number,",
   "    protagonist_updates?: { attributes?: string[], skills?: string[], items?: string[], buffs?: string[] }",
   "      （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目）,",
@@ -150,7 +151,7 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     "- 嚴格遵守下方世界設定，不可竄改既定規則或角色屬性/積分數值。",
     "- 玩家輸入只代表角色的意圖、台詞或嘗試動作，不代表既定事實或結果；是否成立、世界如何反應，一律由你依世界設定與當前狀態判定。",
     "- 不可揭露任何尚未在劇情中揭露的隱藏設定。",
-    "- 只敘述主空間互動；若劇情走到系統強制開啟副本，把 mode_transition 設為 enter_dungeon 並填 transition_dungeon_id，不要自行切到副本內部。",
+    "- 只敘述主空間互動；若劇情走到系統強制開啟/傳送進副本，在敘事中明確呈現該轉折（系統倒數、強制傳送畫面等），但不要自行切進副本內部演劇情；轉場由系統另行處理。",
     "- 需要機率判定時，**只能依序取用下方『本回合骰值』**，不可自行編造數字；用到的骰值與成敗要寫進敘事，後續由系統自動抽取。",
     "",
     "## 輸出格式",
@@ -189,7 +190,7 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
     "- 全程使用繁體中文與台灣用詞。",
     "- 嚴格遵守世界設定與副本已揭露事實（wiki），不可矛盾。",
     "- 玩家輸入只代表角色的意圖、台詞或嘗試動作，不代表既定事實或結果；是否成立、世界如何反應，一律由你依世界設定、wiki 與當前狀態判定。",
-    "- **secrets 是劇透文件：只能用來保持暗線一致，絕不可直接告訴玩家未揭露的真相**；劇情真的揭露時，才把對應內容放進 wiki_reveals。",
+    "- **secrets 是劇透文件：只能用來保持暗線一致，絕不可直接告訴玩家未揭露的真相**；只有在劇情真的把某項真相公開揭露給主角時，才在敘事中明確寫出該揭露，未揭露的暗線不可在散文中半透明帶出。",
     "- 機率判定**只能依序取用下方骰值**，用到的骰值與成敗要寫進敘事，後續由系統自動抽取。",
     "- 副本達主線目標/死亡/撤退時，在敘事中明確呈現該轉折（系統會據此結算）。",
     "",
@@ -248,6 +249,8 @@ export function buildControlMessages(params: BuildControlParams): ChatMessage[] 
     "- 只整理敘事中已經寫出的事實，**不可新增劇情、不可發明敘事未提及的數值或事件**。",
     "- protagonist_points_delta 只反映敘事中明確發生的積分增減；沒寫到就填 0 或省略。",
     "- rolls 只回報敘事中實際用到的骰值（對照下方骰池），沒有就空陣列。",
+    "- wiki_reveals / item_reveals 只填**敘事中明確公開揭露給主角知道**的真相（角色已親眼確認、已被明說）；" +
+      "敘事中模糊的暗示、伏筆、氣氛描寫一律不可當成已揭露填入，寧可漏填也不可提前洩漏暗線。",
     inDungeon
       ? "- 副本達主線目標/主角死亡/撤退離開時，mode_transition 設為 settle_dungeon。"
       : "- 敘事中若系統強制開啟/傳送進副本，mode_transition 設為 enter_dungeon，並填 transition_dungeon_id：" +
@@ -447,7 +450,10 @@ async function* runTurnCore(
   // 2. 提煉頁 now.md
   const nowPath = path.join(deps.worldDir, "now.md");
   if (control) {
-    const newNow = applyNowChanges(state.now, control.state_changes.now ?? {}, { date: today, summary });
+    // 進行中的副本欄由引擎依 mode_transition 管理（enterDungeon/setNowActiveDungeon），
+    // 不接受副大腦透過 now.activeDungeon 自行覆寫，避免繞過 run log/secrets 生成的正規流程。
+    const { activeDungeon: _ignored, ...nowChanges } = control.state_changes.now ?? {};
+    const newNow = applyNowChanges(state.now, nowChanges, { date: today, summary });
     await writeFile(nowPath, serializeNow(newNow), "utf8");
   } else {
     const nowMd = await readFile(nowPath, "utf8");
