@@ -232,6 +232,27 @@ export async function appendNpcUpdates(
   }
 }
 
+/**
+ * 把 id→近況摘要套用到 characters/index.md 表格的「最近狀態」欄（第 4 欄）。
+ * 找不到對應 id 的列、或非表格資料列（標題/分隔線）都原樣保留。
+ */
+export function applyIndexStatusUpdates(md: string, updates: Record<string, string>): string {
+  if (Object.keys(updates).length === 0) return md;
+  return md
+    .split("\n")
+    .map((line) => {
+      const m = line.match(/^\|(.+)\|\s*$/);
+      if (!m) return line;
+      const cells = m[1].split("|").map((c) => c.trim());
+      if (cells.length < 4) return line;
+      const id = cells[0];
+      if (id === "ID" || /^-+$/.test(id) || !(id in updates)) return line;
+      cells[3] = updates[id];
+      return `| ${cells.join(" | ")} |`;
+    })
+    .join("\n");
+}
+
 /** 從 protagonist.md 擷取輕量摘要（姓名、當前積分） */
 export function parseProtagonist(md: string): ProtagonistSummary {
   const name = md.match(/^-\s*姓名：(.*)$/m)?.[1].trim() ?? "";

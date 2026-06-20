@@ -11,6 +11,7 @@ import {
   applyPointsDelta,
   applyProtagonistUpdates,
   appendNpcUpdates,
+  applyIndexStatusUpdates,
   loadState,
 } from "./context.js";
 import { loadConfig } from "../config.js";
@@ -212,6 +213,45 @@ describe("applyProtagonistUpdates", () => {
     const noBuffSection = md.replace("## Buff / Debuff / 狀態\n- （無）\n\n", "");
     expect(() => applyProtagonistUpdates(noBuffSection, { buffs: ["輕傷"] })).not.toThrow();
     expect(applyProtagonistUpdates(noBuffSection, { buffs: ["輕傷"] })).toBe(noBuffSection);
+  });
+});
+
+describe("applyIndexStatusUpdates", () => {
+  const indexMd = `# 角色索引
+
+| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |
+|----|------|------|----------|--------------|
+| protagonist | 沈奕 | 主角 | 安全區 | - |
+| yeqing | 葉晴 | NPC / 潛在隊友 | 結盟 | - |
+| linsiyu | 林思雨 | NPC | 跟隨 | - |
+
+## 鎖定事實
+`;
+
+  it("更新對應 id 列的最近狀態欄，其他列與其他欄不變", () => {
+    const result = applyIndexStatusUpdates(indexMd, { yeqing: "信任提升，主動分享情報" });
+    expect(result).toContain("| yeqing | 葉晴 | NPC / 潛在隊友 | 信任提升，主動分享情報 | - |");
+    expect(result).toContain("| linsiyu | 林思雨 | NPC | 跟隨 | - |"); // 未更新的列原樣保留
+    expect(result).toContain("| protagonist | 沈奕 | 主角 | 安全區 | - |");
+  });
+
+  it("找不到對應 id 時原樣返回", () => {
+    expect(applyIndexStatusUpdates(indexMd, { "no-such-id": "x" })).toBe(indexMd);
+  });
+
+  it("更新為空物件時原樣返回", () => {
+    expect(applyIndexStatusUpdates(indexMd, {})).toBe(indexMd);
+  });
+
+  it("不會誤改標題列或分隔線", () => {
+    const result = applyIndexStatusUpdates(indexMd, { ID: "x", "----": "x" });
+    expect(result).toBe(indexMd);
+  });
+
+  it("多筆同時更新都生效", () => {
+    const result = applyIndexStatusUpdates(indexMd, { yeqing: "更新一", linsiyu: "更新二" });
+    expect(result).toContain("| yeqing | 葉晴 | NPC / 潛在隊友 | 更新一 | - |");
+    expect(result).toContain("| linsiyu | 林思雨 | NPC | 更新二 | - |");
   });
 });
 

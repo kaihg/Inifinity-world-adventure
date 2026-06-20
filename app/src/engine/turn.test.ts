@@ -248,6 +248,45 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(prot).toContain("- 戰術刀\n- 生鏽鐵管");
   });
 
+  it("npc_updates 同步用小模型摘要進 characters/index.md 的最近狀態欄", async () => {
+    await writeFile(path.join(world, "characters", "yeqing.md"), "# 葉晴\n- 姓名：葉晴\n前特種部隊教官\n", "utf8");
+    await writeFile(
+      path.join(world, "characters", "index.md"),
+      [
+        "| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |",
+        "|----|------|------|----------|--------------|",
+        "| yeqing | 葉晴 | NPC | 結盟 | - |",
+      ].join("\n"),
+      "utf8",
+    );
+    const response =
+      "葉晴點點頭，眼神多了幾分信任。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { npc_updates: [{ id: "yeqing", update: "對沈奕的信任進一步提升" }] },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "葉晴信任提升",
+      });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient([response]),
+        characterClient: fakeClient(["信任大幅提升"]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "和葉晴交談",
+    )) {
+      events.push(ev);
+    }
+    const index = await readFile(path.join(world, "characters", "index.md"), "utf8");
+    expect(index).toContain("| yeqing | 葉晴 | NPC | 信任大幅提升 | - |");
+  });
+
   it("npc_updates 落地到對應 characters/<id>.md（NPC 長期記憶）", async () => {
     await writeFile(path.join(world, "characters", "yeqing.md"), "# 葉晴\n前特種部隊教官\n", "utf8");
     const response =
