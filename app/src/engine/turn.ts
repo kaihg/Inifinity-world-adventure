@@ -26,6 +26,7 @@ import {
   loadDungeonLore,
   appendWikiReveals,
 } from "./dungeon.js";
+import { loadLore, ensureSecrets, appendLoreReveals } from "./lore.js";
 import {
   runCharacterPrePass,
   formatIntentsBlock,
@@ -87,7 +88,10 @@ const OUTPUT_FORMAT_BLOCK = [
   "    protagonist_points_delta?: number,",
   "    protagonist_updates?: { attributes?: string[], skills?: string[], items?: string[], buffs?: string[] }",
   "      （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目）,",
-  "    npc_updates?: [{id, update}], wiki_reveals?: [string] }",
+  "    npc_updates?: [{id, update}], wiki_reveals?: [string],",
+  "    item_pickups?: [{id, name}]（主角本回合首次撿到的道具；id 用英數小寫 slug，name 用顯示名稱，",
+  "      首次撿到時引擎會生成該道具的隱藏設定，之後同 id 不會重複生成）,",
+  "    item_reveals?: [{id, reveal}]（劇情中真的揭露出該道具暗藏的設定時才填，累積進該道具的 wiki） }",
   "- rolls: [{desc, value, success?}]（本回合用到的骰值，沒有就空陣列）",
   '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
   "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
@@ -224,6 +228,48 @@ async function syncCharacterIndexStatus(
   log.debug({ statusUpdates }, "同步 characters/index.md 近況欄");
 }
 
+/** 防止路徑穿越：道具 id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
+const ITEM_ID_RE = /^[\w.-]+$/;
+
+/** 為指定道具生成隱藏設定（劇透文件，僅供暗線一致，不可外洩）；風格與 generateSecrets 對齊 */
+async function generateItemSecrets(client: LlmClient, settingText: string, itemName: string): Promise<string> {
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content:
+        "你是「無限恐怖」世界的道具設計者。為指定道具生成隱藏設定（真實來歷、隱藏效果、與主線的關聯）。" +
+        "這是劇透文件，玩家永遠不會直接看到，只供敘事暗線一致。只輸出設定內容本身，繁體中文，不要前言或客套。\n\n" +
+        "世界設定：\n" + settingText.trim(),
+    },
+    { role: "user", content: `道具名稱：${itemName}。請生成其隱藏設定。` },
+  ];
+  let full = "";
+  for await (const d of client.streamChat(messages)) full += d;
+  return full.trim() || "（生成失敗，待補）";
+}
+
+/**
+ * 把本回合首次撿到的道具落地：首次接觸時用主敘事模型生成隱藏設定（secrets.md，僅生成一次），
+ * 劇情中揭露出來的部分另由 item_reveals 累積進 wiki.md。單筆失敗只略過該筆，不中斷其他筆。
+ */
+async function applyItemPickups(
+  deps: TurnDeps,
+  settingText: string,
+  pickups: Array<{ id: string; name: string }>,
+  log: Logger,
+): Promise<void> {
+  for (const { id, name } of pickups) {
+    if (!ITEM_ID_RE.test(id)) {
+      log.warn({ id }, "item_pickups 含不合法 id，略過");
+      continue;
+    }
+    const existing = await loadLore(deps.worldDir, "items", id, log);
+    if (existing.secrets) continue;
+    const secretsText = await generateItemSecrets(deps.client, settingText, name);
+    await ensureSecrets(deps.worldDir, "items", id, secretsText, `道具隱藏設定（${name}）`, log);
+  }
+}
+
 // ---------- 回合核心 ----------
 
 interface TurnPlan {
@@ -240,6 +286,7 @@ async function* runTurnCore(
   state: GameState,
   dicePool: number[],
   today: string,
+  settingText: string,
   plan: TurnPlan,
   log: Logger,
 ): AsyncGenerator<TurnEvent> {
@@ -316,12 +363,26 @@ async function* runTurnCore(
     await syncCharacterIndexStatus(deps, npcUpdates, log);
   }
 
-  // 5. 額外提煉（副本 wiki）
+  // 5. 道具（首次撿到時生成隱藏設定；劇情揭露時累積進對應道具的 wiki）
+  const itemPickups = control?.state_changes.item_pickups ?? [];
+  if (itemPickups.length > 0) {
+    await applyItemPickups(deps, settingText, itemPickups, log);
+  }
+  const itemReveals = control?.state_changes.item_reveals ?? [];
+  for (const { id, reveal } of itemReveals) {
+    if (!ITEM_ID_RE.test(id)) {
+      log.warn({ id }, "item_reveals 含不合法 id，略過");
+      continue;
+    }
+    await appendLoreReveals(deps.worldDir, "items", id, [reveal], today, `道具（${id}）`, log);
+  }
+
+  // 6. 額外提煉（副本 wiki）
   if (control && plan.distill) {
     await plan.distill(control, today);
   }
 
-  // 6. commit
+  // 7. commit
   const committed = await deps.commit(summary);
 
   log.info(
@@ -403,6 +464,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
     state,
     dicePool,
     today,
+    settingText,
     {
       messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock }),
       appendRaw: (entry) => appendJournal(deps.worldDir, entry),
@@ -435,6 +497,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
     state,
     dicePool,
     today,
+    settingText,
     {
       messages: buildDungeonMessages({
         settingText, state, input, dicePool,

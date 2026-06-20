@@ -317,6 +317,70 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(yeqing).toContain("對沈奕的信任進一步提升");
   });
 
+  it("item_pickups 首次撿到時生成道具 secrets.md，item_reveals 累積進 wiki.md", async () => {
+    const response =
+      "沈奕從地上撿起一根生鏽鐵管。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: {
+          item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }],
+          item_reveals: [{ id: "rusty-pipe", reveal: "管身刻有奇怪符號" }],
+        },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "撿到鐵管",
+      });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: sequencedClient([response, "其實是某把武器的殘骸，蘊含未知力量。"]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "撿起鐵管",
+    )) {
+      events.push(ev);
+    }
+    const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
+    expect(secrets).toContain("某把武器的殘骸");
+    const wiki = await readFile(path.join(world, "items", "rusty-pipe", "wiki.md"), "utf8");
+    expect(wiki).toContain("管身刻有奇怪符號");
+  });
+
+  it("item_pickups 對已有 secrets 的道具不重複生成", async () => {
+    await mkdir(path.join(world, "items", "rusty-pipe"), { recursive: true });
+    await writeFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "# 道具隱藏設定（生鏽鐵管）\n\n原始真相\n");
+    const response =
+      "沈奕又看了一眼鐵管。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }] },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "再次檢視鐵管",
+      });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: sequencedClient([response, "新真相（不該寫入）"]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "再看看鐵管",
+    )) {
+      events.push(ev);
+    }
+    const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
+    expect(secrets).toContain("原始真相");
+    expect(secrets).not.toContain("不該寫入");
+  });
+
   it("缺 sentinel 時降級：保留敘事、發 warning、暫停、仍 commit", async () => {
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
