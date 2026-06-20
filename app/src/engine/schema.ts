@@ -63,32 +63,48 @@ export type TurnControl = z.infer<typeof TurnControlSchema>;
 export type NowChanges = z.infer<typeof NowChangesSchema>;
 
 /**
- * 從副大腦原始輸出抽出 JSON 物件字串。
- * 先去掉 markdown code fence，再從第一個 `{` 起，由最後一個 `}` 往前逐個嘗試
- * 解析，取第一個能 JSON.parse 成功的範圍。這樣對「合法 JSON 之後又跟了含 `}`
- * 的客套字」（lastIndexOf 會抓到後綴的 `}`）也能還原，而非整段降級。
- * 找不到任何可解析的 JSON 時回傳 null。
+ * 從第一個 `{` 起，由最後一個 `}` 往前逐個嘗試解析，取第一個能 JSON.parse
+ * 成功的範圍。這樣對「合法 JSON 之後又跟了含 `}` 的客套字」（lastIndexOf 會
+ * 抓到後綴的 `}`）也能還原，而非整段降級。找不到任何可解析的範圍時回傳
+ * undefined（與 JSON 合法值 null 區分）。
  */
-function extractJsonObject(raw: string): unknown {
-  let cleaned = raw.replace(/```(?:json)?/gi, "");
-  // 自動修復常見的 LLM 格式錯誤：
-  // 1. 將無引號的鍵補上雙引號 (例如 { desc: -> { "desc": )
-  cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-  // 2. 將單引號的鍵改為雙引號 (例如 { 'desc': -> { "desc": )
-  cleaned = cleaned.replace(/([{,]\s*)'([a-zA-Z_][a-zA-Z0-9_]*)'\s*:/g, '$1"$2":');
+function extractFromText(text: string): unknown {
+  const start = text.indexOf("{");
+  if (start === -1) return undefined;
 
-  const start = cleaned.indexOf("{");
-  if (start === -1) return null;
-
-  // 由最後一個 `}` 往前找，第一個能成功 parse 的就是答案（happy path 一次命中）
-  for (let end = cleaned.lastIndexOf("}"); end > start; end = cleaned.lastIndexOf("}", end - 1)) {
+  for (let end = text.lastIndexOf("}"); end > start; end = text.lastIndexOf("}", end - 1)) {
     try {
-      return JSON.parse(cleaned.slice(start, end + 1));
+      return JSON.parse(text.slice(start, end + 1));
     } catch {
       // 這個 `}` 不是 JSON 真正的結尾（可能是後綴客套字裡的），往前再試
     }
   }
-  return null;
+  return undefined;
+}
+
+/**
+ * 從副大腦原始輸出抽出 JSON 物件字串。
+ * 先去掉 markdown code fence直接嘗試解析；只有直接解析失敗時，才進一步補
+ * 修常見的 LLM 格式錯誤（無引號鍵、單引號鍵）後重試 —— 修復用正則不理解
+ * 字串邊界，若對本來就合法的 JSON 全文套用，字串值裡剛好出現「, 詞:」
+ * 這種片段（例如 commit_summary 的敘事文字）會被誤判成未加引號的鍵而破壞，
+ * 所以只在 happy path 失敗時才介入，避免讓本來能解析的輸出反而解析失敗。
+ * 找不到任何可解析的 JSON 時回傳 null。
+ */
+function extractJsonObject(raw: string): unknown {
+  const cleaned = raw.replace(/```(?:json)?/gi, "");
+
+  const direct = extractFromText(cleaned);
+  if (direct !== undefined) return direct;
+
+  const repaired = cleaned
+    // 1. 將無引號的鍵補上雙引號 (例如 { desc: -> { "desc": )
+    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+    // 2. 將單引號的鍵改為雙引號 (例如 { 'desc': -> { "desc": )
+    .replace(/([{,]\s*)'([a-zA-Z_][a-zA-Z0-9_]*)'\s*:/g, '$1"$2":');
+
+  const fallback = extractFromText(repaired);
+  return fallback === undefined ? null : fallback;
 }
 
 /**
