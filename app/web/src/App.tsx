@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchState, streamTurn, type GameState } from "./api";
+import { fetchState, fetchVersion, streamTurn, type AppVersion, type GameState } from "./api";
 
 const PREFILL_HINT =
   "主控系統正在分析個體行動，載入因果律中…（自架模型首字推論可能需數十秒，請稍候）";
@@ -11,6 +11,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
   const [showStatus, setShowStatus] = useState(false);
+  const [version, setVersion] = useState<AppVersion | null>(null);
   const storyEndRef = useRef<HTMLDivElement | null>(null);
   const loadedInitialRef = useRef(false);
 
@@ -27,6 +28,7 @@ export function App() {
       .catch(() => {});
   useEffect(() => {
     refresh();
+    fetchVersion().then(setVersion).catch(() => {});
   }, []);
   useEffect(() => {
     storyEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -92,6 +94,11 @@ export function App() {
               </span>
             </div>
           </div>
+          {version && (
+            <span className="version-tag" title={version.message}>
+              {version.hash}
+            </span>
+          )}
           <div className="header-actions">
             <button
               className="icon-btn"
