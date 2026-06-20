@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, appendFile } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 import { parseLastTurnRecord, type LastTurnRecord } from "./journal.js";
@@ -160,6 +160,37 @@ export function applyPointsDelta(md: string, delta: number): string {
     /^(-\s*當前積分：)\s*(-?\d+)/m,
     (_m, prefix: string, n: string) => `${prefix}${Number(n) + delta}`,
   );
+}
+
+/** 防止路徑穿越：NPC id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
+const NPC_ID_RE = /^[\w.-]+$/;
+
+/**
+ * 把模型回報的 npc_updates 落地到對應 characters/<id>.md（append，帶日期標頭）。
+ * id 不合法或對應檔案不存在時靜默略過該筆，不中斷其他筆。
+ */
+export async function appendNpcUpdates(
+  worldDir: string,
+  updates: Array<{ id: string; update: string }>,
+  date: string,
+  logger: Logger = defaultLogger,
+): Promise<void> {
+  for (const { id, update } of updates) {
+    if (!NPC_ID_RE.test(id)) {
+      logger.warn({ id }, "npc_updates 含不合法 id，略過");
+      continue;
+    }
+    const file = path.join(worldDir, "characters", `${id}.md`);
+    try {
+      await appendFile(file, `\n## [${date}] 更新\n\n${update.trim()}\n`, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+        logger.warn({ id }, "npc_updates 對應角色檔不存在，略過");
+      } else {
+        throw err;
+      }
+    }
+  }
 }
 
 /** 從 protagonist.md 擷取輕量摘要（姓名、當前積分） */

@@ -199,6 +199,36 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(commits).toEqual(["沈奕進資訊室"]);
   });
 
+  it("npc_updates 落地到對應 characters/<id>.md（NPC 長期記憶）", async () => {
+    await writeFile(path.join(world, "characters", "yeqing.md"), "# 葉晴\n前特種部隊教官\n", "utf8");
+    const response =
+      "葉晴點點頭，眼神多了幾分信任。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { npc_updates: [{ id: "yeqing", update: "對沈奕的信任進一步提升" }] },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "葉晴信任提升",
+      });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient([response]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "和葉晴交談",
+    )) {
+      events.push(ev);
+    }
+    const yeqing = await readFile(path.join(world, "characters", "yeqing.md"), "utf8");
+    expect(yeqing).toContain("## [2026-06-19] 更新");
+    expect(yeqing).toContain("對沈奕的信任進一步提升");
+  });
+
   it("缺 sentinel 時降級：保留敘事、發 warning、暫停、仍 commit", async () => {
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(

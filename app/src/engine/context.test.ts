@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -9,6 +9,7 @@ import {
   parseProtagonistDetail,
   parseCharacterIndex,
   applyPointsDelta,
+  appendNpcUpdates,
   loadState,
 } from "./context.js";
 import { loadConfig } from "../config.js";
@@ -153,6 +154,54 @@ describe("applyPointsDelta", () => {
   });
   it("delta 為 0 時原樣返回", () => {
     expect(applyPointsDelta("- 當前積分：5\n", 0)).toBe("- 當前積分：5\n");
+  });
+});
+
+describe("appendNpcUpdates", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "iwa-npc-updates-"));
+    await mkdir(path.join(dir, "characters"), { recursive: true });
+    await writeFile(path.join(dir, "characters", "yeqing.md"), "# 葉晴\n前特種部隊教官\n", "utf8");
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("把更新 append 到對應角色檔，帶日期標頭", async () => {
+    await appendNpcUpdates(dir, [{ id: "yeqing", update: "對沈奕的信任提升" }], "2026-06-20");
+    const md = await readFile(path.join(dir, "characters", "yeqing.md"), "utf8");
+    expect(md).toContain("# 葉晴");
+    expect(md).toContain("## [2026-06-20] 更新");
+    expect(md).toContain("對沈奕的信任提升");
+  });
+
+  it("對應角色檔不存在時靜默略過，不拋錯", async () => {
+    await expect(
+      appendNpcUpdates(dir, [{ id: "unknown-npc", update: "不存在的角色" }], "2026-06-20"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("id 含路徑分隔符等不合法字元時靜默略過，不寫出檔案", async () => {
+    await appendNpcUpdates(dir, [{ id: "../escape", update: "嘗試逃出 characters/" }], "2026-06-20");
+    const escaped = await readFile(path.join(dir, "escape.md"), "utf8").catch(() => null);
+    expect(escaped).toBeNull();
+  });
+
+  it("多筆更新各自獨立 append", async () => {
+    await writeFile(path.join(dir, "characters", "linsiyu.md"), "# 林思雨\n", "utf8");
+    await appendNpcUpdates(
+      dir,
+      [
+        { id: "yeqing", update: "更新一" },
+        { id: "linsiyu", update: "更新二" },
+      ],
+      "2026-06-20",
+    );
+    const yeqing = await readFile(path.join(dir, "characters", "yeqing.md"), "utf8");
+    const linsiyu = await readFile(path.join(dir, "characters", "linsiyu.md"), "utf8");
+    expect(yeqing).toContain("更新一");
+    expect(linsiyu).toContain("更新二");
   });
 });
 

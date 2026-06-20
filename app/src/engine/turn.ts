@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { logger as defaultLogger, type Logger } from "../logger.js";
-import { loadState, parseNow, applyPointsDelta, type GameState } from "./context.js";
+import { loadState, parseNow, applyPointsDelta, appendNpcUpdates, type GameState } from "./context.js";
 import { appendJournal } from "./journal.js";
 import { applyNowChanges, serializeNow, bumpNowUpdated } from "./now.js";
 import { rollPool } from "./roll.js";
@@ -260,12 +260,18 @@ async function* runTurnCore(
     await writeFile(pPath, applyPointsDelta(pMd, delta), "utf8");
   }
 
-  // 4. 額外提煉（副本 wiki）
+  // 4. NPC 更新（落地到 characters/<id>.md，否則角色長期沒有記憶）
+  const npcUpdates = control?.state_changes.npc_updates ?? [];
+  if (npcUpdates.length > 0) {
+    await appendNpcUpdates(deps.worldDir, npcUpdates, today, log);
+  }
+
+  // 5. 額外提煉（副本 wiki）
   if (control && plan.distill) {
     await plan.distill(control, today);
   }
 
-  // 5. commit
+  // 6. commit
   const committed = await deps.commit(summary);
 
   log.info(
