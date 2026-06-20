@@ -55,20 +55,12 @@ function controlJson(awaiting: boolean, summary: string): string {
 }
 
 /**
- * sequencedClient 與 twoBrainClient 都在此並存：
- * - sequencedClient：表達「呼叫順序」語義，每次 streamChat 呼叫時推進索引
- * - twoBrainClient：表達「主腦散文與副大腦 JSON 交替」語義，同樣透過序列供應
- * 語意不同，邏輯實作暫無差異，保持兩個獨立函式以便未來擴展（如 twoBrainClient 後續可實作串流分岔）
+ * twoBrainClient 是 sequencedClient 的語意別名：
+ * - sequencedClient：表達「呼叫順序」語義，適合需要序列回應的通用測試
+ * - twoBrainClient：表達「主腦散文與副大腦 JSON 交替供應」語義，讓測試意圖更易讀
+ * 兩者行為完全相同；若未來需要真正的串流分岔可將 twoBrainClient 替換為獨立實作。
  */
-function twoBrainClient(responses: string[]): LlmClient {
-  let i = 0;
-  return {
-    async *streamChat(_m: ChatMessage[]): AsyncIterable<string> {
-      yield responses[Math.min(i, responses.length - 1)];
-      i++;
-    },
-  };
-}
+const twoBrainClient = sequencedClient;
 
 const sampleState: GameState = {
   now: {

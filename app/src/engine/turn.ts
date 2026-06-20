@@ -90,6 +90,14 @@ async function readBestEffort(file: string): Promise<string> {
 
 // ---------- 共用 system prompt 片段 ----------
 
+/** 把可選的意圖區塊與語意檢索區塊串接到 prompt 尾段（兩者缺省時各自略去，不留空行） */
+function appendOptionalBlocks(params: { intentsBlock?: string; recallBlock?: string }): string[] {
+  return [
+    ...(params.intentsBlock ? ["", params.intentsBlock] : []),
+    ...(params.recallBlock ? ["", params.recallBlock] : []),
+  ];
+}
+
 const CONTROL_FORMAT_BLOCK = [
   "## 輸出格式（務必嚴格遵守）",
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
@@ -164,8 +172,7 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     settingText.trim(),
     "",
     canonicalBlock(state),
-    ...(params.intentsBlock ? ["", params.intentsBlock] : []),
-    ...(params.recallBlock ? ["", params.recallBlock] : []),
+    ...appendOptionalBlocks(params),
   ].join("\n");
 
   return [
@@ -210,8 +217,7 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
     secrets.trim() || "（無）",
     "",
     canonicalBlock(state),
-    ...(params.intentsBlock ? ["", params.intentsBlock] : []),
-    ...(params.recallBlock ? ["", params.recallBlock] : []),
+    ...appendOptionalBlocks(params),
   ].join("\n");
 
   return [
