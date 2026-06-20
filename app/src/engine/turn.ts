@@ -226,7 +226,8 @@ async function* runTurnCore(
       ? `\n\n擲骰：${control.rolls.map((r) => `${r.desc}=${r.value}${r.success === undefined ? "" : r.success ? "(成功)" : "(失敗)"}`).join("、")}`
       : "";
   const suggestedActions = control?.suggested_actions ?? [];
-  const suggestedLine = suggestedActions.length > 0 ? `\n\n建議動作：${suggestedActions.join("、")}` : "";
+  // JSON 編碼：往返不受動作文字本身含「、」等分隔字元影響
+  const suggestedLine = suggestedActions.length > 0 ? `\n\n建議動作：${JSON.stringify(suggestedActions)}` : "";
   await plan.appendRaw({
     date: today,
     title: summary,

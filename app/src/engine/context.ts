@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
-import { parseLastTurnRecord, type LastTurnRecord } from "./journal.js";
+import { readLastTurnRecord, type LastTurnRecord } from "./journal.js";
 import { parseActiveDungeon } from "./dungeon.js";
 
 /** world/now.md 的七個固定欄位（對應回合收束協議的覆寫頁） */
@@ -187,8 +187,7 @@ async function loadLastTurn(worldDir: string, now: NowState, logger: Logger): Pr
   const rawFile = active
     ? path.join(worldDir, "dungeons", active.dungeonId, "runs", `${active.runId}.md`)
     : path.join(worldDir, "journal.md");
-  const md = await readOrEmpty(rawFile, logger);
-  return md ? parseLastTurnRecord(md) : null;
+  return readLastTurnRecord(rawFile, logger);
 }
 
 export async function loadState(worldDir: string, logger: Logger = defaultLogger): Promise<GameState> {

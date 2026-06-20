@@ -208,7 +208,7 @@ describe("loadState — lastTurn 還原（fixture worldDir）", () => {
     await mkdir(path.join(dir, "dungeons", "U-001", "runs"), { recursive: true });
     await writeFile(
       path.join(dir, "dungeons", "U-001", "runs", "run-1.md"),
-      "## [2026-06-19] 回合\n\n玩家行動：戰鬥\n骰池：[1]\n\n副本敘事內容。\n\n建議動作：撤退、繼續",
+      `## [2026-06-19] 回合\n\n玩家行動：戰鬥\n骰池：[1]\n\n副本敘事內容。\n\n建議動作：${JSON.stringify(["撤退", "繼續"])}`,
       "utf8",
     );
     const state = await loadState(dir);

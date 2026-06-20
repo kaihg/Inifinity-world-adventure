@@ -14,17 +14,22 @@ export function App() {
   const storyEndRef = useRef<HTMLDivElement | null>(null);
   const loadedInitialRef = useRef(false);
 
-  const refresh = () =>
-    fetchState()
+  const refresh = () => {
+    // 是否為「首次載入」要在發出請求的當下同步決定，不能等 fetch resolve 後才判斷——
+    // 否則使用者在首次 fetch 還沒回來前就送出行動，較晚才 resolve 的初次 refresh
+    // 會在行動已經串流/完成後，用過期的 lastTurn 蓋掉畫面上正在顯示的最新內容。
+    const isInitialLoad = !loadedInitialRef.current;
+    loadedInitialRef.current = true;
+    return fetchState()
       .then((s) => {
         setState(s);
-        if (!loadedInitialRef.current && s.lastTurn) {
+        if (isInitialLoad && s.lastTurn) {
           setStory(s.lastTurn.narrative);
           setSuggested(s.lastTurn.suggestedActions);
         }
-        loadedInitialRef.current = true;
       })
       .catch(() => {});
+  };
   useEffect(() => {
     refresh();
   }, []);
