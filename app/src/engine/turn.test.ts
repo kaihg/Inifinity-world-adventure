@@ -7,6 +7,22 @@ import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { readdir } from "node:fs/promises";
 import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, type TurnEvent, type TurnDeps } from "./turn.js";
 import type { GameState } from "./context.js";
+import type { RecallHit, RecallIndex } from "../recall/store.js";
+
+/** 測試用假 RecallIndex：query 回傳固定結果，upsertFile/removeFile 記錄呼叫供斷言 */
+function fakeRecall(hits: RecallHit[] = []): RecallIndex & { upserted: Array<{ relPath: string; content: string }> } {
+  const upserted: Array<{ relPath: string; content: string }> = [];
+  return {
+    upserted,
+    async query() {
+      return hits;
+    },
+    async upsertFile(relPath: string, content: string) {
+      upserted.push({ relPath, content });
+    },
+    async removeFile() {},
+  };
+}
 
 function fakeClient(chunks: string[]): LlmClient {
   return {
@@ -199,6 +215,188 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(commits).toEqual(["沈奕進資訊室"]);
   });
 
+  it("protagonist_updates 落地到 protagonist.md 對應區塊（主角成長記憶）", async () => {
+    await writeFile(
+      path.join(world, "characters", "protagonist.md"),
+      [
+        "# 主角",
+        "- 姓名：沈奕",
+        "- 當前積分：0",
+        "",
+        "## 技能 / 異能",
+        "- （無）",
+        "",
+        "## 物品欄",
+        "- 戰術刀",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const response =
+      "沈奕領悟了一套新的格鬥技巧，並從地上拾起一根鐵管。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: {
+          protagonist_points_delta: 1,
+          protagonist_updates: { skills: ["近戰格鬥精通"], items: ["生鏽鐵管"] },
+        },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "沈奕成長",
+      });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient([response]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "練習格鬥",
+    )) {
+      events.push(ev);
+    }
+    const prot = await readFile(path.join(world, "characters", "protagonist.md"), "utf8");
+    expect(prot).toContain("- 當前積分：1");
+    expect(prot).toContain("- （無）\n- 近戰格鬥精通");
+    expect(prot).toContain("- 戰術刀\n- 生鏽鐵管");
+  });
+
+  it("npc_updates 同步用小模型摘要進 characters/index.md 的最近狀態欄", async () => {
+    await writeFile(path.join(world, "characters", "yeqing.md"), "# 葉晴\n- 姓名：葉晴\n前特種部隊教官\n", "utf8");
+    await writeFile(
+      path.join(world, "characters", "index.md"),
+      [
+        "| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |",
+        "|----|------|------|----------|--------------|",
+        "| yeqing | 葉晴 | NPC | 結盟 | - |",
+      ].join("\n"),
+      "utf8",
+    );
+    const response =
+      "葉晴點點頭，眼神多了幾分信任。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { npc_updates: [{ id: "yeqing", update: "對沈奕的信任進一步提升" }] },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "葉晴信任提升",
+      });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient([response]),
+        characterClient: fakeClient(["信任大幅提升"]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "和葉晴交談",
+    )) {
+      events.push(ev);
+    }
+    const index = await readFile(path.join(world, "characters", "index.md"), "utf8");
+    expect(index).toContain("| yeqing | 葉晴 | NPC | 信任大幅提升 | - |");
+  });
+
+  it("npc_updates 落地到對應 characters/<id>.md（NPC 長期記憶）", async () => {
+    await writeFile(path.join(world, "characters", "yeqing.md"), "# 葉晴\n前特種部隊教官\n", "utf8");
+    const response =
+      "葉晴點點頭，眼神多了幾分信任。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { npc_updates: [{ id: "yeqing", update: "對沈奕的信任進一步提升" }] },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "葉晴信任提升",
+      });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient([response]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "和葉晴交談",
+    )) {
+      events.push(ev);
+    }
+    const yeqing = await readFile(path.join(world, "characters", "yeqing.md"), "utf8");
+    expect(yeqing).toContain("## [2026-06-19] 更新");
+    expect(yeqing).toContain("對沈奕的信任進一步提升");
+  });
+
+  it("item_pickups 首次撿到時生成道具 secrets.md，item_reveals 累積進 wiki.md", async () => {
+    const response =
+      "沈奕從地上撿起一根生鏽鐵管。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: {
+          item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }],
+          item_reveals: [{ id: "rusty-pipe", reveal: "管身刻有奇怪符號" }],
+        },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "撿到鐵管",
+      });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: sequencedClient([response, "其實是某把武器的殘骸，蘊含未知力量。"]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "撿起鐵管",
+    )) {
+      events.push(ev);
+    }
+    const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
+    expect(secrets).toContain("某把武器的殘骸");
+    const wiki = await readFile(path.join(world, "items", "rusty-pipe", "wiki.md"), "utf8");
+    expect(wiki).toContain("管身刻有奇怪符號");
+  });
+
+  it("item_pickups 對已有 secrets 的道具不重複生成", async () => {
+    await mkdir(path.join(world, "items", "rusty-pipe"), { recursive: true });
+    await writeFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "# 道具隱藏設定（生鏽鐵管）\n\n原始真相\n");
+    const response =
+      "沈奕又看了一眼鐵管。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }] },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "再次檢視鐵管",
+      });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: sequencedClient([response, "新真相（不該寫入）"]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "再看看鐵管",
+    )) {
+      events.push(ev);
+    }
+    const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
+    expect(secrets).toContain("原始真相");
+    expect(secrets).not.toContain("不該寫入");
+  });
+
   it("缺 sentinel 時降級：保留敘事、發 warning、暫停、仍 commit", async () => {
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
@@ -380,6 +578,142 @@ describe("pre-pass 整合測試", () => {
     } finally {
       await rm(worldDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("recall 整合測試", () => {
+  it("deps.recall 注入後檢索結果出現在 system prompt（主空間）", async () => {
+    let capturedSystem = "";
+    const mainClient: LlmClient = {
+      async *streamChat(msgs) {
+        capturedSystem = msgs[0].content;
+        yield `敘事\n===STATE===\n${JSON.stringify({
+          state_changes: {},
+          rolls: [],
+          mode_transition: null,
+          awaiting_user_input: true,
+          suggested_actions: [],
+          commit_summary: "test",
+        })}`;
+      },
+    };
+    const recall = fakeRecall([{ file: "characters/yeqing.md", heading: "近況", text: "葉晴受傷了", score: 0.9 }]);
+
+    const deps: TurnDeps = {
+      client: mainClient,
+      worldDir: world,
+      commit: async () => false,
+      today: () => "2026-06-19",
+      dicePool: [50],
+      recall,
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "測試")) events.push(ev);
+
+    expect(capturedSystem).toContain("葉晴受傷了");
+  });
+
+  it("回合結束後重新索引 journal 與主角檔（main-space）", async () => {
+    const recall = fakeRecall();
+    const response =
+      "沈奕成長了。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { protagonist_points_delta: 5 },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "成長",
+      });
+
+    const deps: TurnDeps = {
+      client: fakeClient([response]),
+      worldDir: world,
+      commit: async () => true,
+      today: () => "2026-06-19",
+      dicePool: [1],
+      recall,
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "行動")) events.push(ev);
+
+    const relPaths = recall.upserted.map((u) => u.relPath);
+    expect(relPaths).toContain("journal.md");
+    expect(relPaths).toContain(path.join("characters", "protagonist.md"));
+  });
+
+  it("deps.recall.query 失敗時回合仍正常完成（降級，無 recall 區塊）", async () => {
+    let capturedSystem = "";
+    const mainClient: LlmClient = {
+      async *streamChat(msgs) {
+        capturedSystem = msgs[0].content;
+        yield `敘事\n===STATE===\n${JSON.stringify({
+          state_changes: {},
+          rolls: [],
+          mode_transition: null,
+          awaiting_user_input: true,
+          suggested_actions: [],
+          commit_summary: "test",
+        })}`;
+      },
+    };
+    const recall: RecallIndex = {
+      async query() {
+        throw new Error("索引掛了");
+      },
+      async upsertFile() {},
+      async removeFile() {},
+    };
+
+    const deps: TurnDeps = {
+      client: mainClient,
+      worldDir: world,
+      commit: async () => false,
+      today: () => "2026-06-19",
+      dicePool: [50],
+      recall,
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "測試")) events.push(ev);
+
+    const done = events.find((e) => e.type === "done");
+    const warning = events.find((e) => e.type === "warning");
+    expect(done).toBeDefined();
+    expect(warning).toBeDefined();
+    expect(capturedSystem).not.toContain("檢索到的相關記錄");
+  });
+
+  it("副本回合結束後重新索引 run log 與 wiki（有 wiki_reveals 時）", async () => {
+    await mkdir(path.join(world, "dungeons", "U-001", "runs"), { recursive: true });
+    await writeFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "# run\n");
+    await writeFile(path.join(world, "dungeons", "U-001", "secrets.md"), "真相：地板會塌\n");
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
+    );
+    const response =
+      "你踏入大廳，三道門並排。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { wiki_reveals: ["入口大廳有三道門"] },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "進入大廳",
+      });
+
+    const recall = fakeRecall();
+    const events: TurnEvent[] = [];
+    for await (const ev of runDungeonTurn(
+      { client: fakeClient([response]), worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5], recall },
+      "往前走",
+    )) {
+      events.push(ev);
+    }
+
+    const relPaths = recall.upserted.map((u) => u.relPath);
+    expect(relPaths).toContain(path.join("dungeons", "U-001", "runs", "run-1.md"));
+    expect(relPaths).toContain(path.join("dungeons", "U-001", "wiki.md"));
   });
 });
 

@@ -19,11 +19,23 @@ const NowChangesSchema = z
   })
   .partial();
 
+const ProtagonistUpdatesSchema = z
+  .object({
+    attributes: z.array(z.string()).optional(),
+    skills: z.array(z.string()).optional(),
+    items: z.array(z.string()).optional(),
+    buffs: z.array(z.string()).optional(),
+  })
+  .optional();
+
 const StateChangesSchema = z
   .object({
     protagonist_points_delta: z.number().optional(),
+    protagonist_updates: ProtagonistUpdatesSchema,
     npc_updates: z.array(z.object({ id: z.string(), update: z.string() })).optional(),
     wiki_reveals: z.array(z.string()).optional(),
+    item_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+    item_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
     now: NowChangesSchema.optional(),
   })
   .default({});

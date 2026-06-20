@@ -34,4 +34,29 @@ describe("parseTurnOutput", () => {
       parseTurnOutput('敘事\n===STATE===\n{"commit_summary":"x"}'),
     ).toThrow();
   });
+
+  it("接受 protagonist_updates 子欄位", () => {
+    const raw = `敘事\n===STATE===\n${JSON.stringify({
+      state_changes: { protagonist_updates: { skills: ["近戰格鬥精通"], items: ["生鏽鐵管"] } },
+      awaiting_user_input: true,
+      commit_summary: "x",
+    })}`;
+    const { control } = parseTurnOutput(raw);
+    expect(control.state_changes.protagonist_updates?.skills).toEqual(["近戰格鬥精通"]);
+    expect(control.state_changes.protagonist_updates?.items).toEqual(["生鏽鐵管"]);
+  });
+
+  it("接受 item_pickups / item_reveals 子欄位", () => {
+    const raw = `敘事\n===STATE===\n${JSON.stringify({
+      state_changes: {
+        item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }],
+        item_reveals: [{ id: "rusty-pipe", reveal: "管身刻有奇怪符號" }],
+      },
+      awaiting_user_input: true,
+      commit_summary: "x",
+    })}`;
+    const { control } = parseTurnOutput(raw);
+    expect(control.state_changes.item_pickups).toEqual([{ id: "rusty-pipe", name: "生鏽鐵管" }]);
+    expect(control.state_changes.item_reveals).toEqual([{ id: "rusty-pipe", reveal: "管身刻有奇怪符號" }]);
+  });
 });
