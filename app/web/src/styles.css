@@ -81,6 +81,8 @@ h2 { font-size: 1rem; margin: 0 0 0.6rem; }
 }
 .suggested button:hover { border-color: var(--accent); }
 
+.computing-hint { color: var(--muted); font-size: 0.78rem; margin-top: 0.5rem; }
+
 .composer { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
 input {
   flex: 1; background: var(--bg); color: var(--text);

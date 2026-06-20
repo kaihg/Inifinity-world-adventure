@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchState, streamTurn, type GameState } from "./api";
 
-const PREFILL_HINT =
-  "🌌 [主控系統] 正在分析個體行動，載入因果律中…（自架模型首字推論可能需數十秒，請稍候）";
+const COMPUTING_HINT = "🌌 主控系統正在運算中…（自架模型首字推論可能需數十秒，請稍候）";
 
 export function App() {
   const [state, setState] = useState<GameState | null>(null);
@@ -38,13 +37,14 @@ export function App() {
     setBusy(true);
     setSuggested([]);
     setInput("");
-    setStory(PREFILL_HINT);
     let firstToken = true;
     try {
       await streamTurn(text, (ev) => {
         switch (ev.type) {
           case "delta":
-            setStory((s) => (firstToken ? ((firstToken = false), ev.text) : s + ev.text));
+            setStory((s) =>
+              firstToken ? ((firstToken = false), s + "\n\n" + ev.text) : s + ev.text,
+            );
             break;
           case "auto-advance":
             setStory((s) => s + "\n\n—— 系統自動推進 ——\n\n");
@@ -92,6 +92,7 @@ export function App() {
 
         <div className="story">{story}</div>
         <div ref={storyEndRef} />
+        {busy && <div className="computing-hint">{COMPUTING_HINT}</div>}
 
         {suggested.length > 0 && (
           <div className="suggested">
