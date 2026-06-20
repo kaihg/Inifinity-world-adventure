@@ -7,6 +7,22 @@ import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { readdir } from "node:fs/promises";
 import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, type TurnEvent, type TurnDeps } from "./turn.js";
 import type { GameState } from "./context.js";
+import type { RecallHit, RecallIndex } from "../recall/store.js";
+
+/** 測試用假 RecallIndex：query 回傳固定結果，upsertFile/removeFile 記錄呼叫供斷言 */
+function fakeRecall(hits: RecallHit[] = []): RecallIndex & { upserted: Array<{ relPath: string; content: string }> } {
+  const upserted: Array<{ relPath: string; content: string }> = [];
+  return {
+    upserted,
+    async query() {
+      return hits;
+    },
+    async upsertFile(relPath: string, content: string) {
+      upserted.push({ relPath, content });
+    },
+    async removeFile() {},
+  };
+}
 
 function fakeClient(chunks: string[]): LlmClient {
   return {
@@ -562,6 +578,142 @@ describe("pre-pass 整合測試", () => {
     } finally {
       await rm(worldDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("recall 整合測試", () => {
+  it("deps.recall 注入後檢索結果出現在 system prompt（主空間）", async () => {
+    let capturedSystem = "";
+    const mainClient: LlmClient = {
+      async *streamChat(msgs) {
+        capturedSystem = msgs[0].content;
+        yield `敘事\n===STATE===\n${JSON.stringify({
+          state_changes: {},
+          rolls: [],
+          mode_transition: null,
+          awaiting_user_input: true,
+          suggested_actions: [],
+          commit_summary: "test",
+        })}`;
+      },
+    };
+    const recall = fakeRecall([{ file: "characters/yeqing.md", heading: "近況", text: "葉晴受傷了", score: 0.9 }]);
+
+    const deps: TurnDeps = {
+      client: mainClient,
+      worldDir: world,
+      commit: async () => false,
+      today: () => "2026-06-19",
+      dicePool: [50],
+      recall,
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "測試")) events.push(ev);
+
+    expect(capturedSystem).toContain("葉晴受傷了");
+  });
+
+  it("回合結束後重新索引 journal 與主角檔（main-space）", async () => {
+    const recall = fakeRecall();
+    const response =
+      "沈奕成長了。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { protagonist_points_delta: 5 },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "成長",
+      });
+
+    const deps: TurnDeps = {
+      client: fakeClient([response]),
+      worldDir: world,
+      commit: async () => true,
+      today: () => "2026-06-19",
+      dicePool: [1],
+      recall,
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "行動")) events.push(ev);
+
+    const relPaths = recall.upserted.map((u) => u.relPath);
+    expect(relPaths).toContain("journal.md");
+    expect(relPaths).toContain(path.join("characters", "protagonist.md"));
+  });
+
+  it("deps.recall.query 失敗時回合仍正常完成（降級，無 recall 區塊）", async () => {
+    let capturedSystem = "";
+    const mainClient: LlmClient = {
+      async *streamChat(msgs) {
+        capturedSystem = msgs[0].content;
+        yield `敘事\n===STATE===\n${JSON.stringify({
+          state_changes: {},
+          rolls: [],
+          mode_transition: null,
+          awaiting_user_input: true,
+          suggested_actions: [],
+          commit_summary: "test",
+        })}`;
+      },
+    };
+    const recall: RecallIndex = {
+      async query() {
+        throw new Error("索引掛了");
+      },
+      async upsertFile() {},
+      async removeFile() {},
+    };
+
+    const deps: TurnDeps = {
+      client: mainClient,
+      worldDir: world,
+      commit: async () => false,
+      today: () => "2026-06-19",
+      dicePool: [50],
+      recall,
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "測試")) events.push(ev);
+
+    const done = events.find((e) => e.type === "done");
+    const warning = events.find((e) => e.type === "warning");
+    expect(done).toBeDefined();
+    expect(warning).toBeDefined();
+    expect(capturedSystem).not.toContain("檢索到的相關記錄");
+  });
+
+  it("副本回合結束後重新索引 run log 與 wiki（有 wiki_reveals 時）", async () => {
+    await mkdir(path.join(world, "dungeons", "U-001", "runs"), { recursive: true });
+    await writeFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "# run\n");
+    await writeFile(path.join(world, "dungeons", "U-001", "secrets.md"), "真相：地板會塌\n");
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
+    );
+    const response =
+      "你踏入大廳，三道門並排。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: { wiki_reveals: ["入口大廳有三道門"] },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "進入大廳",
+      });
+
+    const recall = fakeRecall();
+    const events: TurnEvent[] = [];
+    for await (const ev of runDungeonTurn(
+      { client: fakeClient([response]), worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5], recall },
+      "往前走",
+    )) {
+      events.push(ev);
+    }
+
+    const relPaths = recall.upserted.map((u) => u.relPath);
+    expect(relPaths).toContain(path.join("dungeons", "U-001", "runs", "run-1.md"));
+    expect(relPaths).toContain(path.join("dungeons", "U-001", "wiki.md"));
   });
 });
 
