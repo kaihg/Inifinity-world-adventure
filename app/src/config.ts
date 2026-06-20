@@ -36,6 +36,8 @@ export interface AppConfig {
     indexDir: string;
     topK: number;
   };
+  /** LLM 呼叫耗時/token 用量 log 路徑（derived，不進 git，append-only JSON Lines） */
+  usageLogPath: string;
 }
 
 const DEFAULTS = {
@@ -69,6 +71,12 @@ function defaultRecallIndexDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   // here = <repo>/app/src（或 build 後 <repo>/app/dist）→ 回到 <repo>/app/.recall-index
   return path.resolve(here, "..", ".recall-index");
+}
+
+/** 預設 usage log 路徑：app/.llm-usage.log（derived，不進 git，可隨時刪除重建） */
+function defaultUsageLogPath(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, "..", ".llm-usage.log");
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -107,6 +115,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       indexDir: env.RECALL_INDEX_DIR ? path.resolve(env.RECALL_INDEX_DIR) : defaultRecallIndexDir(),
       topK: parsePositiveInt(env.RECALL_TOP_K, DEFAULTS.recallTopK),
     },
+    usageLogPath: env.USAGE_LOG_PATH ? path.resolve(env.USAGE_LOG_PATH) : defaultUsageLogPath(),
   };
 }
 

@@ -4,3 +4,4 @@ app/.env
 app/coverage/
 app/web-dist/
 app/.recall-index/
+app/.llm-usage.log

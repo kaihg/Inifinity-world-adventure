@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { AppConfig } from "../config.js";
 import { logger as defaultLogger, type Logger } from "../logger.js";
+import { appendUsageLog } from "./usage-log.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -16,12 +17,25 @@ export interface LlmClient {
   streamChat(messages: ChatMessage[]): AsyncIterable<string>;
 }
 
-/** 以 OpenAI 相容端點實作的 LlmClient */
-export function createOpenAiClient(config: AppConfig, logger: Logger = defaultLogger): LlmClient {
+export interface CreateOpenAiClientOptions {
+  /** 區分是哪一個 client（main/character/control…），寫進 usage log 方便分開統計花費 */
+  label?: string;
+  /** usage log 檔案路徑；缺省退回 config.usageLogPath */
+  usageLogPath?: string;
+}
+
+/** 以 OpenAI 相容端點實作的 LlmClient；每次呼叫的耗時與 token 用量會 append 進 usage log */
+export function createOpenAiClient(
+  config: AppConfig,
+  logger: Logger = defaultLogger,
+  opts: CreateOpenAiClientOptions = {},
+): LlmClient {
   const openai = new OpenAI({
     baseURL: config.openai.baseUrl,
     apiKey: config.openai.apiKey || "not-needed",
   });
+  const label = opts.label ?? "main";
+  const usageLogPath = opts.usageLogPath ?? config.usageLogPath;
 
   return {
     async *streamChat(messages: ChatMessage[]): AsyncIterable<string> {
@@ -34,11 +48,13 @@ export function createOpenAiClient(config: AppConfig, logger: Logger = defaultLo
 
       let chunkCount = 0;
       let outChars = 0;
+      let usage: OpenAI.CompletionUsage | undefined;
       try {
         const stream = await openai.chat.completions.create({
           model: config.openai.model,
           messages,
           stream: true,
+          stream_options: { include_usage: true },
         });
         for await (const chunk of stream) {
           const delta = chunk.choices[0]?.delta?.content;
@@ -47,10 +63,26 @@ export function createOpenAiClient(config: AppConfig, logger: Logger = defaultLo
             outChars += delta.length;
             yield delta;
           }
+          if (chunk.usage) usage = chunk.usage;
         }
+        const durationMs = Date.now() - startedAt;
         logger.debug(
-          { model: config.openai.model, durationMs: Date.now() - startedAt, chunkCount, outChars },
+          { model: config.openai.model, durationMs, chunkCount, outChars, usage },
           "llm 串流完成",
+        );
+        await appendUsageLog(
+          usageLogPath,
+          {
+            timestamp: new Date().toISOString(),
+            label,
+            model: config.openai.model,
+            baseUrl: config.openai.baseUrl,
+            durationMs,
+            promptTokens: usage?.prompt_tokens,
+            completionTokens: usage?.completion_tokens,
+            totalTokens: usage?.total_tokens,
+          },
+          logger,
         );
       } catch (err) {
         logger.error(

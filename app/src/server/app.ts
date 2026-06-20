@@ -43,7 +43,8 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
 
   const repoRoot = path.dirname(config.worldDir);
 
-  const makeClient = (turnLogger: Logger): LlmClient => deps.client ?? createOpenAiClient(config, turnLogger);
+  const makeClient = (turnLogger: Logger): LlmClient =>
+    deps.client ?? createOpenAiClient(config, turnLogger, { label: "main" });
 
   // 啟動時建立一次，避免每回合重複建立 HTTP client
   const characterClient: LlmClient | undefined =
@@ -59,6 +60,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
             },
           },
           logger,
+          { label: "character" },
         )
       : undefined);
 
@@ -75,6 +77,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
             },
           },
           logger,
+          { label: "control" },
         )
       : undefined);
 

@@ -49,6 +49,17 @@ describe("loadConfig", () => {
     expect(c.worldDir).toBe("/tmp/custom-world");
   });
 
+  it("usageLogPath 預設為絕對路徑、指向 app/.llm-usage.log", () => {
+    const c = loadConfig({});
+    expect(path.isAbsolute(c.usageLogPath)).toBe(true);
+    expect(path.basename(c.usageLogPath)).toBe(".llm-usage.log");
+  });
+
+  it("USAGE_LOG_PATH 可覆寫", () => {
+    const c = loadConfig({ USAGE_LOG_PATH: "/tmp/custom-usage.log" });
+    expect(c.usageLogPath).toBe("/tmp/custom-usage.log");
+  });
+
   it("character 欄位：有設定時解析", () => {
     const config = loadConfig({
       OPENAI_BASE_URL: "http://main/v1",
