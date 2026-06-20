@@ -162,6 +162,45 @@ export function applyPointsDelta(md: string, delta: number): string {
   );
 }
 
+/** 在 `## <含 titleIncludes 的標題>` 區塊末尾（下一個 `## ` 之前）插入新條目；找不到該區塊則原樣返回 */
+function appendToSection(md: string, titleIncludes: string, items: string[]): string {
+  if (items.length === 0) return md;
+  const lines = md.split("\n");
+  let start = -1;
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^##\s+/.test(lines[i])) continue;
+    if (start === -1) {
+      if (lines[i].includes(titleIncludes)) start = i;
+      continue;
+    }
+    end = i;
+    break;
+  }
+  if (start === -1) return md;
+  let insertAt = end;
+  while (insertAt > start + 1 && lines[insertAt - 1].trim() === "") insertAt--;
+  lines.splice(insertAt, 0, ...items.map((it) => `- ${it}`));
+  return lines.join("\n");
+}
+
+export interface ProtagonistUpdates {
+  attributes?: string[];
+  skills?: string[];
+  items?: string[];
+  buffs?: string[];
+}
+
+/** 把模型回報的主角成長（屬性/技能/物品/buff 新增項）落地到 protagonist.md 對應區塊 */
+export function applyProtagonistUpdates(md: string, updates: ProtagonistUpdates): string {
+  let result = md;
+  result = appendToSection(result, "屬性", updates.attributes ?? []);
+  result = appendToSection(result, "技能", updates.skills ?? []);
+  result = appendToSection(result, "物品", updates.items ?? []);
+  result = appendToSection(result, "Buff", updates.buffs ?? []);
+  return result;
+}
+
 /** 防止路徑穿越：NPC id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
 const NPC_ID_RE = /^[\w.-]+$/;
 

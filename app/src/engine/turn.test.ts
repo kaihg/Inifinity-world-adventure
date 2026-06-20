@@ -199,6 +199,55 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(commits).toEqual(["沈奕進資訊室"]);
   });
 
+  it("protagonist_updates 落地到 protagonist.md 對應區塊（主角成長記憶）", async () => {
+    await writeFile(
+      path.join(world, "characters", "protagonist.md"),
+      [
+        "# 主角",
+        "- 姓名：沈奕",
+        "- 當前積分：0",
+        "",
+        "## 技能 / 異能",
+        "- （無）",
+        "",
+        "## 物品欄",
+        "- 戰術刀",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const response =
+      "沈奕領悟了一套新的格鬥技巧，並從地上拾起一根鐵管。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: {
+          protagonist_points_delta: 1,
+          protagonist_updates: { skills: ["近戰格鬥精通"], items: ["生鏽鐵管"] },
+        },
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "沈奕成長",
+      });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient([response]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "練習格鬥",
+    )) {
+      events.push(ev);
+    }
+    const prot = await readFile(path.join(world, "characters", "protagonist.md"), "utf8");
+    expect(prot).toContain("- 當前積分：1");
+    expect(prot).toContain("- （無）\n- 近戰格鬥精通");
+    expect(prot).toContain("- 戰術刀\n- 生鏽鐵管");
+  });
+
   it("npc_updates 落地到對應 characters/<id>.md（NPC 長期記憶）", async () => {
     await writeFile(path.join(world, "characters", "yeqing.md"), "# 葉晴\n前特種部隊教官\n", "utf8");
     const response =

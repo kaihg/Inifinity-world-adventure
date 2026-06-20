@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { logger as defaultLogger, type Logger } from "../logger.js";
-import { loadState, parseNow, applyPointsDelta, appendNpcUpdates, type GameState } from "./context.js";
+import { loadState, parseNow, applyPointsDelta, applyProtagonistUpdates, appendNpcUpdates, type GameState } from "./context.js";
 import { appendJournal } from "./journal.js";
 import { applyNowChanges, serializeNow, bumpNowUpdated } from "./now.js";
 import { rollPool } from "./roll.js";
@@ -74,7 +74,10 @@ const OUTPUT_FORMAT_BLOCK = [
   "先輸出要顯示給玩家的敘事散文。敘事結束後另起一行，輸出一行 `===STATE===`，",
   "緊接著輸出**單一 JSON 物件**（不要加程式碼框），欄位：",
   "- state_changes: { now?: {七欄任意子集，鍵用 chapter/scene/companions/activeDungeon/threads/nextStep},",
-  "    protagonist_points_delta?: number, npc_updates?: [{id, update}], wiki_reveals?: [string] }",
+  "    protagonist_points_delta?: number,",
+  "    protagonist_updates?: { attributes?: string[], skills?: string[], items?: string[], buffs?: string[] }",
+  "      （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目）,",
+  "    npc_updates?: [{id, update}], wiki_reveals?: [string] }",
   "- rolls: [{desc, value, success?}]（本回合用到的骰值，沒有就空陣列）",
   '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
   "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
@@ -252,12 +255,15 @@ async function* runTurnCore(
     await writeFile(nowPath, bumpNowUpdated(nowMd, { date: today, summary }), "utf8");
   }
 
-  // 3. protagonist 積分
+  // 3. 主角狀態（積分 + 屬性/技能/物品/buff 新增項，否則主角的成長不會被記住）
   const delta = control?.state_changes.protagonist_points_delta ?? 0;
-  if (delta) {
+  const protagonistUpdates = control?.state_changes.protagonist_updates;
+  if (delta || protagonistUpdates) {
     const pPath = path.join(deps.worldDir, "characters", "protagonist.md");
-    const pMd = await readFile(pPath, "utf8");
-    await writeFile(pPath, applyPointsDelta(pMd, delta), "utf8");
+    let pMd = await readFile(pPath, "utf8");
+    if (delta) pMd = applyPointsDelta(pMd, delta);
+    if (protagonistUpdates) pMd = applyProtagonistUpdates(pMd, protagonistUpdates);
+    await writeFile(pPath, pMd, "utf8");
   }
 
   // 4. NPC 更新（落地到 characters/<id>.md，否則角色長期沒有記憶）
