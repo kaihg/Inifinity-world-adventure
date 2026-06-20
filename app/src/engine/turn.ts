@@ -2,7 +2,17 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { logger as defaultLogger, type Logger } from "../logger.js";
-import { loadState, parseNow, applyPointsDelta, type GameState } from "./context.js";
+import {
+  loadState,
+  parseNow,
+  parseProtagonist,
+  applyPointsDelta,
+  applyProtagonistUpdates,
+  appendNpcUpdates,
+  applyIndexStatusUpdates,
+  type GameState,
+} from "./context.js";
+import { summarizeNpcStatus } from "./npc-status-summary.js";
 import { appendJournal } from "./journal.js";
 import { applyNowChanges, serializeNow, bumpNowUpdated } from "./now.js";
 import { rollPool } from "./roll.js";
@@ -74,7 +84,10 @@ const OUTPUT_FORMAT_BLOCK = [
   "先輸出要顯示給玩家的敘事散文。敘事結束後另起一行，輸出一行 `===STATE===`，",
   "緊接著輸出**單一 JSON 物件**（不要加程式碼框），欄位：",
   "- state_changes: { now?: {七欄任意子集，鍵用 chapter/scene/companions/activeDungeon/threads/nextStep},",
-  "    protagonist_points_delta?: number, npc_updates?: [{id, update}], wiki_reveals?: [string] }",
+  "    protagonist_points_delta?: number,",
+  "    protagonist_updates?: { attributes?: string[], skills?: string[], items?: string[], buffs?: string[] }",
+  "      （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目）,",
+  "    npc_updates?: [{id, update}], wiki_reveals?: [string] }",
   "- rolls: [{desc, value, success?}]（本回合用到的骰值，沒有就空陣列）",
   '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
   "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
@@ -178,6 +191,39 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
   ];
 }
 
+/**
+ * 把本回合有 npc_updates 的角色，用小模型（characterClient，缺省退回主 client）
+ * 各自摘要成一句近況，同步進 characters/index.md 的「最近狀態」欄。
+ * 不用主敘事模型：這只是省 context 的索引摘要，不需要主敘事的推理力。
+ * 單筆摘要失敗只略過該筆，不中斷其他筆、不影響回合本身。
+ */
+async function syncCharacterIndexStatus(
+  deps: TurnDeps,
+  npcUpdates: Array<{ id: string; update: string }>,
+  log: Logger,
+): Promise<void> {
+  const summaryClient = deps.characterClient ?? deps.client;
+  const entries = await Promise.all(
+    npcUpdates.map(async ({ id }): Promise<readonly [string, string] | null> => {
+      const characterMd = await readBestEffort(path.join(deps.worldDir, "characters", `${id}.md`));
+      if (!characterMd) return null;
+      const name = parseProtagonist(characterMd).name || id;
+      const status = await summarizeNpcStatus({ name, characterMd, client: summaryClient });
+      return status ? [id, status] : null;
+    }),
+  );
+  const statusUpdates = Object.fromEntries(
+    entries.filter((e): e is readonly [string, string] => e !== null),
+  );
+  if (Object.keys(statusUpdates).length === 0) return;
+
+  const indexPath = path.join(deps.worldDir, "characters", "index.md");
+  const indexMd = await readBestEffort(indexPath);
+  if (!indexMd) return;
+  await writeFile(indexPath, applyIndexStatusUpdates(indexMd, statusUpdates), "utf8");
+  log.debug({ statusUpdates }, "同步 characters/index.md 近況欄");
+}
+
 // ---------- 回合核心 ----------
 
 interface TurnPlan {
@@ -252,20 +298,30 @@ async function* runTurnCore(
     await writeFile(nowPath, bumpNowUpdated(nowMd, { date: today, summary }), "utf8");
   }
 
-  // 3. protagonist 積分
+  // 3. 主角狀態（積分 + 屬性/技能/物品/buff 新增項，否則主角的成長不會被記住）
   const delta = control?.state_changes.protagonist_points_delta ?? 0;
-  if (delta) {
+  const protagonistUpdates = control?.state_changes.protagonist_updates;
+  if (delta || protagonistUpdates) {
     const pPath = path.join(deps.worldDir, "characters", "protagonist.md");
-    const pMd = await readFile(pPath, "utf8");
-    await writeFile(pPath, applyPointsDelta(pMd, delta), "utf8");
+    let pMd = await readFile(pPath, "utf8");
+    if (delta) pMd = applyPointsDelta(pMd, delta);
+    if (protagonistUpdates) pMd = applyProtagonistUpdates(pMd, protagonistUpdates);
+    await writeFile(pPath, pMd, "utf8");
   }
 
-  // 4. 額外提煉（副本 wiki）
+  // 4. NPC 更新（落地到 characters/<id>.md，否則角色長期沒有記憶）
+  const npcUpdates = control?.state_changes.npc_updates ?? [];
+  if (npcUpdates.length > 0) {
+    await appendNpcUpdates(deps.worldDir, npcUpdates, today, log);
+    await syncCharacterIndexStatus(deps, npcUpdates, log);
+  }
+
+  // 5. 額外提煉（副本 wiki）
   if (control && plan.distill) {
     await plan.distill(control, today);
   }
 
-  // 5. commit
+  // 6. commit
   const committed = await deps.commit(summary);
 
   log.info(

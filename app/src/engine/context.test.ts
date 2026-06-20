@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -9,6 +9,9 @@ import {
   parseProtagonistDetail,
   parseCharacterIndex,
   applyPointsDelta,
+  applyProtagonistUpdates,
+  appendNpcUpdates,
+  applyIndexStatusUpdates,
   loadState,
 } from "./context.js";
 import { loadConfig } from "../config.js";
@@ -153,6 +156,150 @@ describe("applyPointsDelta", () => {
   });
   it("delta 為 0 時原樣返回", () => {
     expect(applyPointsDelta("- 當前積分：5\n", 0)).toBe("- 當前積分：5\n");
+  });
+});
+
+describe("applyProtagonistUpdates", () => {
+  const md = `# 主角檔案
+
+## 基本資訊
+- 姓名：沈奕
+
+## 積分與兌換
+- 當前積分：0
+
+## 屬性
+- 力量：中等偏上
+- 敏捷：中等
+
+## 技能 / 異能
+- （無）
+
+## 物品欄
+- 戰術刀
+
+## Buff / Debuff / 狀態
+- （無）
+
+## 備註
+- 新手保護：3 次
+`;
+
+  it("把新增項附加到對應區塊末尾，不動其他區塊", () => {
+    const result = applyProtagonistUpdates(md, { skills: ["近戰格鬥精通"], items: ["生鏽鐵管"] });
+    expect(result).toContain("- （無）\n- 近戰格鬥精通\n\n## 物品欄");
+    expect(result).toContain("- 戰術刀\n- 生鏽鐵管\n\n## Buff");
+    expect(result).toContain("- 力量：中等偏上"); // 既有內容保留
+  });
+
+  it("沒有對應更新時原樣返回", () => {
+    expect(applyProtagonistUpdates(md, {})).toBe(md);
+  });
+
+  it("多區塊同時更新都生效", () => {
+    const result = applyProtagonistUpdates(md, {
+      attributes: ["力量：提升至強"],
+      skills: ["近戰格鬥精通"],
+      items: ["生鏽鐵管"],
+      buffs: ["輕傷"],
+    });
+    expect(result).toContain("- 敏捷：中等\n- 力量：提升至強");
+    expect(result).toContain("- （無）\n- 近戰格鬥精通\n\n## 物品欄");
+    expect(result).toContain("- 戰術刀\n- 生鏽鐵管\n\n## Buff");
+    expect(result).toContain("- （無）\n- 輕傷\n\n## 備註");
+  });
+
+  it("找不到對應區塊標題時該項略過，不拋錯", () => {
+    const noBuffSection = md.replace("## Buff / Debuff / 狀態\n- （無）\n\n", "");
+    expect(() => applyProtagonistUpdates(noBuffSection, { buffs: ["輕傷"] })).not.toThrow();
+    expect(applyProtagonistUpdates(noBuffSection, { buffs: ["輕傷"] })).toBe(noBuffSection);
+  });
+});
+
+describe("applyIndexStatusUpdates", () => {
+  const indexMd = `# 角色索引
+
+| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |
+|----|------|------|----------|--------------|
+| protagonist | 沈奕 | 主角 | 安全區 | - |
+| yeqing | 葉晴 | NPC / 潛在隊友 | 結盟 | - |
+| linsiyu | 林思雨 | NPC | 跟隨 | - |
+
+## 鎖定事實
+`;
+
+  it("更新對應 id 列的最近狀態欄，其他列與其他欄不變", () => {
+    const result = applyIndexStatusUpdates(indexMd, { yeqing: "信任提升，主動分享情報" });
+    expect(result).toContain("| yeqing | 葉晴 | NPC / 潛在隊友 | 信任提升，主動分享情報 | - |");
+    expect(result).toContain("| linsiyu | 林思雨 | NPC | 跟隨 | - |"); // 未更新的列原樣保留
+    expect(result).toContain("| protagonist | 沈奕 | 主角 | 安全區 | - |");
+  });
+
+  it("找不到對應 id 時原樣返回", () => {
+    expect(applyIndexStatusUpdates(indexMd, { "no-such-id": "x" })).toBe(indexMd);
+  });
+
+  it("更新為空物件時原樣返回", () => {
+    expect(applyIndexStatusUpdates(indexMd, {})).toBe(indexMd);
+  });
+
+  it("不會誤改標題列或分隔線", () => {
+    const result = applyIndexStatusUpdates(indexMd, { ID: "x", "----": "x" });
+    expect(result).toBe(indexMd);
+  });
+
+  it("多筆同時更新都生效", () => {
+    const result = applyIndexStatusUpdates(indexMd, { yeqing: "更新一", linsiyu: "更新二" });
+    expect(result).toContain("| yeqing | 葉晴 | NPC / 潛在隊友 | 更新一 | - |");
+    expect(result).toContain("| linsiyu | 林思雨 | NPC | 更新二 | - |");
+  });
+});
+
+describe("appendNpcUpdates", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "iwa-npc-updates-"));
+    await mkdir(path.join(dir, "characters"), { recursive: true });
+    await writeFile(path.join(dir, "characters", "yeqing.md"), "# 葉晴\n前特種部隊教官\n", "utf8");
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("把更新 append 到對應角色檔，帶日期標頭", async () => {
+    await appendNpcUpdates(dir, [{ id: "yeqing", update: "對沈奕的信任提升" }], "2026-06-20");
+    const md = await readFile(path.join(dir, "characters", "yeqing.md"), "utf8");
+    expect(md).toContain("# 葉晴");
+    expect(md).toContain("## [2026-06-20] 更新");
+    expect(md).toContain("對沈奕的信任提升");
+  });
+
+  it("對應角色檔不存在時靜默略過，不拋錯", async () => {
+    await expect(
+      appendNpcUpdates(dir, [{ id: "unknown-npc", update: "不存在的角色" }], "2026-06-20"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("id 含路徑分隔符等不合法字元時靜默略過，不寫出檔案", async () => {
+    await appendNpcUpdates(dir, [{ id: "../escape", update: "嘗試逃出 characters/" }], "2026-06-20");
+    const escaped = await readFile(path.join(dir, "escape.md"), "utf8").catch(() => null);
+    expect(escaped).toBeNull();
+  });
+
+  it("多筆更新各自獨立 append", async () => {
+    await writeFile(path.join(dir, "characters", "linsiyu.md"), "# 林思雨\n", "utf8");
+    await appendNpcUpdates(
+      dir,
+      [
+        { id: "yeqing", update: "更新一" },
+        { id: "linsiyu", update: "更新二" },
+      ],
+      "2026-06-20",
+    );
+    const yeqing = await readFile(path.join(dir, "characters", "yeqing.md"), "utf8");
+    const linsiyu = await readFile(path.join(dir, "characters", "linsiyu.md"), "utf8");
+    expect(yeqing).toContain("更新一");
+    expect(linsiyu).toContain("更新二");
   });
 });
 

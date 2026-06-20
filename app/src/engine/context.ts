@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, appendFile } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 import { parseLastTurnRecord, type LastTurnRecord } from "./journal.js";
@@ -160,6 +160,97 @@ export function applyPointsDelta(md: string, delta: number): string {
     /^(-\s*當前積分：)\s*(-?\d+)/m,
     (_m, prefix: string, n: string) => `${prefix}${Number(n) + delta}`,
   );
+}
+
+/** 在 `## <含 titleIncludes 的標題>` 區塊末尾（下一個 `## ` 之前）插入新條目；找不到該區塊則原樣返回 */
+function appendToSection(md: string, titleIncludes: string, items: string[]): string {
+  if (items.length === 0) return md;
+  const lines = md.split("\n");
+  let start = -1;
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^##\s+/.test(lines[i])) continue;
+    if (start === -1) {
+      if (lines[i].includes(titleIncludes)) start = i;
+      continue;
+    }
+    end = i;
+    break;
+  }
+  if (start === -1) return md;
+  let insertAt = end;
+  while (insertAt > start + 1 && lines[insertAt - 1].trim() === "") insertAt--;
+  lines.splice(insertAt, 0, ...items.map((it) => `- ${it}`));
+  return lines.join("\n");
+}
+
+export interface ProtagonistUpdates {
+  attributes?: string[];
+  skills?: string[];
+  items?: string[];
+  buffs?: string[];
+}
+
+/** 把模型回報的主角成長（屬性/技能/物品/buff 新增項）落地到 protagonist.md 對應區塊 */
+export function applyProtagonistUpdates(md: string, updates: ProtagonistUpdates): string {
+  let result = md;
+  result = appendToSection(result, "屬性", updates.attributes ?? []);
+  result = appendToSection(result, "技能", updates.skills ?? []);
+  result = appendToSection(result, "物品", updates.items ?? []);
+  result = appendToSection(result, "Buff", updates.buffs ?? []);
+  return result;
+}
+
+/** 防止路徑穿越：NPC id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
+const NPC_ID_RE = /^[\w.-]+$/;
+
+/**
+ * 把模型回報的 npc_updates 落地到對應 characters/<id>.md（append，帶日期標頭）。
+ * id 不合法或對應檔案不存在時靜默略過該筆，不中斷其他筆。
+ */
+export async function appendNpcUpdates(
+  worldDir: string,
+  updates: Array<{ id: string; update: string }>,
+  date: string,
+  logger: Logger = defaultLogger,
+): Promise<void> {
+  for (const { id, update } of updates) {
+    if (!NPC_ID_RE.test(id)) {
+      logger.warn({ id }, "npc_updates 含不合法 id，略過");
+      continue;
+    }
+    const file = path.join(worldDir, "characters", `${id}.md`);
+    try {
+      await appendFile(file, `\n## [${date}] 更新\n\n${update.trim()}\n`, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+        logger.warn({ id }, "npc_updates 對應角色檔不存在，略過");
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
+/**
+ * 把 id→近況摘要套用到 characters/index.md 表格的「最近狀態」欄（第 4 欄）。
+ * 找不到對應 id 的列、或非表格資料列（標題/分隔線）都原樣保留。
+ */
+export function applyIndexStatusUpdates(md: string, updates: Record<string, string>): string {
+  if (Object.keys(updates).length === 0) return md;
+  return md
+    .split("\n")
+    .map((line) => {
+      const m = line.match(/^\|(.+)\|\s*$/);
+      if (!m) return line;
+      const cells = m[1].split("|").map((c) => c.trim());
+      if (cells.length < 4) return line;
+      const id = cells[0];
+      if (id === "ID" || /^-+$/.test(id) || !(id in updates)) return line;
+      cells[3] = updates[id];
+      return `| ${cells.join(" | ")} |`;
+    })
+    .join("\n");
 }
 
 /** 從 protagonist.md 擷取輕量摘要（姓名、當前積分） */
