@@ -67,6 +67,32 @@ describe("parseControlOutput", () => {
     expect(control.state_changes.protagonist_updates?.items).toEqual(["生鏽鐵管"]);
   });
 
+  it("修復無引號的鍵後仍能解析", () => {
+    const control = parseControlOutput(
+      '{ awaiting_user_input: false, commit_summary: "沈奕離開資訊室" }',
+    );
+    expect(control.awaiting_user_input).toBe(false);
+    expect(control.commit_summary).toBe("沈奕離開資訊室");
+  });
+
+  it("修復單引號的鍵後仍能解析", () => {
+    const control = parseControlOutput(
+      '{ \'awaiting_user_input\': true, \'commit_summary\': "沈奕進入副本" }',
+    );
+    expect(control.awaiting_user_input).toBe(true);
+    expect(control.commit_summary).toBe("沈奕進入副本");
+  });
+
+  it("字串值裡含有逗號接冒號的敘事文字時，合法 JSON 仍能直接解析（不誤觸鍵修復）", () => {
+    const control = parseControlOutput(
+      JSON.stringify({
+        awaiting_user_input: true,
+        commit_summary: "查看地圖, time: 5pm 抵達",
+      }),
+    );
+    expect(control.commit_summary).toBe("查看地圖, time: 5pm 抵達");
+  });
+
   it("接受 item_pickups / item_reveals 子欄位", () => {
     const raw = JSON.stringify({
       state_changes: {
