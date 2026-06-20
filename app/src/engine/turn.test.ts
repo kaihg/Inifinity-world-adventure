@@ -173,6 +173,7 @@ describe("buildControlMessages", () => {
     });
     expect(msgs[0].content).toContain("U-001");
     expect(msgs[0].content).toContain("入口有三道門");
+    expect(msgs[0].content).not.toContain("地板會塌");
   });
 });
 
