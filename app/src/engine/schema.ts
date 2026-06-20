@@ -70,7 +70,13 @@ export type NowChanges = z.infer<typeof NowChangesSchema>;
  * 找不到任何可解析的 JSON 時回傳 null。
  */
 function extractJsonObject(raw: string): unknown {
-  const cleaned = raw.replace(/```(?:json)?/gi, "");
+  let cleaned = raw.replace(/```(?:json)?/gi, "");
+  // 自動修復常見的 LLM 格式錯誤：
+  // 1. 將無引號的鍵補上雙引號 (例如 { desc: -> { "desc": )
+  cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+  // 2. 將單引號的鍵改為雙引號 (例如 { 'desc': -> { "desc": )
+  cleaned = cleaned.replace(/([{,]\s*)'([a-zA-Z_][a-zA-Z0-9_]*)'\s*:/g, '$1"$2":');
+
   const start = cleaned.indexOf("{");
   if (start === -1) return null;
 
