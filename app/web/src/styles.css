@@ -147,6 +147,14 @@ button {
   animation: pulse 1.8s ease-in-out infinite;
 }
 
+.version-tag {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+  cursor: default;
+}
+
 .icon-btn {
   display: inline-flex;
   align-items: center;

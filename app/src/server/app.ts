@@ -9,6 +9,7 @@ import { loadState } from "../engine/context.js";
 import { runTurnLoop } from "../engine/turn.js";
 import { createOpenAiClient, type LlmClient } from "../llm/client.js";
 import { commitWorld } from "../git/commit.js";
+import { getAppVersion, type AppVersionInfo } from "../git/version.js";
 import { createLogger, type Logger } from "../logger.js";
 import { createRecallIndex } from "../recall/index.js";
 import type { RecallIndex } from "../recall/store.js";
@@ -25,6 +26,7 @@ export interface ServerDeps {
   commit?: (message: string) => Promise<boolean>;
   logger?: Logger;
   recall?: RecallIndex;
+  version?: AppVersionInfo | null;
 }
 
 /**
@@ -81,6 +83,14 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
 
   server.get("/api/health", async () => {
     return { ok: true, model: config.openai.model };
+  });
+
+  // 開發者用：app/ 最後一次功能性 commit 的 hash + message，啟動時算一次並快取
+  const versionPromise: Promise<AppVersionInfo | null> =
+    deps.version !== undefined ? Promise.resolve(deps.version) : getAppVersion(repoRoot);
+
+  server.get("/api/version", async () => {
+    return (await versionPromise) ?? { hash: "unknown", message: "" };
   });
 
   // resume 入口：決定論地讀 world/ 回傳當前局勢
