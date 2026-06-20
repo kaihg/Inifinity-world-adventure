@@ -302,6 +302,12 @@ button {
   flex-shrink: 0;
 }
 
+.computing-hint {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  margin: 0.5rem 0 0;
+}
+
 /* ---------- composer ---------- */
 
 .composer {
