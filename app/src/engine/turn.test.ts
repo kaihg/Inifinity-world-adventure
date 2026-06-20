@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { readdir } from "node:fs/promises";
-import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, type TurnEvent, type TurnDeps } from "./turn.js";
+import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, buildControlMessages, type TurnEvent, type TurnDeps } from "./turn.js";
 import type { GameState } from "./context.js";
 
 function fakeClient(chunks: string[]): LlmClient {
@@ -111,15 +111,15 @@ async function makeTempWorld(opts: { withYeqing?: boolean } = {}): Promise<strin
 }
 
 describe("buildMainSpaceMessages", () => {
-  it("system 含設定、canonical、輸出格式與骰值；user 為玩家輸入", () => {
+  it("system 含設定、canonical 與骰值，但不再含 JSON 輸出要求", () => {
     const msgs = buildMainSpaceMessages({
       settingText: "禁止竄改數值。", state: sampleState, input: "我四處看看", dicePool: [7, 42],
     });
     expect(msgs[0].role).toBe("system");
     expect(msgs[0].content).toContain("禁止竄改數值");
-    expect(msgs[0].content).toContain("===STATE===");
-    expect(msgs[0].content).toContain("awaiting_user_input");
     expect(msgs[0].content).toContain("[7, 42]");
+    expect(msgs[0].content).not.toContain("===STATE===");
+    expect(msgs[0].content).not.toContain("awaiting_user_input");
     expect(msgs[1]).toEqual({ role: "user", content: "我四處看看" });
   });
 
@@ -145,6 +145,34 @@ describe("buildMainSpaceMessages", () => {
     };
     const msgs = buildMainSpaceMessages(params);
     expect(msgs[0].content).not.toContain("## 在場角色本回合意圖");
+  });
+});
+
+describe("buildControlMessages", () => {
+  it("主空間：system 含敘事、骰值、現有副本 id；user 帶玩家行動", () => {
+    const msgs = buildControlMessages({
+      settingText: "設定", state: sampleState, input: "我四處看看",
+      narrative: "沈奕走進資訊室，擲出 42 成功避開警衛。",
+      dicePool: [42, 7], existingDungeonIds: ["U-001", "abandoned-hospital"],
+    });
+    expect(msgs[0].role).toBe("system");
+    expect(msgs[0].content).toContain("awaiting_user_input");
+    expect(msgs[0].content).toContain("[42, 7]");
+    expect(msgs[0].content).toContain("U-001");
+    expect(msgs[0].content).toContain("abandoned-hospital");
+    expect(msgs[0].content).toContain("沈奕走進資訊室");
+    expect(msgs[1].role).toBe("user");
+    expect(msgs[1].content).toContain("我四處看看");
+  });
+
+  it("副本：system 額外帶 wiki 與 dungeonId，且不外洩 secrets 段標題以外內容給玩家由副大腦自行判斷", () => {
+    const msgs = buildControlMessages({
+      settingText: "設定", state: sampleState, input: "往前走",
+      narrative: "你抵達出口。", dicePool: [5], existingDungeonIds: ["U-001"],
+      dungeonId: "U-001", wiki: "入口有三道門", secrets: "地板會塌",
+    });
+    expect(msgs[0].content).toContain("U-001");
+    expect(msgs[0].content).toContain("入口有三道門");
   });
 });
 

@@ -69,16 +69,15 @@ async function readBestEffort(file: string): Promise<string> {
 
 // ---------- 共用 system prompt 片段 ----------
 
-const OUTPUT_FORMAT_BLOCK = [
-  "## 輸出格式（務必遵守）",
-  "先輸出要顯示給玩家的敘事散文。敘事結束後另起一行，輸出一行 `===STATE===`，",
-  "緊接著輸出**單一 JSON 物件**（不要加程式碼框），欄位：",
+const CONTROL_FORMAT_BLOCK = [
+  "## 輸出格式（務必嚴格遵守）",
+  "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
   "- state_changes: { now?: {七欄任意子集，鍵用 chapter/scene/companions/activeDungeon/threads/nextStep},",
   "    protagonist_points_delta?: number, npc_updates?: [{id, update}], wiki_reveals?: [string] }",
-  "- rolls: [{desc, value, success?}]（本回合用到的骰值，沒有就空陣列）",
+  "- rolls: [{desc, value, success?}]（敘事中實際用到的骰值與判定，沒有就空陣列）",
   '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
   "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
-  "- awaiting_user_input: boolean —— 純環境/系統旁白/NPC 自行動作、玩家不需做決定時設 false（引擎自動接續）；需要玩家選擇才設 true。",
+  "- awaiting_user_input: boolean —— 敘事屬純環境/系統旁白/NPC 自行動作、玩家不需做決定時設 false；需要玩家選擇才設 true。",
   "- suggested_actions: string[]、commit_summary: string（一句摘要）",
 ].join("\n");
 
@@ -116,9 +115,10 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     "- 嚴格遵守下方世界設定，不可竄改既定規則或角色屬性/積分數值。",
     "- 不可揭露任何尚未在劇情中揭露的隱藏設定。",
     "- 只敘述主空間互動；若劇情走到系統強制開啟副本，把 mode_transition 設為 enter_dungeon 並填 transition_dungeon_id，不要自行切到副本內部。",
-    "- 需要機率判定時，**只能依序取用下方『本回合骰值』**，不可自行編造數字；用到的骰值要在 rolls 回報。",
+    "- 需要機率判定時，**只能依序取用下方『本回合骰值』**，不可自行編造數字；用到的骰值與成敗要寫進敘事，後續由系統自動抽取。",
     "",
-    OUTPUT_FORMAT_BLOCK,
+    "## 輸出格式",
+    "只輸出要顯示給玩家的敘事散文，不要輸出任何 JSON 或控制區塊；結構化狀態由系統另行處理。",
     "",
     `## 本回合骰值（d100，依序取用）：[${dicePool.join(", ")}]`,
     "",
@@ -152,10 +152,11 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
     "- 全程使用繁體中文與台灣用詞。",
     "- 嚴格遵守世界設定與副本已揭露事實（wiki），不可矛盾。",
     "- **secrets 是劇透文件：只能用來保持暗線一致，絕不可直接告訴玩家未揭露的真相**；劇情真的揭露時，才把對應內容放進 wiki_reveals。",
-    "- 機率判定**只能依序取用下方骰值**，用到要在 rolls 回報。",
-    "- 副本達主線目標/死亡/撤退時，把 mode_transition 設為 settle_dungeon。",
+    "- 機率判定**只能依序取用下方骰值**，用到的骰值與成敗要寫進敘事，後續由系統自動抽取。",
+    "- 副本達主線目標/死亡/撤退時，在敘事中明確呈現該轉折（系統會據此結算）。",
     "",
-    OUTPUT_FORMAT_BLOCK,
+    "## 輸出格式",
+    "只輸出要顯示給玩家的敘事散文，不要輸出任何 JSON 或控制區塊；結構化狀態由系統另行處理。",
     "",
     `## 本回合骰值（d100，依序取用）：[${dicePool.join(", ")}]`,
     "",
@@ -175,6 +176,66 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
   return [
     { role: "system", content: system },
     { role: "user", content: input },
+  ];
+}
+
+export interface BuildControlParams {
+  settingText: string;
+  state: GameState;
+  input: string;
+  /** 主腦本回合已產生的完整敘事散文 */
+  narrative: string;
+  dicePool: number[];
+  /** 現有副本 id 列表，供 enter_dungeon 判斷續用既有 slug 或新建 */
+  existingDungeonIds: string[];
+  /** 副本模式才填 */
+  dungeonId?: string;
+  wiki?: string;
+  secrets?: string;
+}
+
+/**
+ * 副大腦（結構控制抽取）的對話訊息：讀主腦寫好的敘事 + 當前狀態，
+ * 抽出 TurnControl JSON。只整理敘事中已發生的事實，不得新增劇情或發明數值。
+ */
+export function buildControlMessages(params: BuildControlParams): ChatMessage[] {
+  const { settingText, state, input, narrative, dicePool, existingDungeonIds } = params;
+  const inDungeon = Boolean(params.dungeonId);
+  const system = [
+    "你是「無限恐怖」世界敘事引擎的**結構控制抽取器**。",
+    "下方有本回合已經產生的敘事散文，你的工作是把其中**已經發生的事實**整理成結構化 JSON。",
+    "",
+    "## 鐵則",
+    "- 只整理敘事中已經寫出的事實，**不可新增劇情、不可發明敘事未提及的數值或事件**。",
+    "- protagonist_points_delta 只反映敘事中明確發生的積分增減；沒寫到就填 0 或省略。",
+    "- rolls 只回報敘事中實際用到的骰值（對照下方骰池），沒有就空陣列。",
+    inDungeon
+      ? "- 副本達主線目標/主角死亡/撤退離開時，mode_transition 設為 settle_dungeon。"
+      : "- 敘事中若系統強制開啟/傳送進副本，mode_transition 設為 enter_dungeon，並填 transition_dungeon_id：" +
+        "優先比對下方『現有副本 id』判斷是否重返既有副本；若是全新副本才生成新的 kebab-case 短 slug。",
+    "",
+    CONTROL_FORMAT_BLOCK,
+    "",
+    `## 本回合骰值（d100，主腦依序取用）：[${dicePool.join(", ")}]`,
+    "",
+    `## 現有副本 id（供判斷續用/新建）：${existingDungeonIds.length > 0 ? existingDungeonIds.join("、") : "（無）"}`,
+    "",
+    "## 世界設定",
+    settingText.trim(),
+    "",
+    ...(inDungeon
+      ? ["## 副本已揭露知識（wiki）", (params.wiki ?? "").trim() || "（尚無）",
+         "", `## 當前副本 id：${params.dungeonId}`, ""]
+      : []),
+    canonicalBlock(state),
+    "",
+    "## 本回合敘事散文（事實來源）",
+    narrative.trim(),
+  ].join("\n");
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: `玩家本回合行動：${input}` },
   ];
 }
 
