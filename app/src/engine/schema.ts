@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { STATE_SENTINEL } from "./stream-split.js";
 
 /** now.md 七欄的可選覆寫（最後更新由引擎管理，不由模型給） */
 const stringCoerce = z.preprocess((val) => {
@@ -63,37 +62,38 @@ export const TurnControlSchema = z.object({
 export type TurnControl = z.infer<typeof TurnControlSchema>;
 export type NowChanges = z.infer<typeof NowChangesSchema>;
 
-export interface ParsedTurn {
-  narrative: string;
-  control: TurnControl;
+/**
+ * 從副大腦原始輸出抽出 JSON 物件字串。
+ * 先去掉 markdown code fence，再從第一個 `{` 起，由最後一個 `}` 往前逐個嘗試
+ * 解析，取第一個能 JSON.parse 成功的範圍。這樣對「合法 JSON 之後又跟了含 `}`
+ * 的客套字」（lastIndexOf 會抓到後綴的 `}`）也能還原，而非整段降級。
+ * 找不到任何可解析的 JSON 時回傳 null。
+ */
+function extractJsonObject(raw: string): unknown {
+  const cleaned = raw.replace(/```(?:json)?/gi, "");
+  const start = cleaned.indexOf("{");
+  if (start === -1) return null;
+
+  // 由最後一個 `}` 往前找，第一個能成功 parse 的就是答案（happy path 一次命中）
+  for (let end = cleaned.lastIndexOf("}"); end > start; end = cleaned.lastIndexOf("}", end - 1)) {
+    try {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    } catch {
+      // 這個 `}` 不是 JSON 真正的結尾（可能是後綴客套字裡的），往前再試
+    }
+  }
+  return null;
 }
 
 /**
- * 從完整模型輸出拆出敘事與控制區塊：
- * sentinel 前為敘事散文，sentinel 後為單一 JSON 物件。
- * 缺 sentinel / JSON 非法 / schema 不符都拋錯（由呼叫端決定重試或降級）。
+ * 從副大腦原始輸出解析出 TurnControl。
+ * 副大腦只負責輸出結構，整段視為一個 JSON 物件（無 sentinel）。
+ * 找不到可解析的 JSON / schema 不符都拋錯（由呼叫端決定降級）。
  */
-export function parseTurnOutput(full: string): ParsedTurn {
-  const idx = full.indexOf(STATE_SENTINEL);
-  if (idx === -1) {
-    throw new Error("模型輸出缺少 ===STATE=== 控制區塊");
+export function parseControlOutput(raw: string): TurnControl {
+  const parsed = extractJsonObject(raw);
+  if (parsed === null) {
+    throw new Error("副大腦輸出找不到可解析的 JSON 物件");
   }
-  const narrative = full.slice(0, idx).trim();
-  const tail = full.slice(idx + STATE_SENTINEL.length);
-
-  const start = tail.indexOf("{");
-  const end = tail.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error("控制區塊找不到 JSON 物件");
-  }
-
-  let raw: unknown;
-  try {
-    raw = JSON.parse(tail.slice(start, end + 1));
-  } catch (e) {
-    throw new Error(`控制區塊 JSON 解析失敗：${(e as Error).message}`);
-  }
-
-  const control = TurnControlSchema.parse(raw);
-  return { narrative, control };
+  return TurnControlSchema.parse(parsed);
 }

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { readdir } from "node:fs/promises";
-import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, type TurnEvent, type TurnDeps } from "./turn.js";
+import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, buildControlMessages, type TurnEvent, type TurnDeps } from "./turn.js";
 import type { GameState } from "./context.js";
 import type { RecallHit, RecallIndex } from "../recall/store.js";
 
@@ -43,18 +43,31 @@ function sequencedClient(responses: string[]): LlmClient {
   };
 }
 
-function control(awaiting: boolean, summary: string): string {
-  return (
-    `敘事：${summary}\n===STATE===\n` +
-    JSON.stringify({
-      state_changes: {},
-      rolls: [],
-      mode_transition: null,
-      awaiting_user_input: awaiting,
-      suggested_actions: [],
-      commit_summary: summary,
-    })
-  );
+function controlJson(awaiting: boolean, summary: string): string {
+  return JSON.stringify({
+    state_changes: {},
+    rolls: [],
+    mode_transition: null,
+    awaiting_user_input: awaiting,
+    suggested_actions: [],
+    commit_summary: summary,
+  });
+}
+
+/**
+ * sequencedClient 與 twoBrainClient 都在此並存：
+ * - sequencedClient：表達「呼叫順序」語義，每次 streamChat 呼叫時推進索引
+ * - twoBrainClient：表達「主腦散文與副大腦 JSON 交替」語義，同樣透過序列供應
+ * 語意不同，邏輯實作暫無差異，保持兩個獨立函式以便未來擴展（如 twoBrainClient 後續可實作串流分岔）
+ */
+function twoBrainClient(responses: string[]): LlmClient {
+  let i = 0;
+  return {
+    async *streamChat(_m: ChatMessage[]): AsyncIterable<string> {
+      yield responses[Math.min(i, responses.length - 1)];
+      i++;
+    },
+  };
 }
 
 const sampleState: GameState = {
@@ -63,7 +76,13 @@ const sampleState: GameState = {
     activeDungeon: "無", threads: "", nextStep: "", lastUpdated: "",
   },
   protagonist: { name: "沈奕", points: "0" },
-  protagonistDetail: { name: "沈奕", points: "0", attributes: "", skills: "", items: "", buffs: "" },
+  protagonistDetail: {
+    name: "沈奕", points: "0",
+    attributes: "力量 8、敏捷 12",
+    skills: "瞬步（消耗 20 積分）",
+    items: "強化手槍（彈藥 6）",
+    buffs: "新手保護（3 場）",
+  },
   npcs: [],
   mode: "main-space",
   lastTurn: null,
@@ -127,15 +146,20 @@ async function makeTempWorld(opts: { withYeqing?: boolean } = {}): Promise<strin
 }
 
 describe("buildMainSpaceMessages", () => {
-  it("system 含設定、canonical、輸出格式與骰值；user 為玩家輸入", () => {
+  it("system 含設定、canonical 與骰值，但不再含 JSON 輸出要求", () => {
     const msgs = buildMainSpaceMessages({
       settingText: "禁止竄改數值。", state: sampleState, input: "我四處看看", dicePool: [7, 42],
     });
     expect(msgs[0].role).toBe("system");
     expect(msgs[0].content).toContain("禁止竄改數值");
-    expect(msgs[0].content).toContain("===STATE===");
-    expect(msgs[0].content).toContain("awaiting_user_input");
     expect(msgs[0].content).toContain("[7, 42]");
+    expect(msgs[0].content).not.toContain("===STATE===");
+    expect(msgs[0].content).not.toContain("awaiting_user_input");
+    // 主角詳細狀態（技能/物品/buff）須注入，敘事才能正確演出技能/道具使用
+    expect(msgs[0].content).toContain("瞬步（消耗 20 積分）");
+    expect(msgs[0].content).toContain("強化手槍（彈藥 6）");
+    expect(msgs[0].content).toContain("新手保護（3 場）");
+    expect(msgs[0].content).toContain("力量 8、敏捷 12");
     expect(msgs[1]).toEqual({ role: "user", content: "我四處看看" });
   });
 
@@ -164,23 +188,56 @@ describe("buildMainSpaceMessages", () => {
   });
 });
 
+describe("buildControlMessages", () => {
+  it("主空間：system 含敘事、骰值、現有副本 id；user 帶玩家行動", () => {
+    const msgs = buildControlMessages({
+      settingText: "設定", state: sampleState, input: "我四處看看",
+      narrative: "沈奕走進資訊室，擲出 42 成功避開警衛。",
+      dicePool: [42, 7], existingDungeonIds: ["U-001", "abandoned-hospital"],
+    });
+    expect(msgs[0].role).toBe("system");
+    expect(msgs[0].content).toContain("awaiting_user_input");
+    expect(msgs[0].content).toContain("[42, 7]");
+    expect(msgs[0].content).toContain("U-001");
+    expect(msgs[0].content).toContain("abandoned-hospital");
+    expect(msgs[0].content).toContain("沈奕走進資訊室");
+    // 副大腦也需主角詳細狀態，才能正確抽取道具消耗/技能冷卻/buff 變化
+    expect(msgs[0].content).toContain("瞬步（消耗 20 積分）");
+    expect(msgs[0].content).toContain("強化手槍（彈藥 6）");
+    expect(msgs[0].content).toContain("新手保護（3 場）");
+    expect(msgs[1].role).toBe("user");
+    expect(msgs[1].content).toContain("我四處看看");
+  });
+
+  it("副本：system 額外帶 wiki 與 dungeonId，且不外洩 secrets 段標題以外內容給玩家由副大腦自行判斷", () => {
+    const msgs = buildControlMessages({
+      settingText: "設定", state: sampleState, input: "往前走",
+      narrative: "你抵達出口。", dicePool: [5], existingDungeonIds: ["U-001"],
+      dungeonId: "U-001", wiki: "入口有三道門", secrets: "地板會塌",
+    });
+    expect(msgs[0].content).toContain("U-001");
+    expect(msgs[0].content).toContain("入口有三道門");
+    expect(msgs[0].content).not.toContain("地板會塌");
+  });
+});
+
 describe("runMainSpaceTurn — 結構化輸出", () => {
-  it("串流敘事、套用 now/積分、commit，done 帶 awaitingUserInput/suggestedActions", async () => {
+  it("串流敘事、副大腦套用 now/積分、commit，done 帶 awaitingUserInput/suggestedActions", async () => {
     const commits: string[] = [];
-    const response =
-      "沈奕走進資訊室。\n===STATE===\n" +
-      JSON.stringify({
-        state_changes: { now: { scene: "資訊室", nextStep: "找葉晴" }, protagonist_points_delta: 2 },
-        rolls: [],
-        mode_transition: null,
-        awaiting_user_input: true,
-        suggested_actions: ["找葉晴", "離開"],
-        commit_summary: "沈奕進資訊室",
-      });
+    const narrative = "沈奕走進資訊室。";
+    const ctrl = JSON.stringify({
+      state_changes: { now: { scene: "資訊室", nextStep: "找葉晴" }, protagonist_points_delta: 2 },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: ["找葉晴", "離開"],
+      commit_summary: "沈奕進資訊室",
+    });
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
       {
-        client: fakeClient([response]),
+        client: fakeClient([narrative]),
+        controlClient: fakeClient([ctrl]),
         worldDir: world,
         commit: async (m) => { commits.push(m); return true; },
         today: () => "2026-06-19",
@@ -191,9 +248,9 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
       events.push(ev);
     }
 
-    const narrative = events.filter((e) => e.type === "delta").map((e: any) => e.text).join("");
-    expect(narrative).toContain("沈奕走進資訊室。");
-    expect(narrative).not.toContain("===STATE===");
+    const streamed = events.filter((e) => e.type === "delta").map((e: any) => e.text).join("");
+    expect(streamed).toContain("沈奕走進資訊室。");
+    expect(streamed).not.toContain("===STATE===");
 
     const done: any = events.at(-1);
     expect(done.type).toBe("done");
@@ -213,6 +270,37 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(journal).toContain("去資訊室");
 
     expect(commits).toEqual(["沈奕進資訊室"]);
+  });
+
+  it("副大腦試圖用 now.activeDungeon 自行覆寫副本欄時，引擎忽略該欄（由 mode_transition 管理）", async () => {
+    const ctrl = JSON.stringify({
+      state_changes: { now: { scene: "詭異的走廊", activeDungeon: "U-999 + run-1" } },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: [],
+      commit_summary: "場景變化",
+    });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient(["四周突然變得詭異。"]),
+        controlClient: fakeClient([ctrl]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "往前走",
+    )) {
+      events.push(ev);
+    }
+    const now = await readFile(path.join(world, "now.md"), "utf8");
+    // scene 等正常欄位仍套用
+    expect(now).toContain("- 此刻場景/地點：詭異的走廊");
+    // 但 activeDungeon 被引擎忽略，維持「無」，不會繞過 enterDungeon 流程
+    expect(now).toContain("- 進行中的副本：無");
+    expect(now).not.toContain("U-999");
   });
 
   it("protagonist_updates 落地到 protagonist.md 對應區塊（主角成長記憶）", async () => {
@@ -334,23 +422,26 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
   });
 
   it("item_pickups 首次撿到時生成道具 secrets.md，item_reveals 累積進 wiki.md", async () => {
-    const response =
-      "沈奕從地上撿起一根生鏽鐵管。\n===STATE===\n" +
-      JSON.stringify({
-        state_changes: {
-          item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }],
-          item_reveals: [{ id: "rusty-pipe", reveal: "管身刻有奇怪符號" }],
-        },
-        rolls: [],
-        mode_transition: null,
-        awaiting_user_input: true,
-        suggested_actions: [],
-        commit_summary: "撿到鐵管",
-      });
+    const ctrl = JSON.stringify({
+      state_changes: {
+        item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }],
+        item_reveals: [{ id: "rusty-pipe", reveal: "管身刻有奇怪符號" }],
+      },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: [],
+      commit_summary: "撿到鐵管",
+    });
     const events: TurnEvent[] = [];
+    // 雙腦序列：主腦敘事 → 副大腦 JSON → 道具 secrets 生成（generateItemSecrets 用 deps.client）
     for await (const ev of runMainSpaceTurn(
       {
-        client: sequencedClient([response, "其實是某把武器的殘骸，蘊含未知力量。"]),
+        client: sequencedClient([
+          "沈奕從地上撿起一根生鏽鐵管。",
+          ctrl,
+          "其實是某把武器的殘骸，蘊含未知力量。",
+        ]),
         worldDir: world,
         commit: async () => true,
         today: () => "2026-06-19",
@@ -369,20 +460,23 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
   it("item_pickups 對已有 secrets 的道具不重複生成", async () => {
     await mkdir(path.join(world, "items", "rusty-pipe"), { recursive: true });
     await writeFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "# 道具隱藏設定（生鏽鐵管）\n\n原始真相\n");
-    const response =
-      "沈奕又看了一眼鐵管。\n===STATE===\n" +
-      JSON.stringify({
-        state_changes: { item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }] },
-        rolls: [],
-        mode_transition: null,
-        awaiting_user_input: true,
-        suggested_actions: [],
-        commit_summary: "再次檢視鐵管",
-      });
+    const ctrl = JSON.stringify({
+      state_changes: { item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }] },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: [],
+      commit_summary: "再次檢視鐵管",
+    });
     const events: TurnEvent[] = [];
+    // 雙腦序列：主腦敘事 → 副大腦 JSON →（若誤呼叫生成才會吐這段「不該寫入」，正確時不會用到）
     for await (const ev of runMainSpaceTurn(
       {
-        client: sequencedClient([response, "新真相（不該寫入）"]),
+        client: sequencedClient([
+          "沈奕又看了一眼鐵管。",
+          ctrl,
+          "新真相（不該寫入）",
+        ]),
         worldDir: world,
         commit: async () => true,
         today: () => "2026-06-19",
@@ -397,11 +491,12 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(secrets).not.toContain("不該寫入");
   });
 
-  it("缺 sentinel 時降級：保留敘事、發 warning、暫停、仍 commit", async () => {
+  it("副大腦輸出無法解析時降級：保留敘事、發 warning、暫停、仍 commit", async () => {
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
       {
-        client: fakeClient(["這是一段沒有控制區塊的純敘事。"]),
+        client: fakeClient(["這是一段正常敘事。"]),
+        controlClient: fakeClient(["副大腦壞掉了，沒有 JSON"]),
         worldDir: world,
         commit: async () => true,
         today: () => "2026-06-19",
@@ -415,8 +510,33 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     const done: any = events.at(-1);
     expect(done.type).toBe("done");
     expect(done.awaitingUserInput).toBe(true); // 降級保守暫停
+    const streamed = events.filter((e) => e.type === "delta").map((e: any) => e.text).join("");
+    expect(streamed).toContain("這是一段正常敘事。");
     const now = await readFile(path.join(world, "now.md"), "utf8");
     expect(now).toContain("- 最後更新：[2026-06-19]");
+  });
+
+  it("副大腦呼叫整個拋錯時也降級（不中斷回合）", async () => {
+    const throwingControl: LlmClient = {
+      async *streamChat() { throw new Error("control LLM 掛了"); yield ""; },
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient(["敘事正常。"]),
+        controlClient: throwingControl,
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "做點事",
+    )) {
+      events.push(ev);
+    }
+    expect(events.some((e) => e.type === "warning")).toBe(true);
+    const done: any = events.at(-1);
+    expect(done.awaitingUserInput).toBe(true);
   });
 });
 
@@ -425,7 +545,12 @@ describe("runTurnLoop — 自動推進", () => {
     const events: TurnEvent[] = [];
     for await (const ev of runTurnLoop(
       {
-        client: sequencedClient([control(false, "系統倒數推進"), control(true, "需要玩家決定")]),
+        client: twoBrainClient([
+          "系統倒數推進敘事",          // turn 0 主腦
+          controlJson(false, "系統倒數推進"), // turn 0 副大腦
+          "需要玩家決定的敘事",        // turn 1 主腦
+          controlJson(true, "需要玩家決定"),  // turn 1 副大腦
+        ]),
         worldDir: world,
         commit: async () => true,
         today: () => "2026-06-19",
@@ -443,10 +568,15 @@ describe("runTurnLoop — 自動推進", () => {
   });
 
   it("達 maxAuto 上限即停（即使一直 false）", async () => {
+    const responses: string[] = [];
+    for (let k = 0; k < 3; k++) {
+      responses.push(`持續推進敘事 ${k}`);
+      responses.push(controlJson(false, "持續推進"));
+    }
     const events: TurnEvent[] = [];
     for await (const ev of runTurnLoop(
       {
-        client: sequencedClient([control(false, "持續推進")]),
+        client: twoBrainClient(responses),
         worldDir: world,
         commit: async () => true,
         today: () => "2026-06-19",
@@ -456,7 +586,6 @@ describe("runTurnLoop — 自動推進", () => {
     )) {
       events.push(ev);
     }
-    // 1 個初始 + 最多 2 個自動 = 最多 3 個 done
     const dones = events.filter((e) => e.type === "done");
     expect(dones).toHaveLength(3);
   });
@@ -471,20 +600,23 @@ describe("runDungeonTurn", () => {
       path.join(world, "now.md"),
       "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
     );
-    const response =
-      "你踏入大廳，三道門並排。\n===STATE===\n" +
-      JSON.stringify({
-        state_changes: { wiki_reveals: ["入口大廳有三道門"] },
-        rolls: [],
-        mode_transition: null,
-        awaiting_user_input: true,
-        suggested_actions: [],
-        commit_summary: "進入大廳",
-      });
+    const narrative = "你踏入大廳，三道門並排。";
+    const ctrl = JSON.stringify({
+      state_changes: { wiki_reveals: ["入口大廳有三道門"] },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: [],
+      commit_summary: "進入大廳",
+    });
 
     const events: TurnEvent[] = [];
     for await (const ev of runDungeonTurn(
-      { client: fakeClient([response]), worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5] },
+      {
+        client: fakeClient([narrative]),
+        controlClient: fakeClient([ctrl]),
+        worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5],
+      },
       "往前走",
     )) {
       events.push(ev);
@@ -508,18 +640,19 @@ describe("pre-pass 整合測試", () => {
         yield JSON.stringify({ stance: "觀察", intent: "提暗號", tone: "冷靜" });
       },
     };
+    const controlClient: LlmClient = {
+      async *streamChat() {
+        yield JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "test",
+        });
+      },
+    };
     let capturedSystem = "";
     const mainClient: LlmClient = {
       async *streamChat(msgs) {
         capturedSystem = msgs[0].content;
-        yield `敘事\n===STATE===\n${JSON.stringify({
-          state_changes: {},
-          rolls: [],
-          mode_transition: null,
-          awaiting_user_input: true,
-          suggested_actions: [],
-          commit_summary: "test",
-        })}`;
+        yield "純敘事內容";
       },
     };
 
@@ -528,6 +661,7 @@ describe("pre-pass 整合測試", () => {
       const deps: TurnDeps = {
         client: mainClient,
         characterClient: charClient,
+        controlClient,
         worldDir,
         commit: async () => false,
         today: () => "2026-06-19",
@@ -550,15 +684,14 @@ describe("pre-pass 整合測試", () => {
       },
     };
     const mainClient: LlmClient = {
+      async *streamChat() { yield "敘事"; },
+    };
+    const controlClient: LlmClient = {
       async *streamChat() {
-        yield `敘事\n===STATE===\n${JSON.stringify({
-          state_changes: {},
-          rolls: [],
-          mode_transition: null,
-          awaiting_user_input: true,
-          suggested_actions: [],
-          commit_summary: "test",
-        })}`;
+        yield JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "test",
+        });
       },
     };
     const worldDir = await makeTempWorld({ withYeqing: true });
@@ -566,6 +699,7 @@ describe("pre-pass 整合測試", () => {
       const deps: TurnDeps = {
         client: mainClient,
         characterClient: charClient,
+        controlClient,
         worldDir,
         commit: async () => false,
         today: () => "2026-06-19",
@@ -583,24 +717,30 @@ describe("pre-pass 整合測試", () => {
 
 describe("recall 整合測試", () => {
   it("deps.recall 注入後檢索結果出現在 system prompt（主空間）", async () => {
+    // 雙腦架構下主腦先被呼叫、副大腦（缺 controlClient 時退回同一 client）後被呼叫；
+    // recallBlock 只注入主腦 prompt，故只擷取第一次（主腦）呼叫的 system。
     let capturedSystem = "";
     const mainClient: LlmClient = {
       async *streamChat(msgs) {
-        capturedSystem = msgs[0].content;
-        yield `敘事\n===STATE===\n${JSON.stringify({
-          state_changes: {},
-          rolls: [],
-          mode_transition: null,
-          awaiting_user_input: true,
-          suggested_actions: [],
-          commit_summary: "test",
-        })}`;
+        if (!capturedSystem) capturedSystem = msgs[0].content;
+        yield "純敘事內容";
       },
     };
+    const controlClient = fakeClient([
+      JSON.stringify({
+        state_changes: {},
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "test",
+      }),
+    ]);
     const recall = fakeRecall([{ file: "characters/yeqing.md", heading: "近況", text: "葉晴受傷了", score: 0.9 }]);
 
     const deps: TurnDeps = {
       client: mainClient,
+      controlClient,
       worldDir: world,
       commit: async () => false,
       today: () => "2026-06-19",
@@ -721,16 +861,19 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
   it("enter_dungeon → 生成 secrets/建 run → 副本回合 → settle_dungeon 回主空間", async () => {
     const enterCtl = JSON.stringify({
       state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
-      transition_dungeon_id: "U-TEST", awaiting_user_input: false, suggested_actions: [], commit_summary: "系統強制開啟副本",
+      transition_dungeon_id: "U-TEST", transition_dungeon_goal: "找到三把鑰匙",
+      awaiting_user_input: false, suggested_actions: [], commit_summary: "系統強制開啟副本",
     });
     const settleCtl = JSON.stringify({
       state_changes: { wiki_reveals: ["出口在東側"] }, rolls: [], mode_transition: "settle_dungeon",
       awaiting_user_input: true, suggested_actions: [], commit_summary: "撤離副本",
     });
-    const client = sequencedClient([
-      "系統警報響起。\n===STATE===\n" + enterCtl,   // call 0：主空間 → 進副本
-      "這個副本真正的機關是潮汐淹沒。",              // call 1：secrets 生成（純文字）
-      "你抵達出口。\n===STATE===\n" + settleCtl,    // call 2：副本回合 → 結算
+    const client = twoBrainClient([
+      "系統警報響起。",     // turn 0 主腦（主空間）
+      enterCtl,            // turn 0 副大腦 → enter_dungeon
+      "這個副本真正的機關是潮汐淹沒。", // secrets 生成（generateSecrets 用 deps.client）
+      "你抵達出口。",       // turn 1 主腦（副本）
+      settleCtl,           // turn 1 副大腦 → settle_dungeon
     ]);
 
     const events: TurnEvent[] = [];
@@ -751,8 +894,32 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
     expect(runs).toContain("run-1.md");
     const wiki = await readFile(path.join(world, "dungeons", "U-TEST", "wiki.md"), "utf8");
     expect(wiki).toContain("出口在東側");
+    // 副大腦給的 transition_dungeon_goal 應落地進 run log，而非被硬編碼佔位字串取代
+    const runLog = await readFile(path.join(world, "dungeons", "U-TEST", "runs", "run-1.md"), "utf8");
+    expect(runLog).toContain("找到三把鑰匙");
 
     const now = await readFile(path.join(world, "now.md"), "utf8");
     expect(now).toContain("- 進行中的副本：無"); // 結算後回主空間
+  });
+
+  it("enter_dungeon 但副大腦沒給 transition_dungeon_id：不進副本、發 warning、停在主空間", async () => {
+    const enterNoId = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
+      awaiting_user_input: false, suggested_actions: [], commit_summary: "系統判定要開副本但沒給 id",
+    });
+    const client = twoBrainClient(["系統警報響起。", enterNoId]);
+    const events: TurnEvent[] = [];
+    for await (const ev of runTurnLoop(
+      { client, worldDir: world, commit: async () => true, today: () => "2026-06-19" },
+      "在安全區等待",
+      4,
+    )) {
+      events.push(ev);
+    }
+    expect(events.some((e) => e.type === "warning")).toBe(true);
+    // 不應發生 transition、不應建任何副本目錄
+    expect(events.some((e) => e.type === "transition")).toBe(false);
+    const now = await readFile(path.join(world, "now.md"), "utf8");
+    expect(now).toContain("- 進行中的副本：無");
   });
 });

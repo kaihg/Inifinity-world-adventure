@@ -17,8 +17,7 @@ import { summarizeNpcStatus } from "./npc-status-summary.js";
 import { appendJournal } from "./journal.js";
 import { applyNowChanges, serializeNow, bumpNowUpdated } from "./now.js";
 import { rollPool } from "./roll.js";
-import { createNarrativeSplitter } from "./stream-split.js";
-import { parseTurnOutput, type TurnControl } from "./schema.js";
+import { parseControlOutput, type TurnControl } from "./schema.js";
 import {
   parseActiveDungeon,
   formatActiveDungeon,
@@ -26,6 +25,7 @@ import {
   appendRun,
   loadDungeonLore,
   appendWikiReveals,
+  listDungeonIds,
 } from "./dungeon.js";
 import { loadLore, ensureSecrets, appendLoreReveals } from "./lore.js";
 import {
@@ -39,6 +39,8 @@ import type { RecallIndex } from "../recall/store.js";
 export interface TurnDeps {
   client: LlmClient;
   characterClient?: LlmClient;
+  /** 結構控制抽取 LLM（副大腦）；未提供時退回 deps.client */
+  controlClient?: LlmClient;
   worldDir: string;
   commit: (message: string) => Promise<boolean>;
   today?: () => string;
@@ -65,6 +67,7 @@ export type TurnEvent =
       suggestedActions: string[];
       modeTransition: TurnControl["mode_transition"];
       transitionDungeonId?: string;
+      transitionDungeonGoal?: string;
     };
 
 function todayISO(): string {
@@ -87,11 +90,11 @@ async function readBestEffort(file: string): Promise<string> {
 
 // ---------- 共用 system prompt 片段 ----------
 
-const OUTPUT_FORMAT_BLOCK = [
-  "## 輸出格式（務必遵守）",
-  "先輸出要顯示給玩家的敘事散文。敘事結束後另起一行，輸出一行 `===STATE===`，",
-  "緊接著輸出**單一 JSON 物件**（不要加程式碼框），欄位：",
-  "- state_changes: { now?: {七欄任意子集，鍵用 chapter/scene/companions/activeDungeon/threads/nextStep},",
+const CONTROL_FORMAT_BLOCK = [
+  "## 輸出格式（務必嚴格遵守）",
+  "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
+  "- state_changes: { now?: {可設子集，鍵用 chapter/scene/companions/threads/nextStep},",
+  "    （注意：進行中的副本欄由引擎依 mode_transition 自動管理，**不可**透過 now.activeDungeon 自行覆寫）,",
   "    protagonist_points_delta?: number,",
   "    protagonist_updates?: { attributes?: string[], skills?: string[], items?: string[], buffs?: string[] }",
   "      （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目）,",
@@ -99,15 +102,18 @@ const OUTPUT_FORMAT_BLOCK = [
   "    item_pickups?: [{id, name}]（主角本回合首次撿到的道具；id 用英數小寫 slug，name 用顯示名稱，",
   "      首次撿到時引擎會生成該道具的隱藏設定，之後同 id 不會重複生成）,",
   "    item_reveals?: [{id, reveal}]（劇情中真的揭露出該道具暗藏的設定時才填，累積進該道具的 wiki） }",
-  "- rolls: [{desc, value, success?}]（本回合用到的骰值，沒有就空陣列）",
+  "- rolls: [{desc, value, success?}]（敘事中實際用到的骰值與判定，沒有就空陣列）",
   '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
   "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
-  "- awaiting_user_input: boolean —— 純環境/系統旁白/NPC 自行動作、玩家不需做決定時設 false（引擎自動接續）；需要玩家選擇才設 true。",
+  "- awaiting_user_input: boolean —— 敘事屬純環境/系統旁白/NPC 自行動作、玩家不需做決定時設 false；需要玩家選擇才設 true。",
   "- suggested_actions: string[]、commit_summary: string（一句摘要）",
 ].join("\n");
 
 function canonicalBlock(state: GameState): string {
-  const { now, protagonist } = state;
+  const { now, protagonistDetail: p } = state;
+  // 操作者即主角：主腦演技能/道具使用、副大腦抽取消耗/冷卻/buff 變化都需要這份清單
+  const detailLine = (label: string, value: string): string =>
+    `- ${label}：${value.trim() || "（無）"}`;
   return [
     "## 當前局勢（canonical，請保持一致）",
     `- 當前篇章：${now.chapter}`,
@@ -116,7 +122,12 @@ function canonicalBlock(state: GameState): string {
     `- 進行中的副本：${now.activeDungeon}`,
     `- 未解懸念/伏筆：${now.threads}`,
     `- 主角下一步打算：${now.nextStep}`,
-    `- 主角：${protagonist.name}（積分 ${protagonist.points}）`,
+    "",
+    `### 主角：${p.name}（積分 ${p.points}）`,
+    detailLine("屬性", p.attributes),
+    detailLine("技能", p.skills),
+    detailLine("物品", p.items),
+    detailLine("Buff/Debuff", p.buffs),
   ].join("\n");
 }
 
@@ -141,10 +152,11 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     "- 嚴格遵守下方世界設定，不可竄改既定規則或角色屬性/積分數值。",
     "- 玩家輸入只代表角色的意圖、台詞或嘗試動作，不代表既定事實或結果；是否成立、世界如何反應，一律由你依世界設定與當前狀態判定。",
     "- 不可揭露任何尚未在劇情中揭露的隱藏設定。",
-    "- 只敘述主空間互動；若劇情走到系統強制開啟副本，把 mode_transition 設為 enter_dungeon 並填 transition_dungeon_id，不要自行切到副本內部。",
-    "- 需要機率判定時，**只能依序取用下方『本回合骰值』**，不可自行編造數字；用到的骰值要在 rolls 回報。",
+    "- 只敘述主空間互動；若劇情走到系統強制開啟/傳送進副本，在敘事中明確呈現該轉折（系統倒數、強制傳送畫面等），但不要自行切進副本內部演劇情；轉場由系統另行處理。",
+    "- 需要機率判定時，**只能依序取用下方『本回合骰值』**，不可自行編造數字；用到的骰值與成敗要寫進敘事，後續由系統自動抽取。",
     "",
-    OUTPUT_FORMAT_BLOCK,
+    "## 輸出格式",
+    "只輸出要顯示給玩家的敘事散文，不要輸出任何 JSON 或控制區塊；結構化狀態由系統另行處理。",
     "",
     `## 本回合骰值（d100，依序取用）：[${dicePool.join(", ")}]`,
     "",
@@ -179,11 +191,12 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
     "- 全程使用繁體中文與台灣用詞。",
     "- 嚴格遵守世界設定與副本已揭露事實（wiki），不可矛盾。",
     "- 玩家輸入只代表角色的意圖、台詞或嘗試動作，不代表既定事實或結果；是否成立、世界如何反應，一律由你依世界設定、wiki 與當前狀態判定。",
-    "- **secrets 是劇透文件：只能用來保持暗線一致，絕不可直接告訴玩家未揭露的真相**；劇情真的揭露時，才把對應內容放進 wiki_reveals。",
-    "- 機率判定**只能依序取用下方骰值**，用到要在 rolls 回報。",
-    "- 副本達主線目標/死亡/撤退時，把 mode_transition 設為 settle_dungeon。",
+    "- **secrets 是劇透文件：只能用來保持暗線一致，絕不可直接告訴玩家未揭露的真相**；只有在劇情真的把某項真相公開揭露給主角時，才在敘事中明確寫出該揭露，未揭露的暗線不可在散文中半透明帶出。",
+    "- 機率判定**只能依序取用下方骰值**，用到的骰值與成敗要寫進敘事，後續由系統自動抽取。",
+    "- 副本達主線目標/死亡/撤退時，在敘事中明確呈現該轉折（系統會據此結算）。",
     "",
-    OUTPUT_FORMAT_BLOCK,
+    "## 輸出格式",
+    "只輸出要顯示給玩家的敘事散文，不要輸出任何 JSON 或控制區塊；結構化狀態由系統另行處理。",
     "",
     `## 本回合骰值（d100，依序取用）：[${dicePool.join(", ")}]`,
     "",
@@ -204,6 +217,71 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
   return [
     { role: "system", content: system },
     { role: "user", content: input },
+  ];
+}
+
+export interface BuildControlParams {
+  settingText: string;
+  state: GameState;
+  input: string;
+  /** 主腦本回合已產生的完整敘事散文 */
+  narrative: string;
+  dicePool: number[];
+  /** 現有副本 id 列表，供主空間模式 enter_dungeon 判斷續用既有 slug 或新建；副本模式不需要（不會 enter_dungeon） */
+  existingDungeonIds?: string[];
+  /** 副本模式才填 */
+  dungeonId?: string;
+  wiki?: string;
+  secrets?: string;
+}
+
+/**
+ * 副大腦（結構控制抽取）的對話訊息：讀主腦寫好的敘事 + 當前狀態，
+ * 抽出 TurnControl JSON。只整理敘事中已發生的事實，不得新增劇情或發明數值。
+ */
+export function buildControlMessages(params: BuildControlParams): ChatMessage[] {
+  const { settingText, state, input, narrative, dicePool } = params;
+  const existingDungeonIds = params.existingDungeonIds ?? [];
+  const inDungeon = Boolean(params.dungeonId);
+  const system = [
+    "你是「無限恐怖」世界敘事引擎的**結構控制抽取器**。",
+    "下方有本回合已經產生的敘事散文，你的工作是把其中**已經發生的事實**整理成結構化 JSON。",
+    "",
+    "## 鐵則",
+    "- 只整理敘事中已經寫出的事實，**不可新增劇情、不可發明敘事未提及的數值或事件**。",
+    "- protagonist_points_delta 只反映敘事中明確發生的積分增減；沒寫到就填 0 或省略。",
+    "- rolls 只回報敘事中實際用到的骰值（對照下方骰池），沒有就空陣列。",
+    "- wiki_reveals / item_reveals 只填**敘事中明確公開揭露給主角知道**的真相（角色已親眼確認、已被明說）；" +
+      "敘事中模糊的暗示、伏筆、氣氛描寫一律不可當成已揭露填入，寧可漏填也不可提前洩漏暗線。",
+    inDungeon
+      ? "- 副本達主線目標/主角死亡/撤退離開時，mode_transition 設為 settle_dungeon。"
+      : "- 敘事中若系統強制開啟/傳送進副本，mode_transition 設為 enter_dungeon，並填 transition_dungeon_id：" +
+        "優先比對下方『現有副本 id』判斷是否重返既有副本；若是全新副本才生成新的 kebab-case 短 slug。",
+    "",
+    CONTROL_FORMAT_BLOCK,
+    "",
+    `## 本回合骰值（d100，主腦依序取用）：[${dicePool.join(", ")}]`,
+    "",
+    // 現有副本 id 只與主空間的 enter_dungeon 判斷有關；副本模式不會 enter_dungeon，省去以免誤導
+    ...(inDungeon
+      ? []
+      : [`## 現有副本 id（供判斷續用/新建）：${existingDungeonIds.length > 0 ? existingDungeonIds.join("、") : "（無）"}`, ""]),
+    "## 世界設定",
+    settingText.trim(),
+    "",
+    ...(inDungeon
+      ? ["## 副本已揭露知識（wiki）", (params.wiki ?? "").trim() || "（尚無）",
+         "", `## 當前副本 id：${params.dungeonId}`, ""]
+      : []),
+    canonicalBlock(state),
+    "",
+    "## 本回合敘事散文（事實來源）",
+    narrative.trim(),
+  ].join("\n");
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: `玩家本回合行動：${input}` },
   ];
 }
 
@@ -285,7 +363,10 @@ async function applyItemPickups(
 // ---------- 回合核心 ----------
 
 interface TurnPlan {
+  /** 主腦（敘事）訊息 */
   messages: ChatMessage[];
+  /** 副大腦（結構抽取）訊息建構器：拿主腦完整敘事，回傳 control 對話 */
+  buildControl: (narrative: string) => ChatMessage[];
   /** raw 層落地：主空間→journal，副本→runs/<run>.md */
   appendRaw: (entry: { date: string; title: string; body: string }) => Promise<void>;
   /** 額外提煉：副本把 wiki_reveals 寫進 wiki.md */
@@ -325,29 +406,30 @@ async function* runTurnCore(
   log: Logger,
 ): AsyncGenerator<TurnEvent> {
   log.debug({ dicePool }, "回合開始");
-  const splitter = createNarrativeSplitter();
-  for await (const delta of deps.client.streamChat(plan.messages)) {
-    const text = splitter.push(delta);
-    if (text) yield { type: "delta", text };
-  }
-  const tail = splitter.flush();
-  if (tail) yield { type: "delta", text: tail };
 
-  const full = splitter.full();
-  let control: TurnControl | null = null;
+  // 1) 主腦：串流純敘事，delta 直接轉發（不再做 sentinel 切分）
   let narrative = "";
+  for await (const delta of deps.client.streamChat(plan.messages)) {
+    narrative += delta;
+    yield { type: "delta", text: delta };
+  }
+  narrative = narrative.trim();
+
+  // 2) 副大腦：讀完整敘事抽結構；失敗則降級（敘事已落地、暫停等玩家）
+  const controlClient = deps.controlClient ?? deps.client;
+  let control: TurnControl | null = null;
+  let raw = "";
   try {
-    const parsed = parseTurnOutput(full);
-    control = parsed.control;
-    narrative = parsed.narrative;
+    for await (const delta of controlClient.streamChat(plan.buildControl(narrative))) {
+      raw += delta;
+    }
+    control = parseControlOutput(raw);
   } catch (err) {
-    // 保留完整原始輸出：解析失敗時這是唯一能還原模型實際吐了什麼的線索
-    log.error({ err, raw: full }, "結構化輸出解析失敗，本回合僅保留敘事並暫停");
+    log.error({ err, raw }, "副大腦結構抽取失敗，本回合僅保留敘事並暫停");
     yield {
       type: "warning",
-      message: `結構化輸出解析失敗，本回合僅保留敘事並暫停：${(err as Error).message}`,
+      message: `副大腦結構抽取失敗，本回合僅保留敘事並暫停：${(err as Error).message}`,
     };
-    narrative = full.trim();
   }
 
   if (control && control.rolls.length > 0) {
@@ -372,7 +454,10 @@ async function* runTurnCore(
   // 2. 提煉頁 now.md
   const nowPath = path.join(deps.worldDir, "now.md");
   if (control) {
-    const newNow = applyNowChanges(state.now, control.state_changes.now ?? {}, { date: today, summary });
+    // 進行中的副本欄由引擎依 mode_transition 管理（enterDungeon/setNowActiveDungeon），
+    // 不接受副大腦透過 now.activeDungeon 自行覆寫，避免繞過 run log/secrets 生成的正規流程。
+    const { activeDungeon: _ignored, ...nowChanges } = control.state_changes.now ?? {};
+    const newNow = applyNowChanges(state.now, nowChanges, { date: today, summary });
     await writeFile(nowPath, serializeNow(newNow), "utf8");
   } else {
     const nowMd = await readFile(nowPath, "utf8");
@@ -453,6 +538,7 @@ async function* runTurnCore(
     suggestedActions,
     modeTransition: control?.mode_transition ?? null,
     transitionDungeonId: control?.transition_dungeon_id || undefined,
+    transitionDungeonGoal: control?.transition_dungeon_goal || undefined,
   };
 }
 
@@ -527,6 +613,8 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
 
+  const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
+
   yield* runTurnCore(
     deps,
     input,
@@ -536,6 +624,8 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
     settingText,
     {
       messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock }),
+      buildControl: (narrative) =>
+        buildControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
       appendRaw: (entry) => appendJournal(deps.worldDir, entry),
       rawFilePath: path.join(deps.worldDir, "journal.md"),
     },
@@ -575,6 +665,11 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
         dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
         intentsBlock, recallBlock,
       }),
+      buildControl: (narrative) =>
+        buildControlMessages({
+          settingText, state, input, narrative, dicePool,
+          dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
+        }),
       appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
       distill: (control, date) =>
         appendWikiReveals(deps.worldDir, active.dungeonId, control.state_changes.wiki_reveals ?? [], date, log),
@@ -641,6 +736,16 @@ export async function* runTurnLoop(
     currentInput = AUTO_CONTINUE_INPUT;
     if (!done) break;
 
+    // enter_dungeon 但副大腦沒給 transition_dungeon_id：無法建副本，不可靜默吞掉
+    if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
+      log.warn("mode_transition=enter_dungeon 但缺 transition_dungeon_id，無法進入副本，停在主空間等玩家");
+      yield {
+        type: "warning",
+        message: "系統判定要進入副本，但未能確定副本 id，暫停等玩家確認。",
+      };
+      break;
+    }
+
     // 進入副本：生成 secrets、建 run、設 now，再自動接續第一個副本回合
     if (done.modeTransition === "enter_dungeon" && done.transitionDungeonId) {
       log.info({ dungeonId: done.transitionDungeonId }, "觸發 mode_transition：enter_dungeon");
@@ -652,7 +757,7 @@ export async function* runTurnLoop(
           dungeonId: done.transitionDungeonId,
           today,
           protagonistSummary: `${state.protagonist.name}（積分 ${state.protagonist.points}）`,
-          goal: "（待劇情揭露）",
+          goal: done.transitionDungeonGoal?.trim() || "（待劇情揭露）",
           secretsText,
         },
         log,
