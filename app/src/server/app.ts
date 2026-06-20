@@ -20,6 +20,7 @@ const WEB_BUILD_DIR = path.join(APP_ROOT, "web-dist");
 export interface ServerDeps {
   client?: LlmClient;
   characterClient?: LlmClient;
+  controlClient?: LlmClient;
   commit?: (message: string) => Promise<boolean>;
   logger?: Logger;
 }
@@ -50,6 +51,22 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
               baseUrl: config.character.baseUrl,
               apiKey: config.openai.apiKey,
               model: config.character.model,
+            },
+          },
+          logger,
+        )
+      : undefined);
+
+  const controlClient: LlmClient | undefined =
+    deps.controlClient ??
+    (config.control
+      ? createOpenAiClient(
+          {
+            ...config,
+            openai: {
+              baseUrl: config.control.baseUrl,
+              apiKey: config.openai.apiKey,
+              model: config.control.model,
             },
           },
           logger,
@@ -103,6 +120,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         {
           client: makeClient(turnLogger),
           characterClient,
+          controlClient,
           worldDir: config.worldDir,
           commit: makeCommit(turnLogger),
           logger: turnLogger,

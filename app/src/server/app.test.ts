@@ -76,6 +76,12 @@ describe("POST /api/turn（SSE）", () => {
     const commits: string[] = [];
     const server = buildServer(loadConfig({ WORLD_DIR: world }), {
       client: fakeClient(["前半段，", "後半段。"]),
+      controlClient: fakeClient([
+        JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "看看四周",
+        }),
+      ]),
       commit: async (m) => { commits.push(m); return true; },
     });
     const res = await server.inject({
