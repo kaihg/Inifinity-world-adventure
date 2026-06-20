@@ -67,6 +67,7 @@ export type TurnEvent =
       suggestedActions: string[];
       modeTransition: TurnControl["mode_transition"];
       transitionDungeonId?: string;
+      transitionDungeonGoal?: string;
     };
 
 function todayISO(): string {
@@ -226,8 +227,8 @@ export interface BuildControlParams {
   /** 主腦本回合已產生的完整敘事散文 */
   narrative: string;
   dicePool: number[];
-  /** 現有副本 id 列表，供 enter_dungeon 判斷續用既有 slug 或新建 */
-  existingDungeonIds: string[];
+  /** 現有副本 id 列表，供主空間模式 enter_dungeon 判斷續用既有 slug 或新建；副本模式不需要（不會 enter_dungeon） */
+  existingDungeonIds?: string[];
   /** 副本模式才填 */
   dungeonId?: string;
   wiki?: string;
@@ -239,7 +240,8 @@ export interface BuildControlParams {
  * 抽出 TurnControl JSON。只整理敘事中已發生的事實，不得新增劇情或發明數值。
  */
 export function buildControlMessages(params: BuildControlParams): ChatMessage[] {
-  const { settingText, state, input, narrative, dicePool, existingDungeonIds } = params;
+  const { settingText, state, input, narrative, dicePool } = params;
+  const existingDungeonIds = params.existingDungeonIds ?? [];
   const inDungeon = Boolean(params.dungeonId);
   const system = [
     "你是「無限恐怖」世界敘事引擎的**結構控制抽取器**。",
@@ -260,8 +262,10 @@ export function buildControlMessages(params: BuildControlParams): ChatMessage[] 
     "",
     `## 本回合骰值（d100，主腦依序取用）：[${dicePool.join(", ")}]`,
     "",
-    `## 現有副本 id（供判斷續用/新建）：${existingDungeonIds.length > 0 ? existingDungeonIds.join("、") : "（無）"}`,
-    "",
+    // 現有副本 id 只與主空間的 enter_dungeon 判斷有關；副本模式不會 enter_dungeon，省去以免誤導
+    ...(inDungeon
+      ? []
+      : [`## 現有副本 id（供判斷續用/新建）：${existingDungeonIds.length > 0 ? existingDungeonIds.join("、") : "（無）"}`, ""]),
     "## 世界設定",
     settingText.trim(),
     "",
@@ -534,6 +538,7 @@ async function* runTurnCore(
     suggestedActions,
     modeTransition: control?.mode_transition ?? null,
     transitionDungeonId: control?.transition_dungeon_id || undefined,
+    transitionDungeonGoal: control?.transition_dungeon_goal || undefined,
   };
 }
 
@@ -647,8 +652,6 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
 
-  const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
-
   yield* runTurnCore(
     deps,
     input,
@@ -664,7 +667,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
       }),
       buildControl: (narrative) =>
         buildControlMessages({
-          settingText, state, input, narrative, dicePool, existingDungeonIds,
+          settingText, state, input, narrative, dicePool,
           dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
         }),
       appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
@@ -733,6 +736,16 @@ export async function* runTurnLoop(
     currentInput = AUTO_CONTINUE_INPUT;
     if (!done) break;
 
+    // enter_dungeon 但副大腦沒給 transition_dungeon_id：無法建副本，不可靜默吞掉
+    if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
+      log.warn("mode_transition=enter_dungeon 但缺 transition_dungeon_id，無法進入副本，停在主空間等玩家");
+      yield {
+        type: "warning",
+        message: "系統判定要進入副本，但未能確定副本 id，暫停等玩家確認。",
+      };
+      break;
+    }
+
     // 進入副本：生成 secrets、建 run、設 now，再自動接續第一個副本回合
     if (done.modeTransition === "enter_dungeon" && done.transitionDungeonId) {
       log.info({ dungeonId: done.transitionDungeonId }, "觸發 mode_transition：enter_dungeon");
@@ -744,7 +757,7 @@ export async function* runTurnLoop(
           dungeonId: done.transitionDungeonId,
           today,
           protagonistSummary: `${state.protagonist.name}（積分 ${state.protagonist.points}）`,
-          goal: "（待劇情揭露）",
+          goal: done.transitionDungeonGoal?.trim() || "（待劇情揭露）",
           secretsText,
         },
         log,

@@ -28,6 +28,22 @@ describe("parseControlOutput", () => {
     expect(control.commit_summary).toBe("x");
   });
 
+  it("合法 JSON 之後跟了含 } 的客套字時，仍能還原（不誤抓後綴的 }）", () => {
+    const control = parseControlOutput(
+      '{"awaiting_user_input":true,"commit_summary":"沈奕前進"}\n備註：詳見附錄 {A}。',
+    );
+    expect(control.awaiting_user_input).toBe(true);
+    expect(control.commit_summary).toBe("沈奕前進");
+  });
+
+  it("容忍 markdown code fence 包住 JSON", () => {
+    const control = parseControlOutput(
+      '```json\n{"awaiting_user_input":false,"commit_summary":"x"}\n```',
+    );
+    expect(control.awaiting_user_input).toBe(false);
+    expect(control.commit_summary).toBe("x");
+  });
+
   it("找不到 JSON 物件時拋錯", () => {
     expect(() => parseControlOutput("完全沒有大括號")).toThrow();
   });

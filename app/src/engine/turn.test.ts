@@ -861,7 +861,8 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
   it("enter_dungeon → 生成 secrets/建 run → 副本回合 → settle_dungeon 回主空間", async () => {
     const enterCtl = JSON.stringify({
       state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
-      transition_dungeon_id: "U-TEST", awaiting_user_input: false, suggested_actions: [], commit_summary: "系統強制開啟副本",
+      transition_dungeon_id: "U-TEST", transition_dungeon_goal: "找到三把鑰匙",
+      awaiting_user_input: false, suggested_actions: [], commit_summary: "系統強制開啟副本",
     });
     const settleCtl = JSON.stringify({
       state_changes: { wiki_reveals: ["出口在東側"] }, rolls: [], mode_transition: "settle_dungeon",
@@ -893,8 +894,32 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
     expect(runs).toContain("run-1.md");
     const wiki = await readFile(path.join(world, "dungeons", "U-TEST", "wiki.md"), "utf8");
     expect(wiki).toContain("出口在東側");
+    // 副大腦給的 transition_dungeon_goal 應落地進 run log，而非被硬編碼佔位字串取代
+    const runLog = await readFile(path.join(world, "dungeons", "U-TEST", "runs", "run-1.md"), "utf8");
+    expect(runLog).toContain("找到三把鑰匙");
 
     const now = await readFile(path.join(world, "now.md"), "utf8");
     expect(now).toContain("- 進行中的副本：無"); // 結算後回主空間
+  });
+
+  it("enter_dungeon 但副大腦沒給 transition_dungeon_id：不進副本、發 warning、停在主空間", async () => {
+    const enterNoId = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
+      awaiting_user_input: false, suggested_actions: [], commit_summary: "系統判定要開副本但沒給 id",
+    });
+    const client = twoBrainClient(["系統警報響起。", enterNoId]);
+    const events: TurnEvent[] = [];
+    for await (const ev of runTurnLoop(
+      { client, worldDir: world, commit: async () => true, today: () => "2026-06-19" },
+      "在安全區等待",
+      4,
+    )) {
+      events.push(ev);
+    }
+    expect(events.some((e) => e.type === "warning")).toBe(true);
+    // 不應發生 transition、不應建任何副本目錄
+    expect(events.some((e) => e.type === "transition")).toBe(false);
+    const now = await readFile(path.join(world, "now.md"), "utf8");
+    expect(now).toContain("- 進行中的副本：無");
   });
 });

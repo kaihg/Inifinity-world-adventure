@@ -63,24 +63,37 @@ export type TurnControl = z.infer<typeof TurnControlSchema>;
 export type NowChanges = z.infer<typeof NowChangesSchema>;
 
 /**
+ * 從副大腦原始輸出抽出 JSON 物件字串。
+ * 先去掉 markdown code fence，再從第一個 `{` 起，由最後一個 `}` 往前逐個嘗試
+ * 解析，取第一個能 JSON.parse 成功的範圍。這樣對「合法 JSON 之後又跟了含 `}`
+ * 的客套字」（lastIndexOf 會抓到後綴的 `}`）也能還原，而非整段降級。
+ * 找不到任何可解析的 JSON 時回傳 null。
+ */
+function extractJsonObject(raw: string): unknown {
+  const cleaned = raw.replace(/```(?:json)?/gi, "");
+  const start = cleaned.indexOf("{");
+  if (start === -1) return null;
+
+  // 由最後一個 `}` 往前找，第一個能成功 parse 的就是答案（happy path 一次命中）
+  for (let end = cleaned.lastIndexOf("}"); end > start; end = cleaned.lastIndexOf("}", end - 1)) {
+    try {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    } catch {
+      // 這個 `}` 不是 JSON 真正的結尾（可能是後綴客套字裡的），往前再試
+    }
+  }
+  return null;
+}
+
+/**
  * 從副大腦原始輸出解析出 TurnControl。
- * 副大腦只負責輸出結構，整段視為一個 JSON 物件（無 sentinel）；
- * 為容忍模型偶爾前後加客套字，抓第一個 `{` 到最後一個 `}` 之間當 JSON。
- * 找不到 JSON / JSON 非法 / schema 不符都拋錯（由呼叫端決定降級）。
+ * 副大腦只負責輸出結構，整段視為一個 JSON 物件（無 sentinel）。
+ * 找不到可解析的 JSON / schema 不符都拋錯（由呼叫端決定降級）。
  */
 export function parseControlOutput(raw: string): TurnControl {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error("副大腦輸出找不到 JSON 物件");
+  const parsed = extractJsonObject(raw);
+  if (parsed === null) {
+    throw new Error("副大腦輸出找不到可解析的 JSON 物件");
   }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw.slice(start, end + 1));
-  } catch (e) {
-    throw new Error(`副大腦輸出 JSON 解析失敗：${(e as Error).message}`);
-  }
-
   return TurnControlSchema.parse(parsed);
 }
