@@ -34,6 +34,8 @@ const StateChangesSchema = z
     protagonist_updates: ProtagonistUpdatesSchema,
     npc_updates: z.array(z.object({ id: z.string(), update: z.string() })).optional(),
     wiki_reveals: z.array(z.string()).optional(),
+    item_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+    item_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
     now: NowChangesSchema.optional(),
   })
   .default({});
