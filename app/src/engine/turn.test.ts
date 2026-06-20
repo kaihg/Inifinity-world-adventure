@@ -60,7 +60,13 @@ const sampleState: GameState = {
     activeDungeon: "無", threads: "", nextStep: "", lastUpdated: "",
   },
   protagonist: { name: "沈奕", points: "0" },
-  protagonistDetail: { name: "沈奕", points: "0", attributes: "", skills: "", items: "", buffs: "" },
+  protagonistDetail: {
+    name: "沈奕", points: "0",
+    attributes: "力量 8、敏捷 12",
+    skills: "瞬步（消耗 20 積分）",
+    items: "強化手槍（彈藥 6）",
+    buffs: "新手保護（3 場）",
+  },
   npcs: [],
   mode: "main-space",
   lastTurn: null,
@@ -133,6 +139,11 @@ describe("buildMainSpaceMessages", () => {
     expect(msgs[0].content).toContain("[7, 42]");
     expect(msgs[0].content).not.toContain("===STATE===");
     expect(msgs[0].content).not.toContain("awaiting_user_input");
+    // 主角詳細狀態（技能/物品/buff）須注入，敘事才能正確演出技能/道具使用
+    expect(msgs[0].content).toContain("瞬步（消耗 20 積分）");
+    expect(msgs[0].content).toContain("強化手槍（彈藥 6）");
+    expect(msgs[0].content).toContain("新手保護（3 場）");
+    expect(msgs[0].content).toContain("力量 8、敏捷 12");
     expect(msgs[1]).toEqual({ role: "user", content: "我四處看看" });
   });
 
@@ -174,6 +185,10 @@ describe("buildControlMessages", () => {
     expect(msgs[0].content).toContain("U-001");
     expect(msgs[0].content).toContain("abandoned-hospital");
     expect(msgs[0].content).toContain("沈奕走進資訊室");
+    // 副大腦也需主角詳細狀態，才能正確抽取道具消耗/技能冷卻/buff 變化
+    expect(msgs[0].content).toContain("瞬步（消耗 20 積分）");
+    expect(msgs[0].content).toContain("強化手槍（彈藥 6）");
+    expect(msgs[0].content).toContain("新手保護（3 場）");
     expect(msgs[1].role).toBe("user");
     expect(msgs[1].content).toContain("我四處看看");
   });

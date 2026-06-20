@@ -84,7 +84,10 @@ const CONTROL_FORMAT_BLOCK = [
 ].join("\n");
 
 function canonicalBlock(state: GameState): string {
-  const { now, protagonist } = state;
+  const { now, protagonistDetail: p } = state;
+  // 操作者即主角：主腦演技能/道具使用、副大腦抽取消耗/冷卻/buff 變化都需要這份清單
+  const detailLine = (label: string, value: string): string =>
+    `- ${label}：${value.trim() || "（無）"}`;
   return [
     "## 當前局勢（canonical，請保持一致）",
     `- 當前篇章：${now.chapter}`,
@@ -93,7 +96,12 @@ function canonicalBlock(state: GameState): string {
     `- 進行中的副本：${now.activeDungeon}`,
     `- 未解懸念/伏筆：${now.threads}`,
     `- 主角下一步打算：${now.nextStep}`,
-    `- 主角：${protagonist.name}（積分 ${protagonist.points}）`,
+    "",
+    `### 主角：${p.name}（積分 ${p.points}）`,
+    detailLine("屬性", p.attributes),
+    detailLine("技能", p.skills),
+    detailLine("物品", p.items),
+    detailLine("Buff/Debuff", p.buffs),
   ].join("\n");
 }
 
