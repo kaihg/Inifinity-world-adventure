@@ -9,7 +9,10 @@ import { loadState } from "../engine/context.js";
 import { runTurnLoop } from "../engine/turn.js";
 import { createOpenAiClient, type LlmClient } from "../llm/client.js";
 import { commitWorld } from "../git/commit.js";
+import { getAppVersion, type AppVersionInfo } from "../git/version.js";
 import { createLogger, type Logger } from "../logger.js";
+import { createRecallIndex } from "../recall/index.js";
+import type { RecallIndex } from "../recall/store.js";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 // app/src/server/app.ts → app/web（dev：原始檔；prod：Vite build 輸出 web-dist）
@@ -23,6 +26,8 @@ export interface ServerDeps {
   controlClient?: LlmClient;
   commit?: (message: string) => Promise<boolean>;
   logger?: Logger;
+  recall?: RecallIndex;
+  version?: AppVersionInfo | null;
 }
 
 /**
@@ -73,6 +78,10 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         )
       : undefined);
 
+  // 啟動時建立一次（建構本身零 I/O，模型/索引延遲初始化）；未啟用時不建立，避免不必要的模型下載
+  const recall: RecallIndex | undefined =
+    deps.recall ?? (config.recall.enabled ? createRecallIndex(config.recall.indexDir) : undefined);
+
   const makeCommit = (turnLogger: Logger): ((message: string) => Promise<boolean>) =>
     deps.commit ??
     ((message: string) => {
@@ -91,6 +100,14 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
 
   server.get("/api/health", async () => {
     return { ok: true, model: config.openai.model };
+  });
+
+  // 開發者用：app/ 最後一次功能性 commit 的 hash + message，啟動時算一次並快取
+  const versionPromise: Promise<AppVersionInfo | null> =
+    deps.version !== undefined ? Promise.resolve(deps.version) : getAppVersion(repoRoot);
+
+  server.get("/api/version", async () => {
+    return (await versionPromise) ?? { hash: "unknown", message: "" };
   });
 
   // resume 入口：決定論地讀 world/ 回傳當前局勢
@@ -124,6 +141,8 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
           worldDir: config.worldDir,
           commit: makeCommit(turnLogger),
           logger: turnLogger,
+          recall,
+          recallTopK: config.recall.topK,
         },
         input,
         config.autoAdvanceMax,

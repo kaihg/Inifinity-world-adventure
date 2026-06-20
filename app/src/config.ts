@@ -30,6 +30,12 @@ export interface AppConfig {
     baseUrl: string;
     model: string;
   };
+  /** 語意檢索（recall）設定；derived cache，不進 git，預設關閉（需下載嵌入模型） */
+  recall: {
+    enabled: boolean;
+    indexDir: string;
+    topK: number;
+  };
 }
 
 const DEFAULTS = {
@@ -40,6 +46,7 @@ const DEFAULTS = {
   authorName: "Infinity World Engine",
   authorEmail: "engine@localhost",
   autoAdvanceMax: 4,
+  recallTopK: 5,
 };
 
 /** 解析正整數，非法或非正數時退回預設 */
@@ -55,6 +62,13 @@ function defaultWorldDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   // here = <repo>/app/src（或 build 後 <repo>/app/dist）→ 回到 <repo>/world
   return path.resolve(here, "..", "..", "world");
+}
+
+/** 預設語意索引目錄：app/.recall-index（derived cache，不進 git，可隨時刪除重建） */
+function defaultRecallIndexDir(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  // here = <repo>/app/src（或 build 後 <repo>/app/dist）→ 回到 <repo>/app/.recall-index
+  return path.resolve(here, "..", ".recall-index");
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -88,6 +102,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
             model: env.CONTROL_MODEL,
           }
         : undefined,
+    recall: {
+      enabled: env.RECALL_ENABLED === "true" || env.RECALL_ENABLED === "1",
+      indexDir: env.RECALL_INDEX_DIR ? path.resolve(env.RECALL_INDEX_DIR) : defaultRecallIndexDir(),
+      topK: parsePositiveInt(env.RECALL_TOP_K, DEFAULTS.recallTopK),
+    },
   };
 }
 

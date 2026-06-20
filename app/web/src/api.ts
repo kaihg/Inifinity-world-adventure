@@ -44,6 +44,17 @@ export async function fetchState(): Promise<GameState> {
   return res.json();
 }
 
+export interface AppVersion {
+  hash: string;
+  message: string;
+}
+
+export async function fetchVersion(): Promise<AppVersion> {
+  const res = await fetch("/api/version");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
 export type TurnEvent =
   | { type: "ping" }
   | { type: "delta"; text: string }

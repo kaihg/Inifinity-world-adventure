@@ -44,11 +44,13 @@ archives/
   skills/2026-06-19/...       # 已封存的舊遊玩類 skills（歷史參考，不再使用）
 app/                           # 網頁引擎（Node.js + TypeScript，唯一遊玩路徑）
   src/
-    config.ts                  # LLM 後端等設定（OPENAI_BASE_URL/MODEL/HOST/DEBUG…），可指自架，僅由後端 .env 控制
+    config.ts                  # LLM 後端等設定（OPENAI_BASE_URL/MODEL/HOST/DEBUG/RECALL_*…），可指自架，僅由後端 .env 控制
     llm/client.ts              # OpenAI 相容串流 client（介面化、可換端點）
-    engine/                    # context（載入）、turn（回合/自動推進/模式路由）、dungeon（副本，非 branch）、schema、roll、stream-split、journal、now
+    engine/                    # context（載入）、turn（回合/自動推進/模式路由，含每回合語意索引重建）、dungeon（副本，非 branch）、schema、roll、stream-split、journal、now
+    recall/                    # 語意檢索（本地嵌入 + vectra 向量索引）：每回合以玩家輸入檢索相關片段注入 prompt，唯讀不影響落地；只負責「讀」，「寫」仍走 engine 的結構化輸出 pipeline
     git/commit.ts              # 每回合自動 commit world/
     server/                    # Fastify：/api/state、/api/turn(SSE)、靜態前端
+  .recall-index/                # 語意索引快取（derived cache，RECALL_ENABLED=true 時建立，不進 git，可隨時刪除重建）
   web/                         # 前端（Vite + React）：狀態/NPC 面板、串流劇情、建議動作
   vite.config.ts               # 前端 build/dev（dev 跑 5174 proxy /api 到後端 5173）
   .env.example                 # 設定範本

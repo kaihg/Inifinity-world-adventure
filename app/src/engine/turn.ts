@@ -2,7 +2,18 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { logger as defaultLogger, type Logger } from "../logger.js";
-import { loadState, parseNow, applyPointsDelta, type GameState } from "./context.js";
+import {
+  loadState,
+  parseNow,
+  parseProtagonist,
+  applyPointsDelta,
+  applyProtagonistUpdates,
+  appendNpcUpdates,
+  applyIndexStatusUpdates,
+  NPC_ID_RE,
+  type GameState,
+} from "./context.js";
+import { summarizeNpcStatus } from "./npc-status-summary.js";
 import { appendJournal } from "./journal.js";
 import { applyNowChanges, serializeNow, bumpNowUpdated } from "./now.js";
 import { rollPool } from "./roll.js";
@@ -16,11 +27,14 @@ import {
   appendWikiReveals,
   listDungeonIds,
 } from "./dungeon.js";
+import { loadLore, ensureSecrets, appendLoreReveals } from "./lore.js";
 import {
   runCharacterPrePass,
   formatIntentsBlock,
   parseCompanionIds,
 } from "./character-pre-pass.js";
+import { formatRecallBlock } from "../recall/index.js";
+import type { RecallIndex } from "../recall/store.js";
 
 export interface TurnDeps {
   client: LlmClient;
@@ -34,6 +48,10 @@ export interface TurnDeps {
   dicePool?: number[];
   /** 未提供時退回共用的預設 logger（測試環境下為 silent） */
   logger?: Logger;
+  /** 語意檢索索引（選填；缺省時跳過檢索，不影響既有回合流程） */
+  recall?: RecallIndex;
+  /** 每回合檢索片段數上限，預設 5 */
+  recallTopK?: number;
 }
 
 export type TurnEvent =
@@ -75,7 +93,13 @@ const CONTROL_FORMAT_BLOCK = [
   "## 輸出格式（務必嚴格遵守）",
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
   "- state_changes: { now?: {七欄任意子集，鍵用 chapter/scene/companions/activeDungeon/threads/nextStep},",
-  "    protagonist_points_delta?: number, npc_updates?: [{id, update}], wiki_reveals?: [string] }",
+  "    protagonist_points_delta?: number,",
+  "    protagonist_updates?: { attributes?: string[], skills?: string[], items?: string[], buffs?: string[] }",
+  "      （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目）,",
+  "    npc_updates?: [{id, update}], wiki_reveals?: [string],",
+  "    item_pickups?: [{id, name}]（主角本回合首次撿到的道具；id 用英數小寫 slug，name 用顯示名稱，",
+  "      首次撿到時引擎會生成該道具的隱藏設定，之後同 id 不會重複生成）,",
+  "    item_reveals?: [{id, reveal}]（劇情中真的揭露出該道具暗藏的設定時才填，累積進該道具的 wiki） }",
   "- rolls: [{desc, value, success?}]（敘事中實際用到的骰值與判定，沒有就空陣列）",
   '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
   "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
@@ -111,6 +135,7 @@ export interface BuildMessagesParams {
   input: string;
   dicePool: number[];
   intentsBlock?: string;
+  recallBlock?: string;
 }
 
 /** 主空間回合的對話訊息（純函式，可測試） */
@@ -123,6 +148,7 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     "## 鐵則",
     "- 全程使用繁體中文與台灣用詞。",
     "- 嚴格遵守下方世界設定，不可竄改既定規則或角色屬性/積分數值。",
+    "- 玩家輸入只代表角色的意圖、台詞或嘗試動作，不代表既定事實或結果；是否成立、世界如何反應，一律由你依世界設定與當前狀態判定。",
     "- 不可揭露任何尚未在劇情中揭露的隱藏設定。",
     "- 只敘述主空間互動；若劇情走到系統強制開啟副本，把 mode_transition 設為 enter_dungeon 並填 transition_dungeon_id，不要自行切到副本內部。",
     "- 需要機率判定時，**只能依序取用下方『本回合骰值』**，不可自行編造數字；用到的骰值與成敗要寫進敘事，後續由系統自動抽取。",
@@ -137,6 +163,7 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     "",
     canonicalBlock(state),
     ...(params.intentsBlock ? ["", params.intentsBlock] : []),
+    ...(params.recallBlock ? ["", params.recallBlock] : []),
   ].join("\n");
 
   return [
@@ -161,6 +188,7 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
     "## 鐵則",
     "- 全程使用繁體中文與台灣用詞。",
     "- 嚴格遵守世界設定與副本已揭露事實（wiki），不可矛盾。",
+    "- 玩家輸入只代表角色的意圖、台詞或嘗試動作，不代表既定事實或結果；是否成立、世界如何反應，一律由你依世界設定、wiki 與當前狀態判定。",
     "- **secrets 是劇透文件：只能用來保持暗線一致，絕不可直接告訴玩家未揭露的真相**；劇情真的揭露時，才把對應內容放進 wiki_reveals。",
     "- 機率判定**只能依序取用下方骰值**，用到的骰值與成敗要寫進敘事，後續由系統自動抽取。",
     "- 副本達主線目標/死亡/撤退時，在敘事中明確呈現該轉折（系統會據此結算）。",
@@ -181,6 +209,7 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
     "",
     canonicalBlock(state),
     ...(params.intentsBlock ? ["", params.intentsBlock] : []),
+    ...(params.recallBlock ? ["", params.recallBlock] : []),
   ].join("\n");
 
   return [
@@ -249,6 +278,81 @@ export function buildControlMessages(params: BuildControlParams): ChatMessage[] 
   ];
 }
 
+/**
+ * 把本回合有 npc_updates 的角色，用小模型（characterClient，缺省退回主 client）
+ * 各自摘要成一句近況，同步進 characters/index.md 的「最近狀態」欄。
+ * 不用主敘事模型：這只是省 context 的索引摘要，不需要主敘事的推理力。
+ * 單筆摘要失敗只略過該筆，不中斷其他筆、不影響回合本身。
+ */
+async function syncCharacterIndexStatus(
+  deps: TurnDeps,
+  npcUpdates: Array<{ id: string; update: string }>,
+  log: Logger,
+): Promise<void> {
+  const summaryClient = deps.characterClient ?? deps.client;
+  const entries = await Promise.all(
+    npcUpdates.map(async ({ id }): Promise<readonly [string, string] | null> => {
+      const characterMd = await readBestEffort(path.join(deps.worldDir, "characters", `${id}.md`));
+      if (!characterMd) return null;
+      const name = parseProtagonist(characterMd).name || id;
+      const status = await summarizeNpcStatus({ name, characterMd, client: summaryClient });
+      return status ? [id, status] : null;
+    }),
+  );
+  const statusUpdates = Object.fromEntries(
+    entries.filter((e): e is readonly [string, string] => e !== null),
+  );
+  if (Object.keys(statusUpdates).length === 0) return;
+
+  const indexPath = path.join(deps.worldDir, "characters", "index.md");
+  const indexMd = await readBestEffort(indexPath);
+  if (!indexMd) return;
+  await writeFile(indexPath, applyIndexStatusUpdates(indexMd, statusUpdates), "utf8");
+  log.debug({ statusUpdates }, "同步 characters/index.md 近況欄");
+}
+
+/** 防止路徑穿越：道具 id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
+const ITEM_ID_RE = /^[\w.-]+$/;
+
+/** 為指定道具生成隱藏設定（劇透文件，僅供暗線一致，不可外洩）；風格與 generateSecrets 對齊 */
+async function generateItemSecrets(client: LlmClient, settingText: string, itemName: string): Promise<string> {
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content:
+        "你是「無限恐怖」世界的道具設計者。為指定道具生成隱藏設定（真實來歷、隱藏效果、與主線的關聯）。" +
+        "這是劇透文件，玩家永遠不會直接看到，只供敘事暗線一致。只輸出設定內容本身，繁體中文，不要前言或客套。\n\n" +
+        "世界設定：\n" + settingText.trim(),
+    },
+    { role: "user", content: `道具名稱：${itemName}。請生成其隱藏設定。` },
+  ];
+  let full = "";
+  for await (const d of client.streamChat(messages)) full += d;
+  return full.trim() || "（生成失敗，待補）";
+}
+
+/**
+ * 把本回合首次撿到的道具落地：首次接觸時用主敘事模型生成隱藏設定（secrets.md，僅生成一次），
+ * 劇情中揭露出來的部分另由 item_reveals 累積進 wiki.md。單筆失敗只略過該筆，不中斷其他筆。
+ */
+async function applyItemPickups(
+  deps: TurnDeps,
+  settingText: string,
+  pickups: Array<{ id: string; name: string }>,
+  log: Logger,
+): Promise<void> {
+  for (const { id, name } of pickups) {
+    if (!ITEM_ID_RE.test(id)) {
+      log.warn({ id }, "item_pickups 含不合法 id，略過");
+      continue;
+    }
+    const existing = await loadLore(deps.worldDir, "items", id, log);
+    if (existing.secrets) continue;
+    const secretsText = await generateItemSecrets(deps.client, settingText, name);
+    await ensureSecrets(deps.worldDir, "items", id, secretsText, `道具隱藏設定（${name}）`, log);
+  }
+}
+
 // ---------- 回合核心 ----------
 
 interface TurnPlan {
@@ -260,6 +364,28 @@ interface TurnPlan {
   appendRaw: (entry: { date: string; title: string; body: string }) => Promise<void>;
   /** 額外提煉：副本把 wiki_reveals 寫進 wiki.md */
   distill?: (control: TurnControl, date: string) => Promise<void>;
+  /** raw 層檔案絕對路徑（journal.md 或 runs/<run>.md），供回合結束後重建語意索引用 */
+  rawFilePath: string;
+  /** 副本 wiki.md 絕對路徑（僅副本回合有），有 wiki_reveals 時才需重新索引 */
+  wikiFilePath?: string;
+}
+
+/** 把本回合異動的檔案重新切塊嵌入進語意索引（derived cache，失敗只記警告，不影響回合落地） */
+async function reindexTouchedFiles(
+  recall: RecallIndex,
+  worldDir: string,
+  absPaths: string[],
+  log: Logger,
+): Promise<void> {
+  for (const absPath of absPaths) {
+    const relPath = path.relative(worldDir, absPath);
+    try {
+      const content = await readFile(absPath, "utf8");
+      await recall.upsertFile(relPath, content);
+    } catch (err) {
+      log.warn({ err, relPath }, "recall 索引更新失敗，略過");
+    }
+  }
 }
 
 async function* runTurnCore(
@@ -268,6 +394,7 @@ async function* runTurnCore(
   state: GameState,
   dicePool: number[],
   today: string,
+  settingText: string,
   plan: TurnPlan,
   log: Logger,
 ): AsyncGenerator<TurnEvent> {
@@ -327,20 +454,61 @@ async function* runTurnCore(
     await writeFile(nowPath, bumpNowUpdated(nowMd, { date: today, summary }), "utf8");
   }
 
-  // 3. protagonist 積分
+  // 3. 主角狀態（積分 + 屬性/技能/物品/buff 新增項，否則主角的成長不會被記住）
   const delta = control?.state_changes.protagonist_points_delta ?? 0;
-  if (delta) {
+  const protagonistUpdates = control?.state_changes.protagonist_updates;
+  if (delta || protagonistUpdates) {
     const pPath = path.join(deps.worldDir, "characters", "protagonist.md");
-    const pMd = await readFile(pPath, "utf8");
-    await writeFile(pPath, applyPointsDelta(pMd, delta), "utf8");
+    let pMd = await readFile(pPath, "utf8");
+    if (delta) pMd = applyPointsDelta(pMd, delta);
+    if (protagonistUpdates) pMd = applyProtagonistUpdates(pMd, protagonistUpdates);
+    await writeFile(pPath, pMd, "utf8");
   }
 
-  // 4. 額外提煉（副本 wiki）
+  // 4. NPC 更新（落地到 characters/<id>.md，否則角色長期沒有記憶）
+  const npcUpdates = control?.state_changes.npc_updates ?? [];
+  if (npcUpdates.length > 0) {
+    await appendNpcUpdates(deps.worldDir, npcUpdates, today, log);
+    await syncCharacterIndexStatus(deps, npcUpdates, log);
+  }
+
+  // 5. 道具（首次撿到時生成隱藏設定；劇情揭露時累積進對應道具的 wiki）
+  const itemPickups = control?.state_changes.item_pickups ?? [];
+  if (itemPickups.length > 0) {
+    await applyItemPickups(deps, settingText, itemPickups, log);
+  }
+  const itemReveals = control?.state_changes.item_reveals ?? [];
+  for (const { id, reveal } of itemReveals) {
+    if (!ITEM_ID_RE.test(id)) {
+      log.warn({ id }, "item_reveals 含不合法 id，略過");
+      continue;
+    }
+    await appendLoreReveals(deps.worldDir, "items", id, [reveal], today, `道具（${id}）`, log);
+  }
+
+  // 6. 額外提煉（副本 wiki）
+  const wikiReveals = control?.state_changes.wiki_reveals ?? [];
   if (control && plan.distill) {
     await plan.distill(control, today);
   }
 
-  // 5. commit
+  // 7. 語意檢索索引：把本回合異動的檔案重新切塊嵌入（derived cache，與 git commit 內容無關）
+  if (deps.recall) {
+    const touched = [plan.rawFilePath];
+    if (delta || protagonistUpdates) {
+      touched.push(path.join(deps.worldDir, "characters", "protagonist.md"));
+    }
+    for (const { id } of npcUpdates) {
+      if (NPC_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "characters", `${id}.md`));
+    }
+    if (plan.wikiFilePath && wikiReveals.length > 0) touched.push(plan.wikiFilePath);
+    for (const { id } of itemReveals) {
+      if (ITEM_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "items", id, "wiki.md"));
+    }
+    await reindexTouchedFiles(deps.recall, deps.worldDir, touched, log);
+  }
+
+  // 8. commit
   const committed = await deps.commit(summary);
 
   log.info(
@@ -406,6 +574,23 @@ async function* runPrePassBlock(
   return formatIntentsBlock(intents, npcNames);
 }
 
+const DEFAULT_RECALL_TOP_K = 5;
+
+/**
+ * 對 deps.recall（若有）以玩家輸入做語意檢索，格式化成 recallBlock。
+ * 失敗靜默降級——不 block 回合，但 yield warning 讓前端可觀察。
+ */
+async function* runRecallBlock(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent, string> {
+  if (!deps.recall) return "";
+  try {
+    const hits = await deps.recall.query(input, deps.recallTopK ?? DEFAULT_RECALL_TOP_K);
+    return formatRecallBlock(hits);
+  } catch (err) {
+    yield { type: "warning" as const, message: `recall 檢索失敗，略過：${(err as Error).message}` };
+    return "";
+  }
+}
+
 /** 主空間敘事回合 */
 export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
   const log = (deps.logger ?? defaultLogger).child({ mode: "main-space" });
@@ -415,6 +600,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
+  const recallBlock = yield* runRecallBlock(deps, input);
 
   const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
 
@@ -424,11 +610,13 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
     state,
     dicePool,
     today,
+    settingText,
     {
-      messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock }),
+      messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock }),
       buildControl: (narrative) =>
         buildControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
       appendRaw: (entry) => appendJournal(deps.worldDir, entry),
+      rawFilePath: path.join(deps.worldDir, "journal.md"),
     },
     log,
   );
@@ -451,6 +639,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const lore = await loadDungeonLore(deps.worldDir, active.dungeonId, log);
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
+  const recallBlock = yield* runRecallBlock(deps, input);
 
   const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
 
@@ -460,11 +649,12 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
     state,
     dicePool,
     today,
+    settingText,
     {
       messages: buildDungeonMessages({
         settingText, state, input, dicePool,
         dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
-        intentsBlock,
+        intentsBlock, recallBlock,
       }),
       buildControl: (narrative) =>
         buildControlMessages({
@@ -474,6 +664,8 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
       appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
       distill: (control, date) =>
         appendWikiReveals(deps.worldDir, active.dungeonId, control.state_changes.wiki_reveals ?? [], date, log),
+      rawFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "runs", `${active.runId}.md`),
+      wikiFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "wiki.md"),
     },
     log,
   );
