@@ -71,6 +71,29 @@ describe("loadConfig", () => {
     });
     expect(config.character).toBeUndefined();
   });
+
+  it("control 欄位：有設定時解析", () => {
+    const config = loadConfig({
+      OPENAI_BASE_URL: "http://main/v1",
+      OPENAI_API_KEY: "key",
+      MODEL: "main-model",
+      CONTROL_OPENAI_BASE_URL: "http://ctrl/v1",
+      CONTROL_MODEL: "qwen2.5:7b",
+    });
+    expect(config.control).toEqual({
+      baseUrl: "http://ctrl/v1",
+      model: "qwen2.5:7b",
+    });
+  });
+
+  it("control 欄位：未設定時為 undefined", () => {
+    const config = loadConfig({
+      OPENAI_BASE_URL: "http://main/v1",
+      OPENAI_API_KEY: "key",
+      MODEL: "main-model",
+    });
+    expect(config.control).toBeUndefined();
+  });
 });
 
 describe("configWarnings", () => {

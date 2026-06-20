@@ -25,6 +25,11 @@ export interface AppConfig {
     baseUrl: string;
     model: string;
   };
+  /** 結構控制抽取 LLM（副大腦，選填）；缺省時 engine 沿用主 client */
+  control?: {
+    baseUrl: string;
+    model: string;
+  };
 }
 
 const DEFAULTS = {
@@ -74,6 +79,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ? {
             baseUrl: env.CHARACTER_OPENAI_BASE_URL,
             model: env.CHARACTER_MODEL,
+          }
+        : undefined,
+    control:
+      env.CONTROL_OPENAI_BASE_URL && env.CONTROL_MODEL
+        ? {
+            baseUrl: env.CONTROL_OPENAI_BASE_URL,
+            model: env.CONTROL_MODEL,
           }
         : undefined,
   };
