@@ -80,7 +80,7 @@ export function App() {
   const isDungeon = state?.mode === "dungeon";
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isDungeon ? "app-shell--dungeon" : "app-shell--main"}`}>
       <div className="ambient-grid" aria-hidden="true" />
       <div className="layout">
         <header className="topbar">
