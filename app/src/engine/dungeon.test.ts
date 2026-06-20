@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, rm, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -108,7 +108,10 @@ describe("listDungeonIds", () => {
   it("回傳所有副本子目錄名，忽略檔案", async () => {
     await enterDungeon(world, { dungeonId: "U-001", today: "d", protagonistSummary: "x", goal: "g", secretsText: "s" });
     await enterDungeon(world, { dungeonId: "abandoned-hospital", today: "d", protagonistSummary: "x", goal: "g", secretsText: "s" });
+    // 在 dungeons/ 目錄下建一個裸檔案，測試忽略檔案的行為
+    await writeFile(path.join(world, "dungeons", "README.md"), "x", "utf8");
     const ids = await listDungeonIds(world);
     expect(ids.sort()).toEqual(["U-001", "abandoned-hospital"]);
+    expect(ids).not.toContain("README.md");
   });
 });
