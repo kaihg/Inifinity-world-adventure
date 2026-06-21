@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { readdir } from "node:fs/promises";
-import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, buildDungeonMessages, buildControlMessages, type TurnEvent, type TurnDeps } from "./turn.js";
+import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, buildDungeonMessages, buildFastControlMessages, buildLoreSyncMessages, trackLoreSync, type TurnEvent, type TurnDeps, type PendingLoreSync } from "./turn.js";
 import type { GameState } from "./context.js";
 import type { RecallHit, RecallIndex } from "../recall/store.js";
 
@@ -195,9 +195,9 @@ describe("buildDungeonMessages", () => {
   });
 });
 
-describe("buildControlMessages", () => {
-  it("主空間：system 含敘事、骰值、現有副本 id；user 帶玩家行動", () => {
-    const msgs = buildControlMessages({
+describe("buildFastControlMessages（Layer 2）", () => {
+  it("主空間：system 含 awaiting_user_input、骰值、現有副本 id，不含 lore 欄位說明", () => {
+    const msgs = buildFastControlMessages({
       settingText: "設定", state: sampleState, input: "我四處看看",
       narrative: "沈奕走進資訊室，擲出 42 成功避開警衛。",
       dicePool: [42, 7], existingDungeonIds: ["U-001", "abandoned-hospital"],
@@ -208,18 +208,45 @@ describe("buildControlMessages", () => {
     expect(msgs[0].content).toContain("U-001");
     expect(msgs[0].content).toContain("abandoned-hospital");
     expect(msgs[0].content).toContain("沈奕走進資訊室");
-    // 副大腦也需主角詳細狀態，才能正確抽取道具消耗/技能冷卻/buff 變化
-    expect(msgs[0].content).toContain("瞬步（消耗 20 積分）");
-    expect(msgs[0].content).toContain("強化手槍（彈藥 6）");
-    expect(msgs[0].content).toContain("新手保護（3 場）");
+    expect(msgs[0].content).not.toContain("item_pickups");
+    expect(msgs[0].content).not.toContain("npc_updates");
     expect(msgs[1].role).toBe("user");
     expect(msgs[1].content).toContain("我四處看看");
   });
 
-  it("副本：system 額外帶 wiki 與 dungeonId，且不外洩 secrets 段標題以外內容給玩家由副大腦自行判斷", () => {
-    const msgs = buildControlMessages({
+  it("副本：mode_transition 規則改為 settle_dungeon", () => {
+    const msgs = buildFastControlMessages({
       settingText: "設定", state: sampleState, input: "往前走",
-      narrative: "你抵達出口。", dicePool: [5], existingDungeonIds: ["U-001"],
+      narrative: "沈奕抵達出口。", dicePool: [5], existingDungeonIds: ["U-001"],
+      dungeonId: "U-001", wiki: "入口有三道門", secrets: "地板會塌",
+    });
+    expect(msgs[0].content).toContain("U-001");
+    expect(msgs[0].content).toContain("settle_dungeon");
+  });
+});
+
+describe("buildLoreSyncMessages（Layer 3）", () => {
+  it("system 含 item/location/skill/npc 欄位說明，不含 mode_transition/awaiting_user_input", () => {
+    const msgs = buildLoreSyncMessages({
+      settingText: "設定", state: sampleState, input: "我四處看看",
+      narrative: "沈奕在資訊室撿到一根生鏽鐵管。",
+      dicePool: [42, 7], existingDungeonIds: ["U-001"],
+    });
+    expect(msgs[0].role).toBe("system");
+    expect(msgs[0].content).toContain("item_pickups");
+    expect(msgs[0].content).toContain("location_pickups");
+    expect(msgs[0].content).toContain("skill_pickups");
+    expect(msgs[0].content).toContain("npc_updates");
+    expect(msgs[0].content).not.toContain("awaiting_user_input");
+    expect(msgs[0].content).not.toContain("mode_transition");
+    expect(msgs[0].content).toContain("沈奕在資訊室撿到一根生鏽鐵管");
+    expect(msgs[1].content).toContain("我四處看看");
+  });
+
+  it("副本：system 帶 wiki 與 dungeonId，不外洩 secrets", () => {
+    const msgs = buildLoreSyncMessages({
+      settingText: "設定", state: sampleState, input: "往前走",
+      narrative: "沈奕抵達出口。", dicePool: [5], existingDungeonIds: ["U-001"],
       dungeonId: "U-001", wiki: "入口有三道門", secrets: "地板會塌",
     });
     expect(msgs[0].content).toContain("U-001");
@@ -441,11 +468,12 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
       commit_summary: "撿到鐵管",
     });
     const events: TurnEvent[] = [];
-    // 雙腦序列：主腦敘事 → 副大腦 JSON → 道具 secrets 生成（generateItemSecrets 用 deps.client）
+    // 序列：主腦敘事 → Layer 2 fast-control JSON → Layer 3 lore-sync JSON → 道具 secrets 生成（generateItemSecrets 用 deps.client）
     for await (const ev of runMainSpaceTurn(
       {
         client: sequencedClient([
           "沈奕從地上撿起一根生鏽鐵管。",
+          ctrl,
           ctrl,
           "其實是某把武器的殘骸，蘊含未知力量。",
         ]),
@@ -476,11 +504,12 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
       commit_summary: "再次檢視鐵管",
     });
     const events: TurnEvent[] = [];
-    // 雙腦序列：主腦敘事 → 副大腦 JSON →（若誤呼叫生成才會吐這段「不該寫入」，正確時不會用到）
+    // 序列：主腦敘事 → Layer 2 fast-control JSON → Layer 3 lore-sync JSON →（若誤呼叫生成才會吐這段「不該寫入」，正確時不會用到）
     for await (const ev of runMainSpaceTurn(
       {
         client: sequencedClient([
           "沈奕又看了一眼鐵管。",
+          ctrl,
           ctrl,
           "新真相（不該寫入）",
         ]),
@@ -578,7 +607,8 @@ describe("runTurnLoop — 自動推進", () => {
     const responses: string[] = [];
     for (let k = 0; k < 3; k++) {
       responses.push(`持續推進敘事 ${k}`);
-      responses.push(controlJson(false, "持續推進"));
+      responses.push(controlJson(false, "持續推進")); // Layer 2 fast-control
+      responses.push(controlJson(false, "持續推進")); // Layer 3 reactive-lore-sync
     }
     const events: TurnEvent[] = [];
     for await (const ev of runTurnLoop(
@@ -877,10 +907,12 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
     });
     const client = twoBrainClient([
       "系統警報響起。",     // turn 0 主腦（主空間）
-      enterCtl,            // turn 0 副大腦 → enter_dungeon
+      enterCtl,            // turn 0 Layer 2 fast-control → enter_dungeon
+      enterCtl,            // turn 0 Layer 3 reactive-lore-sync（無 lore 欄位，no-op）
       "這個副本真正的機關是潮汐淹沒。", // secrets 生成（generateSecrets 用 deps.client）
       "你抵達出口。",       // turn 1 主腦（副本）
-      settleCtl,           // turn 1 副大腦 → settle_dungeon
+      settleCtl,           // turn 1 Layer 2 fast-control → settle_dungeon
+      settleCtl,           // turn 1 Layer 3 reactive-lore-sync → wiki_reveals 落地
     ]);
 
     const events: TurnEvent[] = [];
@@ -928,5 +960,126 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
     expect(events.some((e) => e.type === "transition")).toBe(false);
     const now = await readFile(path.join(world, "now.md"), "utf8");
     expect(now).toContain("- 進行中的副本：無");
+  });
+});
+
+/** 建立一個可手動控制何時 resolve 的 promise，供「卡住的 fake loreClient」測試使用 */
+function createDeferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+describe("trackLoreSync（永遠 resolve 語意）", () => {
+  it("傳入會 reject 的 promise，包裝後 handle.promise 仍 resolve，並記一筆 warn", async () => {
+    const warnCalls: unknown[] = [];
+    const fakeLog = { warn: (...args: unknown[]) => warnCalls.push(args) } as unknown as import("../logger.js").Logger;
+    const handle: PendingLoreSync = { promise: null };
+    const rejecting = Promise.reject(new Error("Layer 3 任務本身炸了"));
+
+    trackLoreSync(handle, rejecting, fakeLog);
+
+    expect(handle.promise).not.toBeNull();
+    await expect(handle.promise).resolves.toBeUndefined();
+    expect(warnCalls).toHaveLength(1);
+  });
+});
+
+describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
+  it("提供 pendingLoreSync 時，done event 在 Layer 3 resolve 前就已送出（不卡主流程）", async () => {
+    const gate = createDeferred<void>();
+    const loreClient: LlmClient = {
+      async *streamChat() {
+        await gate.promise;
+        yield "{}";
+      },
+    };
+    const pendingLoreSync = { promise: null as Promise<void> | null };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient(["敘事內容。"]),
+        controlClient: fakeClient([controlJson(true, "x")]),
+        loreClient,
+        pendingLoreSync,
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "做點事",
+    )) {
+      events.push(ev);
+    }
+    // 沒有等待 gate.resolve()，迴圈卻已經跑完，證明 done 不會被卡住的 loreClient 卡住
+    expect(events.some((e) => e.type === "done")).toBe(true);
+    expect(pendingLoreSync.promise).not.toBeNull();
+    gate.resolve();
+    await pendingLoreSync.promise; // 收尾，避免懸而未決的 promise 影響其他測試
+  });
+
+  it("共用同一個 pendingLoreSync 連續呼叫兩次：第二次呼叫前已等到第一次 Layer 3 落地的檔案", async () => {
+    const loreCtrl = JSON.stringify({
+      state_changes: { item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }] },
+    });
+    const loreClient: LlmClient = {
+      async *streamChat() {
+        await new Promise((r) => setTimeout(r, 50)); // 模擬較慢的 Layer 3 LLM
+        yield loreCtrl;
+      },
+    };
+    const pendingLoreSync = { promise: null as Promise<void> | null };
+    const deps: TurnDeps = {
+      client: fakeClient(["敘事內容。"]), // 也供 generateItemSecrets 使用
+      controlClient: fakeClient([controlJson(true, "x")]),
+      loreClient,
+      pendingLoreSync,
+      worldDir: world,
+      commit: async () => true,
+      today: () => "2026-06-19",
+      dicePool: [1],
+    };
+
+    for await (const _ev of runMainSpaceTurn(deps, "撿東西")) {
+      // 第一回合：done 立刻送出，Layer 3 在背景跑（50ms 後才完成）
+    }
+    for await (const _ev of runMainSpaceTurn(deps, "再做點別的事")) {
+      // 第二回合一開始就 await 同一個 pendingLoreSync，理論上會等到第一回合的 Layer 3 落地
+    }
+
+    const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
+    expect(secrets).toContain("敘事內容");
+  });
+
+  it("Layer 3 失敗（loreClient 拋錯）：下一回合仍正常開始、不拋錯", async () => {
+    const loreClient: LlmClient = {
+      async *streamChat() {
+        throw new Error("Layer 3 LLM 掛了");
+      },
+    };
+    const pendingLoreSync = { promise: null as Promise<void> | null };
+    const deps: TurnDeps = {
+      client: fakeClient(["敘事內容。"]),
+      controlClient: fakeClient([controlJson(true, "x")]),
+      loreClient,
+      pendingLoreSync,
+      worldDir: world,
+      commit: async () => true,
+      today: () => "2026-06-19",
+      dicePool: [1],
+    };
+
+    const firstEvents: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "做點事")) firstEvents.push(ev);
+    expect(firstEvents.some((e) => e.type === "done")).toBe(true);
+
+    // 下一回合一開始 await pendingLoreSync.promise；即使上一回合 Layer 3 拋錯，也不該讓這裡拋錯
+    const secondEvents: TurnEvent[] = [];
+    await expect(
+      (async () => {
+        for await (const ev of runMainSpaceTurn(deps, "再做點事")) secondEvents.push(ev);
+      })(),
+    ).resolves.not.toThrow();
+    expect(secondEvents.some((e) => e.type === "done")).toBe(true);
   });
 });

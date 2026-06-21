@@ -17,7 +17,11 @@ import { summarizeNpcStatus } from "./npc-status-summary.js";
 import { appendJournal } from "./journal.js";
 import { applyNowChanges, serializeNow, bumpNowUpdated } from "./now.js";
 import { rollPool } from "./roll.js";
-import { parseControlOutput, type TurnControl } from "./schema.js";
+import {
+  parseFastControlOutput,
+  parseLoreSyncOutput,
+  type FastControl,
+} from "./schema.js";
 import {
   parseActiveDungeon,
   formatActiveDungeon,
@@ -36,11 +40,22 @@ import {
 import { formatRecallBlock } from "../recall/index.js";
 import type { RecallIndex } from "../recall/store.js";
 
+/**
+ * Layer 3（reactive-lore-sync）的接力 handle：一個 process 內的 mutable promise 容器，
+ * 不是真正的 lock，只是讓「下一回合開始前」可以 await 上一回合的 lore-sync 是否落地完。
+ * `promise` 永遠保證 resolve（內部已 catch），不會讓 await 端拋錯。
+ */
+export interface PendingLoreSync {
+  promise: Promise<void> | null;
+}
+
 export interface TurnDeps {
   client: LlmClient;
   characterClient?: LlmClient;
   /** 結構控制抽取 LLM（副大腦）；未提供時退回 deps.client */
   controlClient?: LlmClient;
+  /** Layer 3 reactive-lore-sync 用的 LLM；未提供時依序退回 controlClient、client */
+  loreClient?: LlmClient;
   worldDir: string;
   commit: (message: string) => Promise<boolean>;
   today?: () => string;
@@ -52,6 +67,12 @@ export interface TurnDeps {
   recall?: RecallIndex;
   /** 每回合檢索片段數上限，預設 5 */
   recallTopK?: number;
+  /**
+   * Layer 3 接力 handle（選填）。提供時，本回合的 lore-sync 不 await 完成即讓回合結束
+   * （done event 立即送出），handle.promise 會被換成本回合的 lore-sync；
+   * 未提供時退回舊行為：lore-sync 與回合本身同步完成。
+   */
+  pendingLoreSync?: PendingLoreSync;
 }
 
 export type TurnEvent =
@@ -65,7 +86,7 @@ export type TurnEvent =
       committed: boolean;
       awaitingUserInput: boolean;
       suggestedActions: string[];
-      modeTransition: TurnControl["mode_transition"];
+      modeTransition: FastControl["mode_transition"];
       transitionDungeonId?: string;
       transitionDungeonGoal?: string;
     };
@@ -98,15 +119,25 @@ function appendOptionalBlocks(params: { intentsBlock?: string; recallBlock?: str
   ];
 }
 
-const CONTROL_FORMAT_BLOCK = [
+const FAST_CONTROL_FORMAT_BLOCK = [
   "## 輸出格式（務必嚴格遵守）",
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
   "- state_changes: { now?: {可設子集，鍵用 chapter/scene/companions/threads/nextStep},",
   "    （注意：進行中的副本欄由引擎依 mode_transition 自動管理，**不可**透過 now.activeDungeon 自行覆寫）,",
   "    protagonist_points_delta?: number,",
   "    protagonist_updates?: { attributes?: string[], skills?: string[], items?: string[], buffs?: string[] }",
-  "      （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目）,",
-  "    npc_updates?: [{id, update}], wiki_reveals?: [string],",
+  "      （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目） }",
+  "- rolls: [{desc, value, success?}]（敘事中實際用到的骰值與判定，沒有就空陣列）",
+  '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
+  "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
+  "- awaiting_user_input: boolean —— 敘事屬純環境/系統旁白/NPC 自行動作、玩家不需做決定時設 false；需要玩家選擇才設 true。",
+  "- suggested_actions: string[]、commit_summary: string（一句摘要）",
+].join("\n");
+
+const LORE_SYNC_FORMAT_BLOCK = [
+  "## 輸出格式（務必嚴格遵守）",
+  "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
+  "- state_changes: { npc_updates?: [{id, update}], wiki_reveals?: [string],",
   "    item_pickups?: [{id, name}]（主角本回合首次撿到的道具；id 用英數小寫 slug，name 用顯示名稱，",
   "      首次撿到時引擎會生成該道具的隱藏設定，之後同 id 不會重複生成）,",
   "    item_reveals?: [{id, reveal}]（劇情中真的揭露出該道具暗藏的設定時才填，累積進該道具的 wiki）,",
@@ -114,11 +145,7 @@ const CONTROL_FORMAT_BLOCK = [
   "    location_reveals?: [{id, reveal}]（該場景被劇情進一步揭露的細節，規則同 item_reveals）,",
   "    skill_pickups?: [{id, name}]（主角本回合首次習得/明確接觸的技能，規則同 item_pickups）,",
   "    skill_reveals?: [{id, reveal}]（該技能被劇情進一步揭露的細節，規則同 item_reveals） }",
-  "- rolls: [{desc, value, success?}]（敘事中實際用到的骰值與判定，沒有就空陣列）",
-  '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
-  "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
-  "- awaiting_user_input: boolean —— 敘事屬純環境/系統旁白/NPC 自行動作、玩家不需做決定時設 false；需要玩家選擇才設 true。",
-  "- suggested_actions: string[]、commit_summary: string（一句摘要）",
+  "（本回合若沒有任何相關異動，對應欄位省略或留空陣列即可，不要硬湊內容）",
 ].join("\n");
 
 function canonicalBlock(state: GameState): string {
@@ -250,36 +277,71 @@ export interface BuildControlParams {
 }
 
 /**
- * 副大腦（結構控制抽取）的對話訊息：讀主腦寫好的敘事 + 當前狀態，
- * 抽出 TurnControl JSON。只整理敘事中已發生的事實，不得新增劇情或發明數值。
+ * Layer 2（fast-control）：讀主腦敘事 + 當前狀態，只抽出「done event 前必須就位」
+ * 的最小欄位子集（now/主角/骰值/轉場/awaiting_user_input/suggested_actions/commit_summary）。
+ * npc/item/location/skill/wiki 等可延後落地的欄位交給 buildLoreSyncMessages。
  */
-export function buildControlMessages(params: BuildControlParams): ChatMessage[] {
+export function buildFastControlMessages(params: BuildControlParams): ChatMessage[] {
   const { settingText, state, input, narrative, dicePool } = params;
   const existingDungeonIds = params.existingDungeonIds ?? [];
   const inDungeon = Boolean(params.dungeonId);
   const system = [
-    "你是「無限恐怖」世界敘事引擎的**結構控制抽取器**。",
-    "下方有本回合已經產生的敘事散文，你的工作是把其中**已經發生的事實**整理成結構化 JSON。",
+    "你是「無限恐怖」世界敘事引擎的**結構控制抽取器（Layer 2：fast-control）**。",
+    "下方有本回合已經產生的敘事散文，你的工作是把其中**已經發生的事實**整理成結構化 JSON，",
+    "只需要供應玩家立即所需的狀態（局勢/主角/轉場/建議動作），不需要整理 NPC 關係或道具/場景/技能知識，那部分由另一個抽取器處理。",
     "",
     "## 鐵則",
     "- 只整理敘事中已經寫出的事實，**不可新增劇情、不可發明敘事未提及的數值或事件**。",
     "- protagonist_points_delta 只反映敘事中明確發生的積分增減；沒寫到就填 0 或省略。",
     "- rolls 只回報敘事中實際用到的骰值（對照下方骰池），沒有就空陣列。",
-    "- wiki_reveals / item_reveals 只填**敘事中明確公開揭露給主角知道**的真相（角色已親眼確認、已被明說）；" +
-      "敘事中模糊的暗示、伏筆、氣氛描寫一律不可當成已揭露填入，寧可漏填也不可提前洩漏暗線。",
     inDungeon
       ? "- 副本達主線目標/主角死亡/撤退離開時，mode_transition 設為 settle_dungeon。"
       : "- 敘事中若系統強制開啟/傳送進副本，mode_transition 設為 enter_dungeon，並填 transition_dungeon_id：" +
         "優先比對下方『現有副本 id』判斷是否重返既有副本；若是全新副本才生成新的 kebab-case 短 slug。",
     "",
-    CONTROL_FORMAT_BLOCK,
+    FAST_CONTROL_FORMAT_BLOCK,
     "",
     `## 本回合骰值（d100，主腦依序取用）：[${dicePool.join(", ")}]`,
     "",
-    // 現有副本 id 只與主空間的 enter_dungeon 判斷有關；副本模式不會 enter_dungeon，省去以免誤導
     ...(inDungeon
       ? []
       : [`## 現有副本 id（供判斷續用/新建）：${existingDungeonIds.length > 0 ? existingDungeonIds.join("、") : "（無）"}`, ""]),
+    "## 世界設定",
+    settingText.trim(),
+    "",
+    ...(inDungeon ? [`## 當前副本 id：${params.dungeonId}`, ""] : []),
+    canonicalBlock(state),
+    "",
+    "## 本回合敘事散文（事實來源）",
+    narrative.trim(),
+  ].join("\n");
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: `玩家本回合行動：${input}` },
+  ];
+}
+
+/**
+ * Layer 3（reactive-lore-sync）：讀主腦敘事 + 當前狀態，抽出可延後落地的 lore 欄位
+ * （npc_updates、item/location/skill 的 pickups 與 reveals、wiki_reveals）。不卡玩家可見的 done event，
+ * 但仍只整理敘事中已發生的事實，規則與 Layer 2 一致。
+ */
+export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[] {
+  const { settingText, state, input, narrative } = params;
+  const inDungeon = Boolean(params.dungeonId);
+  const system = [
+    "你是「無限恐怖」世界敘事引擎的**結構控制抽取器（Layer 3：reactive-lore-sync）**。",
+    "下方有本回合已經產生的敘事散文，你的工作是把其中**已經發生的事實**整理成結構化 JSON，",
+    "只需要負責 NPC 關係、道具/場景/技能的初次接觸與知識揭露，不需要處理 now/主角積分/轉場等即時狀態，那部分已由另一個抽取器處理。",
+    "",
+    "## 鐵則",
+    "- 只整理敘事中已經寫出的事實，**不可新增劇情、不可發明敘事未提及的事件**。",
+    "- wiki_reveals / item_reveals / location_reveals / skill_reveals 只填**敘事中明確公開揭露給主角知道**的真相（角色已親眼確認、已被明說）；" +
+      "敘事中模糊的暗示、伏筆、氣氛描寫一律不可當成已揭露填入，寧可漏填也不可提前洩漏暗線。",
+    "",
+    LORE_SYNC_FORMAT_BLOCK,
+    "",
     "## 世界設定",
     settingText.trim(),
     "",
@@ -380,16 +442,28 @@ async function applyLorePickups(
 interface TurnPlan {
   /** 主腦（敘事）訊息 */
   messages: ChatMessage[];
-  /** 副大腦（結構抽取）訊息建構器：拿主腦完整敘事，回傳 control 對話 */
-  buildControl: (narrative: string) => ChatMessage[];
+  /** Layer 2（fast-control）訊息建構器：拿主腦完整敘事，回傳 fast-control 對話 */
+  buildFastControl: (narrative: string) => ChatMessage[];
+  /** Layer 3（reactive-lore-sync）訊息建構器：拿主腦完整敘事，回傳 lore-sync 對話 */
+  buildLoreSync: (narrative: string) => ChatMessage[];
   /** raw 層落地：主空間→journal，副本→runs/<run>.md */
   appendRaw: (entry: { date: string; title: string; body: string }) => Promise<void>;
   /** 額外提煉：副本把 wiki_reveals 寫進 wiki.md */
-  distill?: (control: TurnControl, date: string) => Promise<void>;
+  distill?: (wikiReveals: string[], date: string) => Promise<void>;
   /** raw 層檔案絕對路徑（journal.md 或 runs/<run>.md），供回合結束後重建語意索引用 */
   rawFilePath: string;
   /** 副本 wiki.md 絕對路徑（僅副本回合有），有 wiki_reveals 時才需重新索引 */
   wikiFilePath?: string;
+}
+
+/**
+ * 把一個 Layer 3 任務包裝進 pendingLoreSync handle：保證 handle.promise 永遠 resolve
+ * （任務內部已自行 catch，這裡只是雙重保險，避免下一回合開始時的 await 意外拋錯）。
+ */
+export function trackLoreSync(handle: PendingLoreSync, task: Promise<void>, log: Logger): void {
+  handle.promise = task.catch((err) => {
+    log.warn({ err }, "Layer 3 reactive-lore-sync 任務本身拋錯，已攔截，不影響下一回合");
+  });
 }
 
 /** 把本回合異動的檔案重新切塊嵌入進語意索引（derived cache，失敗只記警告，不影響回合落地） */
@@ -410,16 +484,20 @@ async function reindexTouchedFiles(
   }
 }
 
+/**
+ * Layer 2（fast-control）：done event 前必須就位的最小狀態（now/主角/骰值/轉場/建議動作）。
+ * npc/item/location/skill/wiki 等可延後落地的欄位交給 runLoreSync（Layer 3），不在此處理。
+ * 回傳本回合敘事全文，供呼叫端接著餵給 Layer 3。
+ */
 async function* runTurnCore(
   deps: TurnDeps,
   input: string,
   state: GameState,
   dicePool: number[],
   today: string,
-  settingText: string,
   plan: TurnPlan,
   log: Logger,
-): AsyncGenerator<TurnEvent> {
+): AsyncGenerator<TurnEvent, string> {
   log.debug({ dicePool }, "回合開始");
 
   // 1) 主腦：串流純敘事，delta 直接轉發（不再做 sentinel 切分）
@@ -430,20 +508,20 @@ async function* runTurnCore(
   }
   narrative = narrative.trim();
 
-  // 2) 副大腦：讀完整敘事抽結構；失敗則降級（敘事已落地、暫停等玩家）
+  // 2) Layer 2：讀完整敘事抽最小狀態子集；失敗則降級（敘事已落地、暫停等玩家）
   const controlClient = deps.controlClient ?? deps.client;
-  let control: TurnControl | null = null;
+  let control: FastControl | null = null;
   let raw = "";
   try {
-    for await (const delta of controlClient.streamChat(plan.buildControl(narrative))) {
+    for await (const delta of controlClient.streamChat(plan.buildFastControl(narrative))) {
       raw += delta;
     }
-    control = parseControlOutput(raw);
+    control = parseFastControlOutput(raw);
   } catch (err) {
-    log.error({ err, raw }, "副大腦結構抽取失敗，本回合僅保留敘事並暫停");
+    log.error({ err, raw }, "Layer 2 fast-control 結構抽取失敗，本回合僅保留敘事並暫停");
     yield {
       type: "warning",
-      message: `副大腦結構抽取失敗，本回合僅保留敘事並暫停：${(err as Error).message}`,
+      message: `Layer 2 結構抽取失敗，本回合僅保留敘事並暫停：${(err as Error).message}`,
     };
   }
 
@@ -470,7 +548,7 @@ async function* runTurnCore(
   const nowPath = path.join(deps.worldDir, "now.md");
   if (control) {
     // 進行中的副本欄由引擎依 mode_transition 管理（enterDungeon/setNowActiveDungeon），
-    // 不接受副大腦透過 now.activeDungeon 自行覆寫，避免繞過 run log/secrets 生成的正規流程。
+    // 不接受 Layer 2 透過 now.activeDungeon 自行覆寫，避免繞過 run log/secrets 生成的正規流程。
     const { activeDungeon: _ignored, ...nowChanges } = control.state_changes.now ?? {};
     const newNow = applyNowChanges(state.now, nowChanges, { date: today, summary });
     await writeFile(nowPath, serializeNow(newNow), "utf8");
@@ -490,50 +568,16 @@ async function* runTurnCore(
     await writeFile(pPath, pMd, "utf8");
   }
 
-  // 4. NPC 更新（落地到 characters/<id>.md，否則角色長期沒有記憶）
-  const npcUpdates = control?.state_changes.npc_updates ?? [];
-  if (npcUpdates.length > 0) {
-    await appendNpcUpdates(deps.worldDir, npcUpdates, today, log);
-    await syncCharacterIndexStatus(deps, npcUpdates, log);
-  }
-
-  // 5. 道具（首次撿到時生成隱藏設定；劇情揭露時累積進對應道具的 wiki）
-  const itemPickups = control?.state_changes.item_pickups ?? [];
-  if (itemPickups.length > 0) {
-    await applyLorePickups(deps, settingText, "items", itemPickups, log);
-  }
-  const itemReveals = control?.state_changes.item_reveals ?? [];
-  for (const { id, reveal } of itemReveals) {
-    if (!ITEM_ID_RE.test(id)) {
-      log.warn({ id }, "item_reveals 含不合法 id，略過");
-      continue;
-    }
-    await appendLoreReveals(deps.worldDir, "items", id, [reveal], today, `道具（${id}）`, log);
-  }
-
-  // 6. 額外提煉（副本 wiki）
-  const wikiReveals = control?.state_changes.wiki_reveals ?? [];
-  if (control && plan.distill) {
-    await plan.distill(control, today);
-  }
-
-  // 7. 語意檢索索引：把本回合異動的檔案重新切塊嵌入（derived cache，與 git commit 內容無關）
+  // 4. 語意檢索索引：把本回合異動的檔案重新切塊嵌入（derived cache，與 git commit 內容無關）
   if (deps.recall) {
     const touched = [plan.rawFilePath];
     if (delta || protagonistUpdates) {
       touched.push(path.join(deps.worldDir, "characters", "protagonist.md"));
     }
-    for (const { id } of npcUpdates) {
-      if (NPC_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "characters", `${id}.md`));
-    }
-    if (plan.wikiFilePath && wikiReveals.length > 0) touched.push(plan.wikiFilePath);
-    for (const { id } of itemReveals) {
-      if (ITEM_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "items", id, "wiki.md"));
-    }
     await reindexTouchedFiles(deps.recall, deps.worldDir, touched, log);
   }
 
-  // 8. commit
+  // 5. commit
   const committed = await deps.commit(summary);
 
   log.info(
@@ -542,7 +586,7 @@ async function* runTurnCore(
       awaitingUserInput: control?.awaiting_user_input ?? true,
       modeTransition: control?.mode_transition ?? null,
     },
-    "回合結束",
+    "回合結束（Layer 2）",
   );
 
   yield {
@@ -555,6 +599,104 @@ async function* runTurnCore(
     transitionDungeonId: control?.transition_dungeon_id || undefined,
     transitionDungeonGoal: control?.transition_dungeon_goal || undefined,
   };
+
+  return narrative;
+}
+
+/**
+ * Layer 3（reactive-lore-sync）：讀主腦敘事，抽出 npc/item/location/skill/wiki 的延後落地欄位。
+ * 不卡玩家可見的 done event；任何步驟失敗只 log.warn，永遠不拋錯（保證 pendingLoreSync.promise 不 reject）。
+ * 本回合若沒有任何 lore 異動則不 commit，避免空 commit。
+ */
+async function runLoreSync(
+  deps: TurnDeps,
+  narrative: string,
+  today: string,
+  settingText: string,
+  plan: TurnPlan,
+  log: Logger,
+): Promise<void> {
+  try {
+    const loreClient = deps.loreClient ?? deps.controlClient ?? deps.client;
+    let raw = "";
+    for await (const delta of loreClient.streamChat(plan.buildLoreSync(narrative))) {
+      raw += delta;
+    }
+    const sync = parseLoreSyncOutput(raw);
+    const changes = sync.state_changes;
+
+    const npcUpdates = changes.npc_updates ?? [];
+    if (npcUpdates.length > 0) {
+      await appendNpcUpdates(deps.worldDir, npcUpdates, today, log);
+      await syncCharacterIndexStatus(deps, npcUpdates, log);
+    }
+
+    const itemPickups = changes.item_pickups ?? [];
+    if (itemPickups.length > 0) await applyLorePickups(deps, settingText, "items", itemPickups, log);
+    const itemReveals = changes.item_reveals ?? [];
+    for (const { id, reveal } of itemReveals) {
+      if (!ITEM_ID_RE.test(id)) {
+        log.warn({ id }, "item_reveals 含不合法 id，略過");
+        continue;
+      }
+      await appendLoreReveals(deps.worldDir, "items", id, [reveal], today, `道具（${id}）`, log);
+    }
+
+    const locationPickups = changes.location_pickups ?? [];
+    if (locationPickups.length > 0) await applyLorePickups(deps, settingText, "locations", locationPickups, log);
+    const locationReveals = changes.location_reveals ?? [];
+    for (const { id, reveal } of locationReveals) {
+      if (!ITEM_ID_RE.test(id)) {
+        log.warn({ id }, "location_reveals 含不合法 id，略過");
+        continue;
+      }
+      await appendLoreReveals(deps.worldDir, "locations", id, [reveal], today, `場景（${id}）`, log);
+    }
+
+    const skillPickups = changes.skill_pickups ?? [];
+    if (skillPickups.length > 0) await applyLorePickups(deps, settingText, "skills", skillPickups, log);
+    const skillReveals = changes.skill_reveals ?? [];
+    for (const { id, reveal } of skillReveals) {
+      if (!ITEM_ID_RE.test(id)) {
+        log.warn({ id }, "skill_reveals 含不合法 id，略過");
+        continue;
+      }
+      await appendLoreReveals(deps.worldDir, "skills", id, [reveal], today, `技能（${id}）`, log);
+    }
+
+    const wikiReveals = changes.wiki_reveals ?? [];
+    if (plan.distill) await plan.distill(wikiReveals, today);
+
+    if (deps.recall) {
+      const touched: string[] = [];
+      for (const { id } of npcUpdates) {
+        if (NPC_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "characters", `${id}.md`));
+      }
+      if (plan.wikiFilePath && wikiReveals.length > 0) touched.push(plan.wikiFilePath);
+      for (const { id } of itemReveals) {
+        if (ITEM_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "items", id, "wiki.md"));
+      }
+      for (const { id } of locationReveals) {
+        if (ITEM_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "locations", id, "wiki.md"));
+      }
+      for (const { id } of skillReveals) {
+        if (ITEM_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "skills", id, "wiki.md"));
+      }
+      if (touched.length > 0) await reindexTouchedFiles(deps.recall, deps.worldDir, touched, log);
+    }
+
+    const touchedAnything =
+      npcUpdates.length + itemPickups.length + itemReveals.length + locationPickups.length +
+      locationReveals.length + skillPickups.length + skillReveals.length + wikiReveals.length > 0;
+    if (touchedAnything) {
+      const committed = await deps.commit("補完關聯文件（NPC/道具/場景/技能）");
+      log.info({ committed }, "回合結束（Layer 3 reactive-lore-sync）");
+    } else {
+      log.debug("Layer 3 reactive-lore-sync 本回合無 lore 異動，跳過 commit");
+    }
+  } catch (err) {
+    log.warn({ err }, "Layer 3 reactive-lore-sync 失敗，本回合 lore 文件可能未完整補上");
+  }
 }
 
 /**
@@ -617,9 +759,32 @@ async function* runRecallBlock(deps: TurnDeps, input: string): AsyncGenerator<Tu
   }
 }
 
+/**
+ * 回合結束後啟動 Layer 3（不 await，讓回合本身立即結束）；有 pendingLoreSync handle 時
+ * 接力寫回 handle，下一回合開始前會等它；沒有 handle（如未接線的舊呼叫端）則同步 await，
+ * 維持「回合即時落地」的舊保證。
+ */
+function scheduleLoreSync(
+  deps: TurnDeps,
+  narrative: string,
+  today: string,
+  settingText: string,
+  plan: TurnPlan,
+  log: Logger,
+): Promise<void> {
+  const task = runLoreSync(deps, narrative, today, settingText, plan, log);
+  if (deps.pendingLoreSync) {
+    trackLoreSync(deps.pendingLoreSync, task, log);
+    return Promise.resolve();
+  }
+  return task;
+}
+
 /** 主空間敘事回合 */
 export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
   const log = (deps.logger ?? defaultLogger).child({ mode: "main-space" });
+  await deps.pendingLoreSync?.promise;
+
   const today = (deps.today ?? todayISO)();
   const dicePool = deps.dicePool ?? rollPool(6);
   const state = await loadState(deps.worldDir, log);
@@ -630,27 +795,25 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
 
   const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
 
-  yield* runTurnCore(
-    deps,
-    input,
-    state,
-    dicePool,
-    today,
-    settingText,
-    {
-      messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock }),
-      buildControl: (narrative) =>
-        buildControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
-      appendRaw: (entry) => appendJournal(deps.worldDir, entry),
-      rawFilePath: path.join(deps.worldDir, "journal.md"),
-    },
-    log,
-  );
+  const plan: TurnPlan = {
+    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock }),
+    buildFastControl: (narrative) =>
+      buildFastControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
+    buildLoreSync: (narrative) =>
+      buildLoreSyncMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
+    appendRaw: (entry) => appendJournal(deps.worldDir, entry),
+    rawFilePath: path.join(deps.worldDir, "journal.md"),
+  };
+
+  const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
+  await scheduleLoreSync(deps, narrative, today, settingText, plan, log);
 }
 
 /** 副本敘事回合（讀當前 now.md 的進行中副本，落地到 runs/*.md、提煉 wiki） */
 export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
   const baseLog = deps.logger ?? defaultLogger;
+  await deps.pendingLoreSync?.promise;
+
   const today = (deps.today ?? todayISO)();
   const dicePool = deps.dicePool ?? rollPool(6);
   const state = await loadState(deps.worldDir, baseLog);
@@ -667,32 +830,31 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
 
-  yield* runTurnCore(
-    deps,
-    input,
-    state,
-    dicePool,
-    today,
-    settingText,
-    {
-      messages: buildDungeonMessages({
-        settingText, state, input, dicePool,
+  const plan: TurnPlan = {
+    messages: buildDungeonMessages({
+      settingText, state, input, dicePool,
+      dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
+      intentsBlock, recallBlock,
+    }),
+    buildFastControl: (narrative) =>
+      buildFastControlMessages({
+        settingText, state, input, narrative, dicePool,
         dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
-        intentsBlock, recallBlock,
       }),
-      buildControl: (narrative) =>
-        buildControlMessages({
-          settingText, state, input, narrative, dicePool,
-          dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
-        }),
-      appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
-      distill: (control, date) =>
-        appendWikiReveals(deps.worldDir, active.dungeonId, control.state_changes.wiki_reveals ?? [], date, log),
-      rawFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "runs", `${active.runId}.md`),
-      wikiFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "wiki.md"),
-    },
-    log,
-  );
+    buildLoreSync: (narrative) =>
+      buildLoreSyncMessages({
+        settingText, state, input, narrative, dicePool,
+        dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
+      }),
+    appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
+    distill: (wikiReveals, date) =>
+      appendWikiReveals(deps.worldDir, active.dungeonId, wikiReveals, date, log),
+    rawFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "runs", `${active.runId}.md`),
+    wikiFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "wiki.md"),
+  };
+
+  const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
+  await scheduleLoreSync(deps, narrative, today, settingText, plan, log);
 }
 
 const AUTO_CONTINUE_INPUT = "（系統自動推進：延續上一刻，繼續敘事，玩家未介入）";
@@ -750,6 +912,9 @@ export async function* runTurnLoop(
     }
     currentInput = AUTO_CONTINUE_INPUT;
     if (!done) break;
+
+    // 轉場分支即將自行 commit；先等上一回合（或本回合）的 Layer 3 落地完，避免兩個 git commit 並發搶鎖
+    await deps.pendingLoreSync?.promise;
 
     // enter_dungeon 但副大腦沒給 transition_dungeon_id：無法建副本，不可靜默吞掉
     if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
