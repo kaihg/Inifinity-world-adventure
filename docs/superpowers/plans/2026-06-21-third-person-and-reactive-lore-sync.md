@@ -21,29 +21,29 @@
 ## To-do Checklist
 
 ### Task 1 — 第三人稱鐵則（低風險，先做）
-- [ ] `buildMainSpaceMessages` 鐵則加第三人稱規則
-- [ ] `buildDungeonMessages` 鐵則加第三人稱規則
-- [ ] `turn.test.ts`：兩個 prompt 各補一條斷言（system 內容包含「第三人稱」關鍵字）
-- [ ] 跑 `npx vitest run src/engine/turn.test.ts`，確認通過
-- [ ] Commit：`feat(prompt): 敘事鐵則加第三人稱規定`
+- [x] `buildMainSpaceMessages` 鐵則加第三人稱規則
+- [x] `buildDungeonMessages` 鐵則加第三人稱規則
+- [x] `turn.test.ts`：兩個 prompt 各補一條斷言（system 內容包含「第三人稱」關鍵字）
+- [x] 跑 `npx vitest run src/engine/turn.test.ts`，確認通過
+- [x] Commit：`feat(prompt): 敘事鐵則加第三人稱規定`
 
 ### Task 2 — `lore.ts` 新增 `locations` 分類
-- [ ] `LoreCategory` 加 `"locations"`
-- [ ] `lore.test.ts`：複製既有 items 測試模式，新增 `locations` 的 `loadLore`/`ensureSecrets`/`appendLoreReveals` 測試
-- [ ] 跑測試確認通過
-- [ ] Commit：`feat(lore): 新增 locations 分類`
+- [x] `LoreCategory` 加 `"locations"`
+- [x] `lore.test.ts`：複製既有 items 測試模式，新增 `locations` 的 `loadLore`/`ensureSecrets`/`appendLoreReveals` 測試
+- [x] 跑測試確認通過
+- [x] Commit：`feat(lore): 新增 locations 分類`
 
 ### Task 3 — schema 新增場景/技能欄位
-- [ ] `StateChangesSchema` 新增 `location_pickups`/`location_reveals`/`skill_pickups`/`skill_reveals`（型別對齊既有 `item_pickups`/`item_reveals`）
-- [ ] `schema.test.ts` 補對應解析測試
-- [ ] `CONTROL_FORMAT_BLOCK`（之後會搬進 Layer 3 prompt）文案補上新欄位說明
-- [ ] 跑測試確認通過
-- [ ] Commit：`feat(schema): 新增場景/技能 pickups/reveals 欄位`
+- [x] `StateChangesSchema` 新增 `location_pickups`/`location_reveals`/`skill_pickups`/`skill_reveals`（型別對齊既有 `item_pickups`/`item_reveals`）
+- [x] `schema.test.ts` 補對應解析測試
+- [x] `CONTROL_FORMAT_BLOCK`（之後會搬進 Layer 3 prompt）文案補上新欄位說明
+- [x] 跑測試確認通過
+- [x] Commit：`feat(schema): 新增場景/技能 pickups/reveals 欄位`
 
 ### Task 4 — 把 `applyItemPickups`/`appendLoreReveals` 呼叫點參數化
-- [ ] 把 `turn.ts` 內 `applyItemPickups` 改成接受 `category: LoreCategory` 參數（現有道具邏輯不變，只是不再硬寫 `"items"`），新增等價的 `applyLorePickups(deps, settingText, category, pickups, log)`
-- [ ] 確認道具現有測試仍通過（純重構，行為不變）
-- [ ] Commit：`refactor(turn): applyItemPickups 參數化為 applyLorePickups`
+- [x] 把 `turn.ts` 內 `applyItemPickups` 改成接受 `category: LoreCategory` 參數（現有道具邏輯不變，只是不再硬寫 `"items"`），新增等價的 `applyLorePickups(deps, settingText, category, pickups, log)`
+- [x] 確認道具現有測試仍通過（純重構，行為不變）
+- [x] Commit：`refactor(turn): applyItemPickups 參數化為 applyLorePickups`
 
 ### Task 5 — 拆 Layer 2 / Layer 3 prompt 建構函式
 - [ ] 把現有 `buildControlMessages` 拆成 `buildFastControlMessages`（欄位：now/protagonist/rolls/mode_transition/awaiting_user_input/suggested_actions/commit_summary）與 `buildLoreSyncMessages`（欄位：npc_updates/item_*/location_*/skill_*/wiki_reveals）
