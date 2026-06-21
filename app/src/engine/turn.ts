@@ -27,7 +27,7 @@ import {
   appendWikiReveals,
   listDungeonIds,
 } from "./dungeon.js";
-import { loadLore, ensureSecrets, appendLoreReveals } from "./lore.js";
+import { loadLore, ensureSecrets, appendLoreReveals, type LoreCategory } from "./lore.js";
 import {
   runCharacterPrePass,
   formatIntentsBlock,
@@ -353,24 +353,25 @@ async function generateItemSecrets(client: LlmClient, settingText: string, itemN
 }
 
 /**
- * 把本回合首次撿到的道具落地：首次接觸時用主敘事模型生成隱藏設定（secrets.md，僅生成一次），
- * 劇情中揭露出來的部分另由 item_reveals 累積進 wiki.md。單筆失敗只略過該筆，不中斷其他筆。
+ * 把本回合首次撿到/帶到的某類 lore 對象落地：首次接觸時用主敘事模型生成隱藏設定（secrets.md，
+ * 僅生成一次），劇情中揭露出來的部分另由對應 *_reveals 累積進 wiki.md。單筆失敗只略過該筆，不中斷其他筆。
  */
-async function applyItemPickups(
+async function applyLorePickups(
   deps: TurnDeps,
   settingText: string,
+  category: LoreCategory,
   pickups: Array<{ id: string; name: string }>,
   log: Logger,
 ): Promise<void> {
   for (const { id, name } of pickups) {
     if (!ITEM_ID_RE.test(id)) {
-      log.warn({ id }, "item_pickups 含不合法 id，略過");
+      log.warn({ category, id }, "pickups 含不合法 id，略過");
       continue;
     }
-    const existing = await loadLore(deps.worldDir, "items", id, log);
+    const existing = await loadLore(deps.worldDir, category, id, log);
     if (existing.secrets) continue;
     const secretsText = await generateItemSecrets(deps.client, settingText, name);
-    await ensureSecrets(deps.worldDir, "items", id, secretsText, `道具隱藏設定（${name}）`, log);
+    await ensureSecrets(deps.worldDir, category, id, secretsText, `隱藏設定（${name}）`, log);
   }
 }
 
@@ -499,7 +500,7 @@ async function* runTurnCore(
   // 5. 道具（首次撿到時生成隱藏設定；劇情揭露時累積進對應道具的 wiki）
   const itemPickups = control?.state_changes.item_pickups ?? [];
   if (itemPickups.length > 0) {
-    await applyItemPickups(deps, settingText, itemPickups, log);
+    await applyLorePickups(deps, settingText, "items", itemPickups, log);
   }
   const itemReveals = control?.state_changes.item_reveals ?? [];
   for (const { id, reveal } of itemReveals) {
