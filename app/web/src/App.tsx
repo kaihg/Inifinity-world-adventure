@@ -28,7 +28,25 @@ export function App() {
   useEffect(() => {
     refresh();
     fetchVersion().then(setVersion).catch(() => {});
-  }, []);
+
+    // 🚀 手機 App / 網頁切換至背景後喚醒自動同步
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        fetchState()
+          .then((s) => {
+            setState(s);
+            // 只有當不處於忙碌中時，喚醒才需要同步最新劇情與建議動作，避免打斷串流
+            if (!busy && s.lastTurn) {
+              setStory(s.lastTurn.narrative);
+              setSuggested(s.lastTurn.suggestedActions);
+            }
+          })
+          .catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [busy]);
   useEffect(() => {
     storyEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [story]);
@@ -71,7 +89,19 @@ export function App() {
       });
       await refresh();
     } catch (e) {
-      setStory((s) => s + `\n[請求失敗] ${(e as Error).message}`);
+      // 🚀 斷線與背景喚醒自我癒合機制 (Self-Healing on Background Suspend/Resume)
+      try {
+        const freshState = await fetchState();
+        if (freshState.lastTurn && freshState.now.lastUpdated !== state?.now.lastUpdated) {
+          setState(freshState);
+          setStory(freshState.lastTurn.narrative);
+          setSuggested(freshState.lastTurn.suggestedActions);
+        } else {
+          setStory((s) => s + `\n[請求失敗] ${(e as Error).message}`);
+        }
+      } catch (err) {
+        setStory((s) => s + `\n[請求失敗] ${(e as Error).message}（重新連線失敗，請確認網路或重整頁面）`);
+      }
     } finally {
       setBusy(false);
     }
