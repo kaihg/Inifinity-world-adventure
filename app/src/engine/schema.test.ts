@@ -159,6 +159,28 @@ describe("parseControlOutput", () => {
     expect(control.awaiting_user_input).toBe(false);
     expect(control.commit_summary).toBe("正確的摘要");
   });
+
+  it("能修復極端畸形/缺失引號的 JSON 鍵值並正確解析", () => {
+    const brokenRaw = `{
+      "state_changes": {
+        protagonist_points_delta: -1,
+        protagonist_updates": null,
+        nextStep": "analyze_dust"
+      },
+      "rolls": [{desc:"感知", value:84, success:true}],
+      "mode_transition": null,
+      "transition_dungeon_id": null,
+      "transition_dungeon_goal": null,
+      "awaiting_user_input": true,
+      "suggested_actions": ["listen_to_sounds"],
+      "commit_summary": "Seduced by the eerie sounds he heard..."
+    }`;
+    const control = parseControlOutput(brokenRaw);
+    expect(control.awaiting_user_input).toBe(true);
+    expect(control.state_changes.protagonist_points_delta).toBe(-1);
+    expect(control.suggested_actions).toEqual(["listen_to_sounds"]);
+    expect(control.commit_summary).toBe("Seduced by the eerie sounds he heard...");
+  });
 });
 
 describe("parseFastControlOutput（Layer 2：only now/protagonist/rolls/mode_transition/awaiting/suggested/commit）", () => {

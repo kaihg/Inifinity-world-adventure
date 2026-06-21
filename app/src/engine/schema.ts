@@ -143,14 +143,55 @@ function extractJsonObject(raw: string): unknown {
   const direct = extractFromText(cleaned);
   if (direct !== undefined) return direct;
 
+  const keysPattern = "state_changes|rolls|mode_transition|transition_dungeon_id|transition_dungeon_goal|awaiting_user_input|suggested_actions|commit_summary|protagonist_points_delta|protagonist_updates|npc_updates|wiki_reveals|item_pickups|item_reveals|location_pickups|location_reveals|skill_pickups|skill_reveals|now|chapter|scene|companions|activeDungeon|threads|nextStep|desc|value|success|id|name|update|reveal|attributes|skills|items|buffs";
+
   const repaired = cleaned
     // 1. 將無引號的鍵補上雙引號 (例如 { desc: -> { "desc": )
-    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+    .replace(new RegExp(`([{,]\\s*)(${keysPattern})\\s*:`, 'g'), '$1"$2":')
     // 2. 將單引號的鍵改為雙引號 (例如 { 'desc': -> { "desc": )
-    .replace(/([{,]\s*)'([a-zA-Z_][a-zA-Z0-9_]*)'\s*:/g, '$1"$2":');
+    .replace(new RegExp(`([{,]\\s*)'(${keysPattern})'\\s*:`, 'g'), '$1"$2":')
+    // 3. 將缺少左引號的鍵補齊 (例如 { desc": -> { "desc": )
+    .replace(new RegExp(`([{,]\\s*)(${keysPattern})"\\s*:`, 'g'), '$1"$2":')
+    // 4. 將缺少右引號的鍵補齊 (例如 { "desc: -> { "desc": )
+    .replace(new RegExp(`([{,]\\s*)"(${keysPattern})\\s*:`, 'g'), '$1"$2":');
 
   const fallback = extractFromText(repaired);
   return fallback === undefined ? null : fallback;
+}
+
+/**
+ * 從副大腦原始輸出解析出 TurnControl。
+ * 副大腦只負責輸出結構，整段視為一個 JSON 物件（無 sentinel）。
+ * 找不到可解析的 JSON / schema 不符都拋錯（由呼叫端決定降級）。
+ */
+/**
+ * 在送入 Zod 驗證前，對已解析的 JSON 物件進行強健性預處理。
+ * 1. 提升（Hoisting）：若副大腦不小心將頂層控制欄位巢狀寫進了 state_changes 內部，自動提昇至頂層。
+ * 2. 清理（Null-Cleanup）：刪除 state_changes 中值為 null 的選填欄位，防範小模型輸出 "protagonist_updates": null 造成 Zod 報錯。
+ */
+function preprocessControlParsed(parsed: unknown): unknown {
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, any>;
+    const stateChanges = obj.state_changes;
+    if (typeof stateChanges === "object" && stateChanges !== null && !Array.isArray(stateChanges)) {
+      // 1. 提升
+      const keysToHoist = Object.keys(TurnControlSchema.shape).filter((key) => key !== "state_changes");
+      for (const key of keysToHoist) {
+        if (obj[key] === undefined && stateChanges[key] !== undefined) {
+          obj[key] = stateChanges[key];
+          delete stateChanges[key];
+        }
+      }
+
+      // 2. 清理 null
+      for (const key of Object.keys(stateChanges)) {
+        if (stateChanges[key] === null) {
+          delete stateChanges[key];
+        }
+      }
+    }
+  }
+  return parsed;
 }
 
 /**
@@ -163,24 +204,7 @@ export function parseControlOutput(raw: string): TurnControl {
   if (parsed === null) {
     throw new Error("副大腦輸出找不到可解析的 JSON 物件");
   }
-
-  // 如果 3B 等副大腦不小心將頂層控制欄位巢狀寫進了 state_changes 內部，自動將其提昇至頂層
-  // keysToHoist 從 schema 派生，確保與 TurnControlSchema 的頂層欄位永遠同步
-  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-    const obj = parsed as Record<string, any>;
-    const stateChanges = obj.state_changes;
-    if (typeof stateChanges === "object" && stateChanges !== null && !Array.isArray(stateChanges)) {
-      const keysToHoist = Object.keys(TurnControlSchema.shape).filter((key) => key !== "state_changes");
-      for (const key of keysToHoist) {
-        if (obj[key] === undefined && stateChanges[key] !== undefined) {
-          obj[key] = stateChanges[key];
-          delete stateChanges[key];
-        }
-      }
-    }
-  }
-
-  return TurnControlSchema.parse(parsed);
+  return TurnControlSchema.parse(preprocessControlParsed(parsed));
 }
 
 /** 從 Layer 2（fast-control）原始輸出解析出 FastControl，規則同 parseControlOutput */
@@ -189,7 +213,7 @@ export function parseFastControlOutput(raw: string): FastControl {
   if (parsed === null) {
     throw new Error("Layer 2 fast-control 輸出找不到可解析的 JSON 物件");
   }
-  return FastControlSchema.parse(parsed);
+  return FastControlSchema.parse(preprocessControlParsed(parsed));
 }
 
 /** 從 Layer 3（reactive-lore-sync）原始輸出解析出 LoreSync，規則同 parseControlOutput */
@@ -198,5 +222,5 @@ export function parseLoreSyncOutput(raw: string): LoreSync {
   if (parsed === null) {
     throw new Error("Layer 3 reactive-lore-sync 輸出找不到可解析的 JSON 物件");
   }
-  return LoreSyncSchema.parse(parsed);
+  return LoreSyncSchema.parse(preprocessControlParsed(parsed));
 }

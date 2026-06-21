@@ -539,7 +539,10 @@ async function* runTurnCore(
     control && control.rolls.length > 0
       ? `\n\n擲骰：${control.rolls.map((r) => `${r.desc}=${r.value}${r.success === undefined ? "" : r.success ? "(成功)" : "(失敗)"}`).join("、")}`
       : "";
-  const suggestedActions = control?.suggested_actions ?? [];
+  const awaitingUserInput = control?.awaiting_user_input ?? true;
+  const suggestedActions = control?.suggested_actions && control.suggested_actions.length > 0
+    ? control.suggested_actions
+    : (awaitingUserInput ? ["繼續探索"] : []);
   const suggestedLine = suggestedActions.length > 0 ? `\n\n建議動作：${suggestedActions.join("、")}` : "";
   await plan.appendRaw({
     date: today,
@@ -586,7 +589,7 @@ async function* runTurnCore(
   log.info(
     {
       committed,
-      awaitingUserInput: control?.awaiting_user_input ?? true,
+      awaitingUserInput,
       modeTransition: control?.mode_transition ?? null,
     },
     "回合結束（Layer 2）",
@@ -596,7 +599,7 @@ async function* runTurnCore(
     type: "done",
     narrative,
     committed,
-    awaitingUserInput: control?.awaiting_user_input ?? true,
+    awaitingUserInput,
     suggestedActions,
     modeTransition: control?.mode_transition ?? null,
     transitionDungeonId: control?.transition_dungeon_id || undefined,
