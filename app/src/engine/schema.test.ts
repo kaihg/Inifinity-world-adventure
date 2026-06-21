@@ -127,4 +127,18 @@ describe("parseControlOutput", () => {
     // 確保已從 state_changes 刪除
     expect((control.state_changes as any).awaiting_user_input).toBeUndefined();
   });
+
+  it("頂層已有正確值時，state_changes 內重複/錯誤的同名欄位不會覆寫頂層", () => {
+    const raw = JSON.stringify({
+      state_changes: {
+        awaiting_user_input: true,
+        commit_summary: "錯誤的摘要",
+      },
+      awaiting_user_input: false,
+      commit_summary: "正確的摘要",
+    });
+    const control = parseControlOutput(raw);
+    expect(control.awaiting_user_input).toBe(false);
+    expect(control.commit_summary).toBe("正確的摘要");
+  });
 });
