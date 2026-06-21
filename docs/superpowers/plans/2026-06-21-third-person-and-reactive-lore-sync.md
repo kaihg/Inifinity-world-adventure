@@ -81,8 +81,8 @@
 - [x] Commit：`feat(server): 接線 loreClient 與 pendingLoreSync`
 
 ### Task 9 — 收尾驗證
-- [ ] `npm run typecheck && npm test && npm run build`（在 `app/` 下）
-- [ ] 手動跑一次 `npm run dev`，跑一個回合，確認：建議動作即時出現、稍後 wiki/角色檔案/recall 索引確實補上、git log 看到兩次 commit（fast-control + lore-sync）
+- [x] `npm run typecheck && npm test && npm run build`（在 `app/` 下）
+- [ ] 手動跑一次 `npm run dev`，跑一個回合，確認：建議動作即時出現、稍後 wiki/角色檔案/recall 索引確實補上、git log 看到兩次 commit（fast-control + lore-sync）（此環境無 `.env`/可用 LLM 後端，無法手動驗證；待有真實後端的環境再補）
 - [ ] Commit（若有遺漏的小修正）
 
 ---
