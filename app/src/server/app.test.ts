@@ -97,4 +97,31 @@ describe("POST /api/turn（SSE）", () => {
     expect(commits).toHaveLength(1);
     await server.close();
   });
+
+  it("loreClient 卡住也不影響 SSE response 關閉（Layer 3 不卡 Layer 2 完成）", async () => {
+    const stuckLoreClient: LlmClient = {
+      async *streamChat() {
+        await new Promise(() => {}); // 永遠不 resolve，模擬掛掉/超慢的 Layer 3 LLM
+      },
+    };
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["前半段，", "後半段。"]),
+      controlClient: fakeClient([
+        JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "看看四周",
+        }),
+      ]),
+      loreClient: stuckLoreClient,
+      commit: async () => true,
+    });
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/turn",
+      payload: { input: "我四處看看" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('"type":"done"');
+    await server.close();
+  });
 });

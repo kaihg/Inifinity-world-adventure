@@ -6,7 +6,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { AppConfig } from "../config.js";
 import { loadState } from "../engine/context.js";
-import { runTurnLoop } from "../engine/turn.js";
+import { runTurnLoop, type PendingLoreSync } from "../engine/turn.js";
 import { createOpenAiClient, type LlmClient } from "../llm/client.js";
 import { commitWorld } from "../git/commit.js";
 import { getAppVersion, type AppVersionInfo } from "../git/version.js";
@@ -24,6 +24,7 @@ export interface ServerDeps {
   client?: LlmClient;
   characterClient?: LlmClient;
   controlClient?: LlmClient;
+  loreClient?: LlmClient;
   commit?: (message: string) => Promise<boolean>;
   logger?: Logger;
   recall?: RecallIndex;
@@ -80,6 +81,27 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
           { label: "control" },
         )
       : undefined);
+
+  const loreClient: LlmClient | undefined =
+    deps.loreClient ??
+    (config.lore
+      ? createOpenAiClient(
+          {
+            ...config,
+            openai: {
+              baseUrl: config.lore.baseUrl,
+              apiKey: config.openai.apiKey,
+              model: config.lore.model,
+            },
+          },
+          logger,
+          { label: "lore" },
+        )
+      : undefined);
+
+  // 本服務只跑單一主角、單一世界的一條故事線（見 CLAUDE.md），所以整個 server 共用一個
+  // pendingLoreSync handle 即可：保證任一回合的 Layer 3 在下一回合（不論哪個請求觸發）開始前落地完。
+  const pendingLoreSync: PendingLoreSync = { promise: null };
 
   // 啟動時建立一次（建構本身零 I/O，模型/索引延遲初始化）；未啟用時不建立，避免不必要的模型下載
   const recall: RecallIndex | undefined =
@@ -141,6 +163,8 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
           client: makeClient(turnLogger),
           characterClient,
           controlClient,
+          loreClient,
+          pendingLoreSync,
           worldDir: config.worldDir,
           commit: makeCommit(turnLogger),
           logger: turnLogger,

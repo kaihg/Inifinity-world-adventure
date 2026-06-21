@@ -25,8 +25,13 @@ export interface AppConfig {
     baseUrl: string;
     model: string;
   };
-  /** 結構控制抽取 LLM（副大腦，選填）；缺省時 engine 沿用主 client */
+  /** Layer 2 fast-control 抽取 LLM（選填）；缺省時 engine 沿用主 client */
   control?: {
+    baseUrl: string;
+    model: string;
+  };
+  /** Layer 3 reactive-lore-sync 抽取 LLM（選填）；缺省時依序退回 control、主 client */
+  lore?: {
     baseUrl: string;
     model: string;
   };
@@ -108,6 +113,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ? {
             baseUrl: env.CONTROL_OPENAI_BASE_URL,
             model: env.CONTROL_MODEL,
+          }
+        : undefined,
+    lore:
+      env.LORE_OPENAI_BASE_URL && env.LORE_MODEL
+        ? {
+            baseUrl: env.LORE_OPENAI_BASE_URL,
+            model: env.LORE_MODEL,
           }
         : undefined,
     recall: {
