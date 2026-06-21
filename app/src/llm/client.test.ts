@@ -23,7 +23,7 @@ async function* fakeStream(chunks: Array<{ content?: string; usage?: unknown }>)
 
 function makeConfig(usageLogPath: string): AppConfig {
   return {
-    openai: { baseUrl: "http://x/v1", apiKey: "k", model: "test-model" },
+    openai: { baseUrl: "http://x/v1", apiKey: "k", model: "test-model", think: false },
     port: 5173,
     host: "127.0.0.1",
     debug: false,

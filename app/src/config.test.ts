@@ -11,6 +11,7 @@ describe("loadConfig", () => {
     expect(c.port).toBe(5173);
     expect(c.autoAdvanceMax).toBe(4);
     expect(c.git.authorName).toBe("Infinity World Engine");
+    expect(c.openai.think).toBe(false);
   });
 
   it("讀取提供的 env 值", () => {
@@ -22,6 +23,7 @@ describe("loadConfig", () => {
       AUTO_ADVANCE_MAX: "2",
       GIT_AUTHOR_NAME: "Me",
       GIT_AUTHOR_EMAIL: "me@x.com",
+      THINK: "true",
     });
     expect(c.openai.baseUrl).toBe("http://localhost:11434/v1");
     expect(c.openai.apiKey).toBe("sk-test");
@@ -29,6 +31,7 @@ describe("loadConfig", () => {
     expect(c.port).toBe(8080);
     expect(c.autoAdvanceMax).toBe(2);
     expect(c.git.authorEmail).toBe("me@x.com");
+    expect(c.openai.think).toBe(true);
   });
 
   it("PORT / AUTO_ADVANCE_MAX 解析為數字，非法值退回預設", () => {
@@ -71,6 +74,7 @@ describe("loadConfig", () => {
     expect(config.character).toEqual({
       baseUrl: "http://char/v1",
       model: "qwen2.5:3b",
+      think: false,
     });
   });
 
@@ -94,6 +98,7 @@ describe("loadConfig", () => {
     expect(config.control).toEqual({
       baseUrl: "http://ctrl/v1",
       model: "qwen2.5:7b",
+      think: false,
     });
   });
 
@@ -117,6 +122,7 @@ describe("loadConfig", () => {
     expect(config.lore).toEqual({
       baseUrl: "http://lore/v1",
       model: "qwen2.5:7b",
+      think: false,
     });
   });
 

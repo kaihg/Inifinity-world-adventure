@@ -55,8 +55,9 @@ export function createOpenAiClient(
           messages,
           stream: true,
           stream_options: { include_usage: true },
-        });
-        for await (const chunk of stream) {
+          ...(config.openai.think === false ? { reasoning_effort: "none", think: false } : {}),
+        } as any);
+        for await (const chunk of stream as any) {
           const delta = chunk.choices[0]?.delta?.content;
           if (delta) {
             chunkCount += 1;

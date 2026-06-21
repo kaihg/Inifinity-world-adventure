@@ -6,6 +6,7 @@ export interface AppConfig {
     baseUrl: string;
     apiKey: string;
     model: string;
+    think: boolean;
   };
   port: number;
   host: string;
@@ -24,16 +25,19 @@ export interface AppConfig {
   character?: {
     baseUrl: string;
     model: string;
+    think?: boolean;
   };
   /** Layer 2 fast-control 抽取 LLM（選填）；缺省時 engine 沿用主 client */
   control?: {
     baseUrl: string;
     model: string;
+    think?: boolean;
   };
   /** Layer 3 reactive-lore-sync 抽取 LLM（選填）；缺省時依序退回 control、主 client */
   lore?: {
     baseUrl: string;
     model: string;
+    think?: boolean;
   };
   /** 語意檢索（recall）設定；derived cache，不進 git，預設關閉（需下載嵌入模型） */
   recall: {
@@ -85,11 +89,13 @@ function defaultUsageLogPath(): string {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const defaultThink = env.THINK === "true" || env.THINK === "1";
   return {
     openai: {
       baseUrl: env.OPENAI_BASE_URL || DEFAULTS.baseUrl,
       apiKey: env.OPENAI_API_KEY || "",
       model: env.MODEL || DEFAULTS.model,
+      think: defaultThink,
     },
     port: parsePositiveInt(env.PORT, DEFAULTS.port),
     host: env.HOST || DEFAULTS.host,
@@ -106,6 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ? {
             baseUrl: env.CHARACTER_OPENAI_BASE_URL,
             model: env.CHARACTER_MODEL,
+            think: env.CHARACTER_THINK !== undefined ? (env.CHARACTER_THINK === "true" || env.CHARACTER_THINK === "1") : defaultThink,
           }
         : undefined,
     control:
@@ -113,6 +120,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ? {
             baseUrl: env.CONTROL_OPENAI_BASE_URL,
             model: env.CONTROL_MODEL,
+            think: env.CONTROL_THINK !== undefined ? (env.CONTROL_THINK === "true" || env.CONTROL_THINK === "1") : defaultThink,
           }
         : undefined,
     lore:
@@ -120,6 +128,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ? {
             baseUrl: env.LORE_OPENAI_BASE_URL,
             model: env.LORE_MODEL,
+            think: env.LORE_THINK !== undefined ? (env.LORE_THINK === "true" || env.LORE_THINK === "1") : defaultThink,
           }
         : undefined,
     recall: {
