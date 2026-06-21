@@ -913,9 +913,6 @@ export async function* runTurnLoop(
     currentInput = AUTO_CONTINUE_INPUT;
     if (!done) break;
 
-    // 轉場分支即將自行 commit；先等上一回合（或本回合）的 Layer 3 落地完，避免兩個 git commit 並發搶鎖
-    await deps.pendingLoreSync?.promise;
-
     // enter_dungeon 但副大腦沒給 transition_dungeon_id：無法建副本，不可靜默吞掉
     if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
       log.warn("mode_transition=enter_dungeon 但缺 transition_dungeon_id，無法進入副本，停在主空間等玩家");
@@ -929,6 +926,8 @@ export async function* runTurnLoop(
     // 進入副本：生成 secrets、建 run、設 now，再自動接續第一個副本回合
     if (done.modeTransition === "enter_dungeon" && done.transitionDungeonId) {
       log.info({ dungeonId: done.transitionDungeonId }, "觸發 mode_transition：enter_dungeon");
+      // 即將自行 commit；先等本回合的 Layer 3 落地完，避免兩個 git commit 並發搶鎖
+      await deps.pendingLoreSync?.promise;
       const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
       const secretsText = await generateSecrets(deps.client, settingText, done.transitionDungeonId);
       const active = await enterDungeon(
@@ -956,6 +955,8 @@ export async function* runTurnLoop(
     // 結算副本：清空進行中副本欄，回主空間，交還玩家
     if (done.modeTransition === "settle_dungeon") {
       log.info({ dungeonId: state.now.activeDungeon }, "觸發 mode_transition：settle_dungeon");
+      // 即將自行 commit；先等本回合的 Layer 3 落地完，避免兩個 git commit 並發搶鎖
+      await deps.pendingLoreSync?.promise;
       await setNowActiveDungeon(deps.worldDir, "無", { date: today, summary: "副本結算，返回安全區" });
       await deps.commit("副本結算，返回安全區");
       yield { type: "transition", to: "main-space" };
