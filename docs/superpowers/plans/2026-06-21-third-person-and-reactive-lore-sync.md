@@ -46,32 +46,32 @@
 - [x] Commit：`refactor(turn): applyItemPickups 參數化為 applyLorePickups`
 
 ### Task 5 — 拆 Layer 2 / Layer 3 prompt 建構函式
-- [ ] 把現有 `buildControlMessages` 拆成 `buildFastControlMessages`（欄位：now/protagonist/rolls/mode_transition/awaiting_user_input/suggested_actions/commit_summary）與 `buildLoreSyncMessages`（欄位：npc_updates/item_*/location_*/skill_*/wiki_reveals）
-- [ ] 兩者皆讀完整敘事散文 + canonical 狀態；`buildLoreSyncMessages` 不需要 `existingDungeonIds`/`mode_transition` 相關欄位
-- [ ] `turn.test.ts`：兩個建構函式各自的純函式測試
-- [ ] 跑測試確認通過（此時 `runTurnCore` 還沒接線，預期 typecheck 暫時不過，先確認單檔測試）
-- [ ] Commit：`feat(turn): 拆 buildFastControlMessages / buildLoreSyncMessages`
+- [x] 把現有 `buildControlMessages` 拆成 `buildFastControlMessages`（欄位：now/protagonist/rolls/mode_transition/awaiting_user_input/suggested_actions/commit_summary）與 `buildLoreSyncMessages`（欄位：npc_updates/item_*/location_*/skill_*/wiki_reveals）
+- [x] 兩者皆讀完整敘事散文 + canonical 狀態；`buildLoreSyncMessages` 不需要 `existingDungeonIds`/`mode_transition` 相關欄位
+- [x] `turn.test.ts`：兩個建構函式各自的純函式測試
+- [x] 跑測試確認通過（此時 `runTurnCore` 還沒接線，預期 typecheck 暫時不過，先確認單檔測試）
+- [x] Commit：`feat(turn): 拆 buildFastControlMessages / buildLoreSyncMessages`
 
 ### Task 6 — `TurnDeps` 新增 `loreClient` + `pendingLoreSync` handle
-- [ ] `TurnDeps` 加 `loreClient?: LlmClient`（未設定退回 `controlClient` 退回 `client`）
-- [ ] 新增 `PendingLoreSync` 型別與簡單實作（一個 `{ promise: Promise<void> | null }` 可變物件 + helper），放在 `turn.ts` 或新檔 `lore-sync.ts`
-- [ ] `TurnDeps` 加 `pendingLoreSync?: PendingLoreSync`
-- [ ] 單元測試：確認「永遠 resolve」語意（傳入會 reject 的 promise，包裝後仍 resolve，並記一筆 warn）
-- [ ] Commit：`feat(turn): 新增 loreClient 與 pendingLoreSync handle`
+- [x] `TurnDeps` 加 `loreClient?: LlmClient`（未設定退回 `controlClient` 退回 `client`）
+- [x] 新增 `PendingLoreSync` 型別與簡單實作（一個 `{ promise: Promise<void> | null }` 可變物件 + helper），放在 `turn.ts` 或新檔 `lore-sync.ts`
+- [x] `TurnDeps` 加 `pendingLoreSync?: PendingLoreSync`
+- [x] 單元測試：確認「永遠 resolve」語意（傳入會 reject 的 promise，包裝後仍 resolve，並記一筆 warn）
+- [x] Commit：`feat(turn): 新增 loreClient 與 pendingLoreSync handle`
 
 ### Task 7 — `runTurnCore` 拆三層
-- [ ] `runTurnCore` 的 control 抽取改呼叫 `buildFastControlMessages`，落地範圍縮小到 now/主角/rolls/commit/done（既有降級邏輯不變）
-- [ ] 新增 `runLoreSync(...)`：呼叫 `buildLoreSyncMessages` → 解析 → 落地 npc/item/location/skill/wiki reveals → recall 重建索引（觸及檔案清單補 locations/skills）→ commit 一次
-- [ ] `runMainSpaceTurn`/`runDungeonTurn`：
+- [x] `runTurnCore` 的 control 抽取改呼叫 `buildFastControlMessages`，落地範圍縮小到 now/主角/rolls/commit/done（既有降級邏輯不變）
+- [x] 新增 `runLoreSync(...)`：呼叫 `buildLoreSyncMessages` → 解析 → 落地 npc/item/location/skill/wiki reveals → recall 重建索引（觸及檔案清單補 locations/skills）→ commit 一次
+- [x] `runMainSpaceTurn`/`runDungeonTurn`：
   - 回合開始先 `await deps.pendingLoreSync?.promise`
   - `runTurnCore`（Layer1+2）yield 完 `done` 後，呼叫端立刻把 `runLoreSync(...)` 包裝、不 await，寫回 `deps.pendingLoreSync`
-- [ ] `turn.test.ts`：
+- [x] `turn.test.ts`：
   - 用「卡住的 fake loreClient」斷言 `done` event 在 Layer 3 resolve 前就已 yield
   - 兩次連續呼叫同一 `deps`（共用 `pendingLoreSync`），驗證第二次呼叫前已等到第一次 Layer 3 落地的檔案
   - Layer 3 失敗（loreClient 拋錯）：下一回合仍正常開始、不拋錯
-- [ ] 既有完整回合測試（now/積分/wiki/mode_transition/auto-advance）改用新的兩段 control mock，確認全部維持綠燈
-- [ ] 跑 `npx vitest run src/engine/turn.test.ts`，確認通過
-- [ ] Commit：`feat(turn): runTurnCore 拆 Layer2 fast-control / Layer3 reactive-lore-sync`
+- [x] 既有完整回合測試（now/積分/wiki/mode_transition/auto-advance）改用新的兩段 control mock，確認全部維持綠燈
+- [x] 跑 `npx vitest run src/engine/turn.test.ts`，確認通過
+- [x] Commit：`feat(turn): runTurnCore 拆 Layer2 fast-control / Layer3 reactive-lore-sync`
 
 ### Task 8 — server 接線
 - [ ] `config.ts` 新增 `lore?: { baseUrl; model }`（同 `control` 模式）
