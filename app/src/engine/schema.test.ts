@@ -106,4 +106,22 @@ describe("parseControlOutput", () => {
     expect(control.state_changes.item_pickups).toEqual([{ id: "rusty-pipe", name: "生鏽鐵管" }]);
     expect(control.state_changes.item_reveals).toEqual([{ id: "rusty-pipe", reveal: "管身刻有奇怪符號" }]);
   });
+
+  it("接受 location_pickups / location_reveals / skill_pickups / skill_reveals 子欄位", () => {
+    const raw = JSON.stringify({
+      state_changes: {
+        location_pickups: [{ id: "info-room", name: "資訊室" }],
+        location_reveals: [{ id: "info-room", reveal: "牆上有一面鏡子" }],
+        skill_pickups: [{ id: "melee-mastery", name: "近戰格鬥精通" }],
+        skill_reveals: [{ id: "melee-mastery", reveal: "疊滿三層後解鎖突進" }],
+      },
+      awaiting_user_input: true,
+      commit_summary: "x",
+    });
+    const control = parseControlOutput(raw);
+    expect(control.state_changes.location_pickups).toEqual([{ id: "info-room", name: "資訊室" }]);
+    expect(control.state_changes.location_reveals).toEqual([{ id: "info-room", reveal: "牆上有一面鏡子" }]);
+    expect(control.state_changes.skill_pickups).toEqual([{ id: "melee-mastery", name: "近戰格鬥精通" }]);
+    expect(control.state_changes.skill_reveals).toEqual([{ id: "melee-mastery", reveal: "疊滿三層後解鎖突進" }]);
+  });
 });

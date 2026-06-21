@@ -35,6 +35,10 @@ const StateChangesSchema = z
     wiki_reveals: z.array(z.string()).optional(),
     item_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
     item_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
+    location_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+    location_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
+    skill_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+    skill_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
     now: NowChangesSchema.optional(),
   })
   .default({});
