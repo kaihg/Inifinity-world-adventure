@@ -117,5 +117,29 @@ export function parseControlOutput(raw: string): TurnControl {
   if (parsed === null) {
     throw new Error("副大腦輸出找不到可解析的 JSON 物件");
   }
+
+  // 🚀 Hoisting: 如果 3B 等副大腦不小心將頂層控制欄位巢狀寫進了 state_changes 內部，我們自動將其提昇至頂層
+  if (typeof parsed === "object" && parsed !== null) {
+    const obj = parsed as Record<string, any>;
+    const stateChanges = obj.state_changes;
+    if (typeof stateChanges === "object" && stateChanges !== null) {
+      const keysToHoist = [
+        "awaiting_user_input",
+        "mode_transition",
+        "transition_dungeon_id",
+        "transition_dungeon_goal",
+        "suggested_actions",
+        "commit_summary",
+        "rolls"
+      ];
+      for (const key of keysToHoist) {
+        if (obj[key] === undefined && stateChanges[key] !== undefined) {
+          obj[key] = stateChanges[key];
+          delete stateChanges[key];
+        }
+      }
+    }
+  }
+
   return TurnControlSchema.parse(parsed);
 }

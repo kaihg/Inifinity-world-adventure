@@ -100,21 +100,22 @@ function appendOptionalBlocks(params: { intentsBlock?: string; recallBlock?: str
 
 const CONTROL_FORMAT_BLOCK = [
   "## 輸出格式（務必嚴格遵守）",
-  "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
-  "- state_changes: { now?: {可設子集，鍵用 chapter/scene/companions/threads/nextStep},",
-  "    （注意：進行中的副本欄由引擎依 mode_transition 自動管理，**不可**透過 now.activeDungeon 自行覆寫）,",
+  "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。JSON 必須包含以下頂層（top-level）欄位：",
+  "- state_changes: {",
+  "    now?: { chapter?, scene?, companions?, threads?, nextStep? }, （注意：進行中的副本欄由引擎依 mode_transition 自動管理，不可透過 now.activeDungeon 自行覆寫）",
   "    protagonist_points_delta?: number,",
-  "    protagonist_updates?: { attributes?: string[], skills?: string[], items?: string[], buffs?: string[] }",
-  "      （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目）,",
-  "    npc_updates?: [{id, update}], wiki_reveals?: [string],",
-  "    item_pickups?: [{id, name}]（主角本回合首次撿到的道具；id 用英數小寫 slug，name 用顯示名稱，",
-  "      首次撿到時引擎會生成該道具的隱藏設定，之後同 id 不會重複生成）,",
-  "    item_reveals?: [{id, reveal}]（劇情中真的揭露出該道具暗藏的設定時才填，累積進該道具的 wiki） }",
-  "- rolls: [{desc, value, success?}]（敘事中實際用到的骰值與判定，沒有就空陣列）",
+  "    protagonist_updates?: { attributes?: string[], skills?: string[], items?: string[], buffs?: string[] }, （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目）",
+  "    npc_updates?: [{id, update}],",
+  "    wiki_reveals?: [string],",
+  "    item_pickups?: [{id, name}], （主角本回合首次撿到的道具；id 用英數小寫 slug，name 用顯示名稱，首次撿到時引擎會生成該道具的隱藏設定，之後同 id 不會重複生成）",
+  "    item_reveals?: [{id, reveal}] （劇情中真的揭露出該道具暗藏的設定時才填，累積進該道具的 wiki）",
+  "  }",
+  "- rolls: [{desc, value, success?}] （敘事中實際用到的骰值與判定，沒有就空陣列）",
   '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
   "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
   "- awaiting_user_input: boolean —— 敘事屬純環境/系統旁白/NPC 自行動作、玩家不需做決定時設 false；需要玩家選擇才設 true。",
-  "- suggested_actions: string[]、commit_summary: string（一句摘要）",
+  "- suggested_actions: string[]",
+  "- commit_summary: string （一句摘要）",
 ].join("\n");
 
 function canonicalBlock(state: GameState): string {

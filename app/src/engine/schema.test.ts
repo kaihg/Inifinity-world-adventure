@@ -106,4 +106,25 @@ describe("parseControlOutput", () => {
     expect(control.state_changes.item_pickups).toEqual([{ id: "rusty-pipe", name: "生鏽鐵管" }]);
     expect(control.state_changes.item_reveals).toEqual([{ id: "rusty-pipe", reveal: "管身刻有奇怪符號" }]);
   });
+
+  it("當頂層控制欄位（如 awaiting_user_input, mode_transition, commit_summary 等）被誤寫進 state_changes 時，自動將其提升至頂層並解析成功", () => {
+    const nestedRaw = `{
+      "state_changes": {
+        "protagonist_points_delta": -208,
+        "mode_transition": "enter_dungeon",
+        "awaiting_user_input": false,
+        "suggested_actions": ["查看面板"],
+        "commit_summary": "沈奕觀察面板"
+      },
+      "rolls": []
+    }`;
+    const control = parseControlOutput(nestedRaw);
+    expect(control.awaiting_user_input).toBe(false);
+    expect(control.mode_transition).toBe("enter_dungeon");
+    expect(control.commit_summary).toBe("沈奕觀察面板");
+    expect(control.suggested_actions).toEqual(["查看面板"]);
+    expect(control.state_changes.protagonist_points_delta).toBe(-208);
+    // 確保已從 state_changes 刪除
+    expect((control.state_changes as any).awaiting_user_input).toBeUndefined();
+  });
 });
