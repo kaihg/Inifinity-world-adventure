@@ -124,6 +124,41 @@ describe("parseControlOutput", () => {
     expect(control.state_changes.skill_pickups).toEqual([{ id: "melee-mastery", name: "近戰格鬥精通" }]);
     expect(control.state_changes.skill_reveals).toEqual([{ id: "melee-mastery", reveal: "疊滿三層後解鎖突進" }]);
   });
+
+  it("當頂層控制欄位（如 awaiting_user_input, mode_transition, commit_summary 等）被誤寫進 state_changes 時，自動將其提升至頂層並解析成功", () => {
+    const nestedRaw = `{
+      "state_changes": {
+        "protagonist_points_delta": -208,
+        "mode_transition": "enter_dungeon",
+        "awaiting_user_input": false,
+        "suggested_actions": ["查看面板"],
+        "commit_summary": "沈奕觀察面板"
+      },
+      "rolls": []
+    }`;
+    const control = parseControlOutput(nestedRaw);
+    expect(control.awaiting_user_input).toBe(false);
+    expect(control.mode_transition).toBe("enter_dungeon");
+    expect(control.commit_summary).toBe("沈奕觀察面板");
+    expect(control.suggested_actions).toEqual(["查看面板"]);
+    expect(control.state_changes.protagonist_points_delta).toBe(-208);
+    // 確保已從 state_changes 刪除
+    expect((control.state_changes as any).awaiting_user_input).toBeUndefined();
+  });
+
+  it("頂層已有正確值時，state_changes 內重複/錯誤的同名欄位不會覆寫頂層", () => {
+    const raw = JSON.stringify({
+      state_changes: {
+        awaiting_user_input: true,
+        commit_summary: "錯誤的摘要",
+      },
+      awaiting_user_input: false,
+      commit_summary: "正確的摘要",
+    });
+    const control = parseControlOutput(raw);
+    expect(control.awaiting_user_input).toBe(false);
+    expect(control.commit_summary).toBe("正確的摘要");
+  });
 });
 
 describe("parseFastControlOutput（Layer 2：only now/protagonist/rolls/mode_transition/awaiting/suggested/commit）", () => {
