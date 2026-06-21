@@ -105,6 +105,29 @@ describe("loadConfig", () => {
     });
     expect(config.control).toBeUndefined();
   });
+
+  it("lore 欄位：有設定時解析", () => {
+    const config = loadConfig({
+      OPENAI_BASE_URL: "http://main/v1",
+      OPENAI_API_KEY: "key",
+      MODEL: "main-model",
+      LORE_OPENAI_BASE_URL: "http://lore/v1",
+      LORE_MODEL: "qwen2.5:7b",
+    });
+    expect(config.lore).toEqual({
+      baseUrl: "http://lore/v1",
+      model: "qwen2.5:7b",
+    });
+  });
+
+  it("lore 欄位：未設定時為 undefined", () => {
+    const config = loadConfig({
+      OPENAI_BASE_URL: "http://main/v1",
+      OPENAI_API_KEY: "key",
+      MODEL: "main-model",
+    });
+    expect(config.lore).toBeUndefined();
+  });
 });
 
 describe("configWarnings", () => {

@@ -74,11 +74,11 @@
 - [x] Commit：`feat(turn): runTurnCore 拆 Layer2 fast-control / Layer3 reactive-lore-sync`
 
 ### Task 8 — server 接線
-- [ ] `config.ts` 新增 `lore?: { baseUrl; model }`（同 `control` 模式）
-- [ ] `app.ts` 建立 `loreClient`，建立 per-session `pendingLoreSync` 實例並傳入 `TurnDeps`
-- [ ] `app.test.ts`：SSE 測試補一個案例，確認 response 在 Layer 2 完成即關閉（不等卡住的 fake loreClient）
-- [ ] 跑全部測試 + typecheck + build
-- [ ] Commit：`feat(server): 接線 loreClient 與 pendingLoreSync`
+- [x] `config.ts` 新增 `lore?: { baseUrl; model }`（同 `control` 模式）
+- [x] `app.ts` 建立 `loreClient`，建立 per-session `pendingLoreSync` 實例並傳入 `TurnDeps`
+- [x] `app.test.ts`：SSE 測試補一個案例，確認 response 在 Layer 2 完成即關閉（不等卡住的 fake loreClient）
+- [x] 跑全部測試 + typecheck + build
+- [x] Commit：`feat(server): 接線 loreClient 與 pendingLoreSync`
 
 ### Task 9 — 收尾驗證
 - [ ] `npm run typecheck && npm test && npm run build`（在 `app/` 下）
