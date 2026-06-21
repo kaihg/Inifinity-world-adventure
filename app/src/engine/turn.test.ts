@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { readdir } from "node:fs/promises";
-import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, buildControlMessages, type TurnEvent, type TurnDeps } from "./turn.js";
+import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, buildDungeonMessages, buildControlMessages, type TurnEvent, type TurnDeps } from "./turn.js";
 import type { GameState } from "./context.js";
 import type { RecallHit, RecallIndex } from "../recall/store.js";
 
@@ -152,6 +152,8 @@ describe("buildMainSpaceMessages", () => {
     expect(msgs[0].content).toContain("強化手槍（彈藥 6）");
     expect(msgs[0].content).toContain("新手保護（3 場）");
     expect(msgs[0].content).toContain("力量 8、敏捷 12");
+    expect(msgs[0].content).toContain("第三人稱");
+    expect(msgs[0].content).toContain("絕不可用「你」指稱主角");
     expect(msgs[1]).toEqual({ role: "user", content: "我四處看看" });
   });
 
@@ -177,6 +179,19 @@ describe("buildMainSpaceMessages", () => {
     };
     const msgs = buildMainSpaceMessages(params);
     expect(msgs[0].content).not.toContain("## 在場角色本回合意圖");
+  });
+});
+
+describe("buildDungeonMessages", () => {
+  it("system 含第三人稱鐵則、wiki/secrets、骰值", () => {
+    const msgs = buildDungeonMessages({
+      settingText: "設定", state: sampleState, input: "往前走", dicePool: [5],
+      dungeonId: "U-001", wiki: "入口有三道門", secrets: "地板會塌",
+    });
+    expect(msgs[0].content).toContain("第三人稱");
+    expect(msgs[0].content).toContain("絕不可用「你」指稱主角");
+    expect(msgs[0].content).toContain("U-001");
+    expect(msgs[0].content).toContain("入口有三道門");
   });
 });
 
