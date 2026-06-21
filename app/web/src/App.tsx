@@ -13,6 +13,12 @@ export function App() {
   const [version, setVersion] = useState<AppVersion | null>(null);
   const storyEndRef = useRef<HTMLDivElement | null>(null);
   const loadedInitialRef = useRef(false);
+  const busyRef = useRef(busy);
+
+  // 🚀 保持 busyRef 與 busy 同步
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
 
   const refresh = () =>
     fetchState()
@@ -34,11 +40,13 @@ export function App() {
       if (document.visibilityState === "visible") {
         fetchState()
           .then((s) => {
-            setState(s);
-            // 只有當不處於忙碌中時，喚醒才需要同步最新劇情與建議動作，避免打斷串流
-            if (!busy && s.lastTurn) {
-              setStory(s.lastTurn.narrative);
-              setSuggested(s.lastTurn.suggestedActions);
+            // 只有當不處於忙碌中時，喚醒才需要同步最新狀態、劇情與建議動作，避免打斷串流
+            if (!busyRef.current) {
+              setState(s);
+              if (s.lastTurn) {
+                setStory(s.lastTurn.narrative);
+                setSuggested(s.lastTurn.suggestedActions);
+              }
             }
           })
           .catch(() => {});
@@ -46,7 +54,7 @@ export function App() {
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [busy]);
+  }, []);
   useEffect(() => {
     storyEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [story]);
@@ -58,6 +66,10 @@ export function App() {
     setSuggested([]);
     setInput("");
     let firstToken = true;
+
+    // 🚀 Capture the exact pre-turn state and lastUpdated snapshot to avoid any race conditions with background refresh
+    const preTurnLastUpdated = state?.now?.lastUpdated;
+
     try {
       await streamTurn(text, (ev) => {
         switch (ev.type) {
@@ -89,18 +101,43 @@ export function App() {
       });
       await refresh();
     } catch (e) {
-      // 🚀 斷線與背景喚醒自我癒合機制 (Self-Healing on Background Suspend/Resume)
-      try {
-        const freshState = await fetchState();
-        if (freshState.lastTurn && freshState.now.lastUpdated !== state?.now.lastUpdated) {
-          setState(freshState);
-          setStory(freshState.lastTurn.narrative);
-          setSuggested(freshState.lastTurn.suggestedActions);
-        } else {
-          setStory((s) => s + `\n[請求失敗] ${(e as Error).message}`);
+      // 🚀 斷線與背景喚醒自我癒合機制 ── 帶重試輪詢 (Polling with backoff/retries for slow self-hosted models)
+      console.warn("streamTurn 發生中斷，開始執行自我癒合輪詢檢測...", e);
+
+      const maxAttempts = 6; // 總共輪詢 6 次
+      const pollIntervalMs = 3000; // 每 3 秒輪詢一次（符合自架 MoE 模型預計算/吐字週期）
+      let healed = false;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          if (attempt > 1) {
+            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+          }
+
+          console.log(`[癒合輪詢] 第 ${attempt}/${maxAttempts} 次嘗試拉取最新狀態...`);
+          const freshState = await fetchState();
+
+          // 確保當前 state 存在且 lastUpdated 已經推進了，才進行癒合
+          if (
+            freshState.lastTurn &&
+            preTurnLastUpdated &&
+            freshState.now.lastUpdated !== preTurnLastUpdated
+          ) {
+            console.log(`[癒合成功] 偵測到伺服器端已順利完成回合，lastUpdated 從 ${preTurnLastUpdated} 推進至 ${freshState.now.lastUpdated}`);
+            setState(freshState);
+            setStory(freshState.lastTurn.narrative);
+            setSuggested(freshState.lastTurn.suggestedActions);
+            healed = true;
+            break; // 成功癒合，退出輪詢
+          }
+        } catch (err) {
+          console.warn(`[癒合輪詢] 第 ${attempt} 次拉取失敗:`, err);
         }
-      } catch (err) {
-        setStory((s) => s + `\n[請求失敗] ${(e as Error).message}（重新連線失敗，請確認網路或重整頁面）`);
+      }
+
+      if (!healed) {
+        // 如果所有輪詢結束後仍未偵測到進度推進，則判定為真失敗
+        setStory((s) => s + `\n[請求失敗] ${(e as Error).message}（伺服器可能未完成運算，請確認網路或手動重整）`);
       }
     } finally {
       setBusy(false);
