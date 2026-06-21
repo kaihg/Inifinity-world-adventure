@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseControlOutput } from "./schema.js";
+import { parseControlOutput, parseFastControlOutput, parseLoreSyncOutput } from "./schema.js";
 
 const VALID = `{
   "state_changes": { "now": { "scene": "資訊室", "nextStep": "找葉晴談戰術" }, "protagonist_points_delta": 0 },
@@ -123,5 +123,52 @@ describe("parseControlOutput", () => {
     expect(control.state_changes.location_reveals).toEqual([{ id: "info-room", reveal: "牆上有一面鏡子" }]);
     expect(control.state_changes.skill_pickups).toEqual([{ id: "melee-mastery", name: "近戰格鬥精通" }]);
     expect(control.state_changes.skill_reveals).toEqual([{ id: "melee-mastery", reveal: "疊滿三層後解鎖突進" }]);
+  });
+});
+
+describe("parseFastControlOutput（Layer 2：only now/protagonist/rolls/mode_transition/awaiting/suggested/commit）", () => {
+  it("解析最小欄位子集即可，不需要 npc_updates 等 lore 欄位", () => {
+    const control = parseFastControlOutput(VALID);
+    expect(control.awaiting_user_input).toBe(true);
+    expect(control.suggested_actions).toEqual(["找葉晴", "回休息區"]);
+    expect(control.commit_summary).toBe("沈奕前往資訊室");
+    expect(control.state_changes.now?.scene).toBe("資訊室");
+  });
+
+  it("缺必要欄位 awaiting_user_input 時拋錯", () => {
+    expect(() => parseFastControlOutput('{"commit_summary":"x"}')).toThrow();
+  });
+
+  it("找不到 JSON 物件時拋錯", () => {
+    expect(() => parseFastControlOutput("完全沒有大括號")).toThrow();
+  });
+});
+
+describe("parseLoreSyncOutput（Layer 3：npc/item/location/skill/wiki reveals，不需 awaiting/commit）", () => {
+  it("接受 npc_updates / item_pickups / location_pickups / skill_pickups 等欄位，且不要求 awaiting_user_input", () => {
+    const raw = JSON.stringify({
+      state_changes: {
+        npc_updates: [{ id: "ye-qing", update: "對沈奕的信任提升" }],
+        item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }],
+        location_pickups: [{ id: "info-room", name: "資訊室" }],
+        skill_pickups: [{ id: "melee-mastery", name: "近戰格鬥精通" }],
+        wiki_reveals: ["資訊室牆上有監視器"],
+      },
+    });
+    const sync = parseLoreSyncOutput(raw);
+    expect(sync.state_changes.npc_updates).toEqual([{ id: "ye-qing", update: "對沈奕的信任提升" }]);
+    expect(sync.state_changes.item_pickups).toEqual([{ id: "rusty-pipe", name: "生鏽鐵管" }]);
+    expect(sync.state_changes.location_pickups).toEqual([{ id: "info-room", name: "資訊室" }]);
+    expect(sync.state_changes.skill_pickups).toEqual([{ id: "melee-mastery", name: "近戰格鬥精通" }]);
+    expect(sync.state_changes.wiki_reveals).toEqual(["資訊室牆上有監視器"]);
+  });
+
+  it("空物件也能解析（本回合沒有任何 lore 異動）", () => {
+    const sync = parseLoreSyncOutput("{}");
+    expect(sync.state_changes).toEqual({});
+  });
+
+  it("找不到 JSON 物件時拋錯", () => {
+    expect(() => parseLoreSyncOutput("完全沒有大括號")).toThrow();
   });
 });
