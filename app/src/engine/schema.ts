@@ -27,43 +27,12 @@ const ProtagonistUpdatesSchema = z
   })
   .optional();
 
-const StateChangesSchema = z
-  .object({
-    protagonist_points_delta: z.number().optional(),
-    protagonist_updates: ProtagonistUpdatesSchema,
-    npc_updates: z.array(z.object({ id: z.string(), update: z.string() })).optional(),
-    wiki_reveals: z.array(z.string()).optional(),
-    item_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    item_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
-    location_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    location_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
-    skill_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    skill_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
-    now: NowChangesSchema.optional(),
-  })
-  .default({});
-
 const RollReportSchema = z.object({
   desc: z.string(),
   value: z.number(),
   success: z.boolean().optional(),
 });
 
-/** 模型每回合輸出的結構化控制區塊（敘事散文不在此，走串流） */
-export const TurnControlSchema = z.object({
-  state_changes: StateChangesSchema,
-  rolls: z.array(RollReportSchema).default([]),
-  mode_transition: z.enum(["enter_dungeon", "settle_dungeon"]).nullable().default(null),
-  /** 配合 mode_transition=enter_dungeon：要進入的副本 id（短 slug） */
-  transition_dungeon_id: z.string().nullable().optional(),
-  /** 配合 enter_dungeon：本次副本目標（可選） */
-  transition_dungeon_goal: z.string().nullable().optional(),
-  awaiting_user_input: z.boolean(),
-  suggested_actions: z.array(z.string()).default([]),
-  commit_summary: z.string().min(1),
-});
-
-export type TurnControl = z.infer<typeof TurnControlSchema>;
 export type NowChanges = z.infer<typeof NowChangesSchema>;
 
 /** Layer 2（fast-control）：done event 與 now/主角/commit 所需的最小欄位子集 */
@@ -88,17 +57,20 @@ export const FastControlSchema = z.object({
 
 export type FastControl = z.infer<typeof FastControlSchema>;
 
-/** Layer 3（reactive-lore-sync）：npc/item/location/skill/wiki 揭露相關欄位，皆可省略 */
+/** Layer 3（reactive-lore-sync）：本回合摸到的實體列表 + 副本本身的揭露片段，皆可省略 */
+const LoreEntityRefSchema = z.object({
+  id: z.string(),
+  category: z.enum(["npc", "item", "location", "skill"]),
+  name: z.string(),
+  excerpt: z.string(),
+});
+
+export type LoreEntityRef = z.infer<typeof LoreEntityRefSchema>;
+
 const LoreStateChangesSchema = z
   .object({
-    npc_updates: z.array(z.object({ id: z.string(), update: z.string() })).optional(),
-    wiki_reveals: z.array(z.string()).optional(),
-    item_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    item_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
-    location_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    location_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
-    skill_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    skill_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
+    touched_entities: z.array(LoreEntityRefSchema).optional(),
+    dungeon_wiki_excerpt: z.string().optional(),
   })
   .default({});
 
@@ -154,36 +126,10 @@ function extractJsonObject(raw: string): unknown {
 }
 
 /**
- * 從副大腦原始輸出解析出 TurnControl。
+ * 從 Layer 2（fast-control）原始輸出解析出 FastControl。
  * 副大腦只負責輸出結構，整段視為一個 JSON 物件（無 sentinel）。
  * 找不到可解析的 JSON / schema 不符都拋錯（由呼叫端決定降級）。
  */
-export function parseControlOutput(raw: string): TurnControl {
-  const parsed = extractJsonObject(raw);
-  if (parsed === null) {
-    throw new Error("副大腦輸出找不到可解析的 JSON 物件");
-  }
-
-  // 如果 3B 等副大腦不小心將頂層控制欄位巢狀寫進了 state_changes 內部，自動將其提昇至頂層
-  // keysToHoist 從 schema 派生，確保與 TurnControlSchema 的頂層欄位永遠同步
-  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-    const obj = parsed as Record<string, any>;
-    const stateChanges = obj.state_changes;
-    if (typeof stateChanges === "object" && stateChanges !== null && !Array.isArray(stateChanges)) {
-      const keysToHoist = Object.keys(TurnControlSchema.shape).filter((key) => key !== "state_changes");
-      for (const key of keysToHoist) {
-        if (obj[key] === undefined && stateChanges[key] !== undefined) {
-          obj[key] = stateChanges[key];
-          delete stateChanges[key];
-        }
-      }
-    }
-  }
-
-  return TurnControlSchema.parse(parsed);
-}
-
-/** 從 Layer 2（fast-control）原始輸出解析出 FastControl，規則同 parseControlOutput */
 export function parseFastControlOutput(raw: string): FastControl {
   const parsed = extractJsonObject(raw);
   if (parsed === null) {
@@ -192,7 +138,7 @@ export function parseFastControlOutput(raw: string): FastControl {
   return FastControlSchema.parse(parsed);
 }
 
-/** 從 Layer 3（reactive-lore-sync）原始輸出解析出 LoreSync，規則同 parseControlOutput */
+/** 從 Layer 3（reactive-lore-sync）原始輸出解析出 LoreSync，規則同 parseFastControlOutput */
 export function parseLoreSyncOutput(raw: string): LoreSync {
   const parsed = extractJsonObject(raw);
   if (parsed === null) {

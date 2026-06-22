@@ -10,7 +10,8 @@ import {
   parseCharacterIndex,
   applyPointsDelta,
   applyProtagonistUpdates,
-  appendNpcUpdates,
+  rewriteNpcFile,
+  addCharacterIndexRow,
   applyIndexStatusUpdates,
   loadState,
 } from "./context.js";
@@ -255,10 +256,10 @@ describe("applyIndexStatusUpdates", () => {
   });
 });
 
-describe("appendNpcUpdates", () => {
+describe("rewriteNpcFile", () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "iwa-npc-updates-"));
+    dir = await mkdtemp(path.join(tmpdir(), "iwa-npc-rewrite-"));
     await mkdir(path.join(dir, "characters"), { recursive: true });
     await writeFile(path.join(dir, "characters", "yeqing.md"), "# 葉晴\n前特種部隊教官\n", "utf8");
   });
@@ -266,40 +267,41 @@ describe("appendNpcUpdates", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("把更新 append 到對應角色檔，帶日期標頭", async () => {
-    await appendNpcUpdates(dir, [{ id: "yeqing", update: "對沈奕的信任提升" }], "2026-06-20");
+  it("整檔覆寫既有角色檔，不殘留舊內容", async () => {
+    await rewriteNpcFile(dir, "yeqing", "# 葉晴\n\n前特種部隊教官，對沈奕的信任已經提升。");
     const md = await readFile(path.join(dir, "characters", "yeqing.md"), "utf8");
-    expect(md).toContain("# 葉晴");
-    expect(md).toContain("## [2026-06-20] 更新");
-    expect(md).toContain("對沈奕的信任提升");
+    expect(md).toContain("信任已經提升");
+    expect(md).not.toContain("前特種部隊教官\n"); // 舊版單獨一行的描述已被新版整段取代
   });
 
-  it("對應角色檔不存在時靜默略過，不拋錯", async () => {
-    await expect(
-      appendNpcUpdates(dir, [{ id: "unknown-npc", update: "不存在的角色" }], "2026-06-20"),
-    ).resolves.toBeUndefined();
+  it("角色檔不存在時直接建立（新 NPC）", async () => {
+    await rewriteNpcFile(dir, "newcomer", "# 新來的人\n\n剛剛登場。");
+    const md = await readFile(path.join(dir, "characters", "newcomer.md"), "utf8");
+    expect(md).toContain("剛剛登場");
   });
 
   it("id 含路徑分隔符等不合法字元時靜默略過，不寫出檔案", async () => {
-    await appendNpcUpdates(dir, [{ id: "../escape", update: "嘗試逃出 characters/" }], "2026-06-20");
+    await rewriteNpcFile(dir, "../escape", "嘗試逃出 characters/");
     const escaped = await readFile(path.join(dir, "escape.md"), "utf8").catch(() => null);
     expect(escaped).toBeNull();
   });
+});
 
-  it("多筆更新各自獨立 append", async () => {
-    await writeFile(path.join(dir, "characters", "linsiyu.md"), "# 林思雨\n", "utf8");
-    await appendNpcUpdates(
-      dir,
-      [
-        { id: "yeqing", update: "更新一" },
-        { id: "linsiyu", update: "更新二" },
-      ],
-      "2026-06-20",
-    );
-    const yeqing = await readFile(path.join(dir, "characters", "yeqing.md"), "utf8");
-    const linsiyu = await readFile(path.join(dir, "characters", "linsiyu.md"), "utf8");
-    expect(yeqing).toContain("更新一");
-    expect(linsiyu).toContain("更新二");
+describe("addCharacterIndexRow", () => {
+  const INDEX = [
+    "| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |",
+    "|----|------|------|----------|--------------|",
+    "| yeqing | 葉晴 | NPC | 結盟 | - |",
+  ].join("\n");
+
+  it("id 已存在時原樣回傳，不重複加列", () => {
+    expect(addCharacterIndexRow(INDEX, "yeqing", "葉晴")).toBe(INDEX);
+  });
+
+  it("id 不存在時在表尾加一列", () => {
+    const result = addCharacterIndexRow(INDEX, "newcomer", "新來的人");
+    expect(result).toContain("| yeqing | 葉晴 | NPC | 結盟 | - |");
+    expect(result).toContain("| newcomer | 新來的人 | NPC | 初次登場 | - |");
   });
 });
 

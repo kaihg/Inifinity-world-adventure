@@ -1,4 +1,4 @@
-import { readFile, writeFile, appendFile, mkdir, access } from "node:fs/promises";
+import { readFile, writeFile, mkdir, access } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 
@@ -80,24 +80,24 @@ export async function ensureSecrets(
   return true;
 }
 
-/** 把已揭露的知識提煉進 wiki.md（append；wiki 不存在則建立） */
-export async function appendLoreReveals(
+/**
+ * 把該 lore 對象的 wiki.md 整檔覆寫為新內容（不再 append 帶日期區塊；
+ * 時間序交給 git commit 歷史與 raw log 保留，wiki.md 只負責「目前最好的一份完整知識」）。
+ * 內容若已含 `#` 開頭的標題就直接寫入，否則自動補一個標題行。
+ */
+export async function rewriteLoreWiki(
   worldDir: string,
   category: LoreCategory,
   id: string,
-  reveals: string[],
-  date: string,
+  content: string,
   title: string,
   logger: Logger = defaultLogger,
 ): Promise<void> {
-  if (reveals.length === 0) return;
-  logger.debug({ category, id, count: reveals.length }, "提煉揭露內容進 wiki.md");
+  logger.debug({ category, id }, "整檔重寫 wiki.md");
   const dir = loreDir(worldDir, category, id);
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, "wiki.md");
-  if (!(await exists(file, logger))) {
-    await writeFile(file, `# ${title}\n\n> 累積式：多次接觸間延續。\n`, "utf8");
-  }
-  const block = `\n## [${date}] 揭露\n\n${reveals.map((r) => `- ${r}`).join("\n")}\n`;
-  await appendFile(file, block, "utf8");
+  const body = content.trim();
+  const finalContent = body.startsWith("#") ? `${body}\n` : `# ${title}\n\n${body}\n`;
+  await writeFile(file, finalContent, "utf8");
 }

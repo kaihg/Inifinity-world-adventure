@@ -8,7 +8,8 @@ import {
   parseProtagonist,
   applyPointsDelta,
   applyProtagonistUpdates,
-  appendNpcUpdates,
+  rewriteNpcFile,
+  addCharacterIndexRow,
   applyIndexStatusUpdates,
   NPC_ID_RE,
   type GameState,
@@ -21,6 +22,7 @@ import {
   parseFastControlOutput,
   parseLoreSyncOutput,
   type FastControl,
+  type LoreEntityRef,
 } from "./schema.js";
 import {
   parseActiveDungeon,
@@ -28,10 +30,9 @@ import {
   enterDungeon,
   appendRun,
   loadDungeonLore,
-  appendWikiReveals,
   listDungeonIds,
 } from "./dungeon.js";
-import { loadLore, ensureSecrets, appendLoreReveals, type LoreCategory } from "./lore.js";
+import { loadLore, ensureSecrets, rewriteLoreWiki, loreDir, type LoreCategory } from "./lore.js";
 import {
   runCharacterPrePass,
   formatIntentsBlock,
@@ -138,15 +139,13 @@ const FAST_CONTROL_FORMAT_BLOCK = [
 const LORE_SYNC_FORMAT_BLOCK = [
   "## 輸出格式（務必嚴格遵守）",
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
-  "- state_changes: { npc_updates?: [{id, update}], wiki_reveals?: [string],",
-  "    item_pickups?: [{id, name}]（主角本回合首次撿到的道具；id 用英數小寫 slug，name 用顯示名稱，",
-  "      首次撿到時引擎會生成該道具的隱藏設定，之後同 id 不會重複生成）,",
-  "    item_reveals?: [{id, reveal}]（劇情中真的揭露出該道具暗藏的設定時才填，累積進該道具的 wiki）,",
-  "    location_pickups?: [{id, name}]（劇情本回合首次明確帶到的場景/地點，規則同 item_pickups）,",
-  "    location_reveals?: [{id, reveal}]（該場景被劇情進一步揭露的細節，規則同 item_reveals）,",
-  "    skill_pickups?: [{id, name}]（主角本回合首次習得/明確接觸的技能，規則同 item_pickups）,",
-  "    skill_reveals?: [{id, reveal}]（該技能被劇情進一步揭露的細節，規則同 item_reveals） }",
-  "（本回合若沒有任何相關異動，對應欄位省略或留空陣列即可，不要硬湊內容）",
+  "- state_changes: { touched_entities?: [{id, category, name, excerpt}], dungeon_wiki_excerpt?: string }",
+  "  - touched_entities：本回合敘事中明確登場、或知識被進一步揭露/訂正的 NPC、道具、場景、技能。",
+  "    category 只能是 npc/item/location/skill 其中之一；id 用英數小寫 slug；name 用顯示名稱；",
+  "    excerpt 是本回合敘事中跟這個實體有關的原文片段（之後會有另一步驟拿這段片段去跟現有檔案比較、",
+  "    決定怎麼更新，你不需要自己組好最終的完整內容，只要把相關原文片段填進來）。",
+  "  - dungeon_wiki_excerpt：劇情中對**當前副本本身**新揭露的知識片段（地圖/機關/規則），不在副本中則省略。",
+  "（本回合若沒有任何相關異動，對應欄位省略即可，不要硬湊內容）",
 ].join("\n");
 
 function canonicalBlock(state: GameState): string {
@@ -327,8 +326,8 @@ export function buildFastControlMessages(params: BuildControlParams): ChatMessag
 
 /**
  * Layer 3（reactive-lore-sync）：讀主腦敘事 + 當前狀態，抽出可延後落地的 lore 欄位
- * （npc_updates、item/location/skill 的 pickups 與 reveals、wiki_reveals）。不卡玩家可見的 done event，
- * 但仍只整理敘事中已發生的事實，規則與 Layer 2 一致。
+ * （touched_entities：NPC/道具/場景/技能的初次接觸與知識揭露、dungeon_wiki_excerpt）。
+ * 不卡玩家可見的 done event，但仍只整理敘事中已發生的事實，規則與 Layer 2 一致。
  */
 export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[] {
   const { settingText, state, input, narrative } = params;
@@ -340,7 +339,7 @@ export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[]
     "",
     "## 鐵則",
     "- 只整理敘事中已經寫出的事實，**不可新增劇情、不可發明敘事未提及的事件**。",
-    "- wiki_reveals / item_reveals / location_reveals / skill_reveals 只填**敘事中明確公開揭露給主角知道**的真相（角色已親眼確認、已被明說）；" +
+    "- touched_entities 的 excerpt 只填**敘事中明確公開揭露給主角知道**的真相（角色已親眼確認、已被明說）；" +
       "敘事中模糊的暗示、伏筆、氣氛描寫一律不可當成已揭露填入，寧可漏填也不可提前洩漏暗線。",
     "",
     LORE_SYNC_FORMAT_BLOCK,
@@ -365,19 +364,19 @@ export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[]
 }
 
 /**
- * 把本回合有 npc_updates 的角色，用小模型（characterClient，缺省退回主 client）
- * 各自摘要成一句近況，同步進 characters/index.md 的「最近狀態」欄。
+ * 把本回合有 touched 的 NPC id，用小模型（characterClient，缺省退回主 client）
+ * 各自讀取（已被整檔重寫過的）最新角色檔摘要成一句近況，同步進 characters/index.md 的「最近狀態」欄。
  * 不用主敘事模型：這只是省 context 的索引摘要，不需要主敘事的推理力。
  * 單筆摘要失敗只略過該筆，不中斷其他筆、不影響回合本身。
  */
 async function syncCharacterIndexStatus(
   deps: TurnDeps,
-  npcUpdates: Array<{ id: string; update: string }>,
+  npcIds: string[],
   log: Logger,
 ): Promise<void> {
   const summaryClient = deps.characterClient ?? deps.client;
   const entries = await Promise.all(
-    npcUpdates.map(async ({ id }): Promise<readonly [string, string] | null> => {
+    npcIds.map(async (id): Promise<readonly [string, string] | null> => {
       const characterMd = await readBestEffort(path.join(deps.worldDir, "characters", `${id}.md`));
       if (!characterMd) return null;
       const name = parseProtagonist(characterMd).name || id;
@@ -397,7 +396,7 @@ async function syncCharacterIndexStatus(
   log.debug({ statusUpdates }, "同步 characters/index.md 近況欄");
 }
 
-/** 防止路徑穿越：道具 id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
+/** 防止路徑穿越：道具/場景/技能/副本 id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
 const ITEM_ID_RE = /^[\w.-]+$/;
 
 /** 為指定道具生成隱藏設定（劇透文件，僅供暗線一致，不可外洩）；風格與 generateSecrets 對齊 */
@@ -417,27 +416,118 @@ async function generateItemSecrets(client: LlmClient, settingText: string, itemN
   return full.trim() || "（生成失敗，待補）";
 }
 
+const ENTITY_CATEGORY_TO_LORE: Record<"item" | "location" | "skill", LoreCategory> = {
+  item: "items",
+  location: "locations",
+  skill: "skills",
+};
+
+const ENTITY_CATEGORY_TITLE: Record<"item" | "location" | "skill", string> = {
+  item: "道具",
+  location: "場景",
+  skill: "技能",
+};
+
 /**
- * 把本回合首次撿到/帶到的某類 lore 對象落地：首次接觸時用主敘事模型生成隱藏設定（secrets.md，
- * 僅生成一次），劇情中揭露出來的部分另由對應 *_reveals 累積進 wiki.md。單筆失敗只略過該筆，不中斷其他筆。
+ * 把【現有文件全文】+【本回合相關敘事片段】丟給 LLM，要求輸出完整新版內容（不是 diff、不是片段）。
+ * 失敗或輸出空白時回 null，呼叫端視為「這筆略過」。
  */
-async function applyLorePickups(
+async function callLoreRewrite(
+  client: LlmClient,
+  settingText: string,
+  excerpt: string,
+  docTitle: string,
+  existingContent: string,
+  log: Logger,
+): Promise<string | null> {
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: [
+        "你是「無限恐怖」世界敘事引擎的知識庫維護者。任務：把【現有文件】依【本回合敘事片段】更新成一份完整、連貫的新版內容。",
+        "鐵則：",
+        "- 只輸出文件完整新版內容本身（純文字/Markdown），不要 JSON、不要前言、不要程式碼框。",
+        "- 不可遺漏現有文件中仍然成立的事實；只在片段明確提供新資訊或訂正時才改動對應部分。",
+        "- 不可發明片段未提及的事實。",
+        "",
+        "世界設定：",
+        settingText.trim(),
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `文件標題：${docTitle}`,
+        "",
+        existingContent.trim()
+          ? `現有文件全文：\n${existingContent.trim()}`
+          : "（目前沒有現有文件，這是全新建檔）",
+        "",
+        `本回合敘事片段：\n${excerpt.trim()}`,
+      ].join("\n"),
+    },
+  ];
+  let raw = "";
+  try {
+    for await (const delta of client.streamChat(messages)) raw += delta;
+  } catch (err) {
+    log.warn({ err }, "Layer 3 整檔重寫 LLM 呼叫失敗，略過該筆");
+    return null;
+  }
+  const content = raw.trim();
+  return content.length > 0 ? content : null;
+}
+
+interface LoreRewriteResult {
+  id: string;
+  category: "npc" | "item" | "location" | "skill" | "dungeon";
+  title: string;
+  content: string;
+}
+
+/**
+ * 對單一 touched entity：讀現有文件（NPC 角色檔 / 道具場景技能 wiki.md，缺檔視為全新建檔），
+ * 若是道具/場景/技能且尚無 secrets 則先生成一次，再呼叫 callLoreRewrite 取得整檔新內容。
+ * 單筆失敗（id 不合法 / LLM 呼叫失敗）回 null，不中斷其他筆。
+ */
+async function rewriteLoreEntity(
   deps: TurnDeps,
   settingText: string,
-  category: LoreCategory,
-  pickups: Array<{ id: string; name: string }>,
+  entity: LoreEntityRef,
   log: Logger,
-): Promise<void> {
-  for (const { id, name } of pickups) {
-    if (!ITEM_ID_RE.test(id)) {
-      log.warn({ category, id }, "pickups 含不合法 id，略過");
-      continue;
+): Promise<LoreRewriteResult | null> {
+  const rewriteClient = deps.loreClient ?? deps.controlClient ?? deps.client;
+
+  if (entity.category === "npc") {
+    if (!NPC_ID_RE.test(entity.id)) {
+      log.warn({ entity }, "touched_entities 含不合法 NPC id，略過");
+      return null;
     }
-    const existing = await loadLore(deps.worldDir, category, id, log);
-    if (existing.secrets) continue;
-    const secretsText = await generateItemSecrets(deps.client, settingText, name);
-    await ensureSecrets(deps.worldDir, category, id, secretsText, `隱藏設定（${name}）`, log);
+    const filePath = path.join(deps.worldDir, "characters", `${entity.id}.md`);
+    const existing = await readBestEffort(filePath);
+    const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, `NPC 角色檔案（${entity.name}）`, existing, log);
+    if (!content) return null;
+    // 角色檔重寫後的內容若以 `# 姓名` 開頭，以該標題為準（重寫可能訂正/確認姓名，
+    // 例如全新角色從泛稱「陌生男子」具名化成「陳先生」）；否則退回 touched_entities 給的 name。
+    const titleMatch = content.trim().match(/^#\s+(.+)$/m);
+    const title = titleMatch?.[1].trim() || entity.name;
+    return { id: entity.id, category: "npc", title, content };
   }
+
+  if (!ITEM_ID_RE.test(entity.id)) {
+    log.warn({ entity }, "touched_entities 含不合法 id，略過");
+    return null;
+  }
+  const category = ENTITY_CATEGORY_TO_LORE[entity.category];
+  const existing = await loadLore(deps.worldDir, category, entity.id, log);
+  if (!existing.secrets) {
+    const secretsText = await generateItemSecrets(deps.client, settingText, entity.name);
+    await ensureSecrets(deps.worldDir, category, entity.id, secretsText, `隱藏設定（${entity.name}）`, log);
+  }
+  const title = `${ENTITY_CATEGORY_TITLE[entity.category]}（${entity.id}）`;
+  const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing.wiki, log);
+  if (!content) return null;
+  return { id: entity.id, category: entity.category, title, content };
 }
 
 // ---------- 回合核心 ----------
@@ -451,12 +541,10 @@ interface TurnPlan {
   buildLoreSync: (narrative: string) => ChatMessage[];
   /** raw 層落地：主空間→journal，副本→runs/<run>.md */
   appendRaw: (entry: { date: string; title: string; body: string }) => Promise<void>;
-  /** 額外提煉：副本把 wiki_reveals 寫進 wiki.md */
-  distill?: (wikiReveals: string[], date: string) => Promise<void>;
   /** raw 層檔案絕對路徑（journal.md 或 runs/<run>.md），供回合結束後重建語意索引用 */
   rawFilePath: string;
-  /** 副本 wiki.md 絕對路徑（僅副本回合有），有 wiki_reveals 時才需重新索引 */
-  wikiFilePath?: string;
+  /** 當前副本 id（僅副本回合有），供 Layer 3 落地 dungeon_wiki_excerpt 用 */
+  dungeonId?: string;
 }
 
 /**
@@ -614,7 +702,6 @@ async function* runTurnCore(
 async function runLoreSync(
   deps: TurnDeps,
   narrative: string,
-  today: string,
   settingText: string,
   plan: TurnPlan,
   log: Logger,
@@ -628,70 +715,57 @@ async function runLoreSync(
     const sync = parseLoreSyncOutput(raw);
     const changes = sync.state_changes;
 
-    const npcUpdates = changes.npc_updates ?? [];
-    if (npcUpdates.length > 0) {
-      await appendNpcUpdates(deps.worldDir, npcUpdates, today, log);
-      await syncCharacterIndexStatus(deps, npcUpdates, log);
+    const entities = changes.touched_entities ?? [];
+    const entityResults = await Promise.all(entities.map((e) => rewriteLoreEntity(deps, settingText, e, log)));
+
+    let dungeonResult: LoreRewriteResult | null = null;
+    if (changes.dungeon_wiki_excerpt && plan.dungeonId) {
+      const rewriteClient = deps.loreClient ?? deps.controlClient ?? deps.client;
+      const existing = await loadDungeonLore(deps.worldDir, plan.dungeonId, log);
+      const title = `副本 ${plan.dungeonId} · 已揭露知識（Wiki）`;
+      const content = await callLoreRewrite(rewriteClient, settingText, changes.dungeon_wiki_excerpt, title, existing.wiki, log);
+      if (content) dungeonResult = { id: plan.dungeonId, category: "dungeon", title, content };
     }
 
-    const itemPickups = changes.item_pickups ?? [];
-    if (itemPickups.length > 0) await applyLorePickups(deps, settingText, "items", itemPickups, log);
-    const itemReveals = changes.item_reveals ?? [];
-    for (const { id, reveal } of itemReveals) {
-      if (!ITEM_ID_RE.test(id)) {
-        log.warn({ id }, "item_reveals 含不合法 id，略過");
-        continue;
+    const results = [
+      ...entityResults.filter((r): r is LoreRewriteResult => r !== null),
+      ...(dungeonResult ? [dungeonResult] : []),
+    ];
+
+    const existingNpcIds: string[] = [];
+    for (const r of results) {
+      if (r.category === "npc") {
+        const existed = Boolean(await readBestEffort(path.join(deps.worldDir, "characters", `${r.id}.md`)));
+        await rewriteNpcFile(deps.worldDir, r.id, r.content, log);
+        if (existed) {
+          existingNpcIds.push(r.id);
+        } else {
+          const indexPath = path.join(deps.worldDir, "characters", "index.md");
+          const indexMd = await readBestEffort(indexPath);
+          if (indexMd) await writeFile(indexPath, addCharacterIndexRow(indexMd, r.id, r.title), "utf8");
+        }
+      } else {
+        const category = r.category === "dungeon" ? "dungeons" : ENTITY_CATEGORY_TO_LORE[r.category];
+        await rewriteLoreWiki(deps.worldDir, category, r.id, r.content, r.title, log);
       }
-      await appendLoreReveals(deps.worldDir, "items", id, [reveal], today, `道具（${id}）`, log);
     }
 
-    const locationPickups = changes.location_pickups ?? [];
-    if (locationPickups.length > 0) await applyLorePickups(deps, settingText, "locations", locationPickups, log);
-    const locationReveals = changes.location_reveals ?? [];
-    for (const { id, reveal } of locationReveals) {
-      if (!ITEM_ID_RE.test(id)) {
-        log.warn({ id }, "location_reveals 含不合法 id，略過");
-        continue;
-      }
-      await appendLoreReveals(deps.worldDir, "locations", id, [reveal], today, `場景（${id}）`, log);
-    }
-
-    const skillPickups = changes.skill_pickups ?? [];
-    if (skillPickups.length > 0) await applyLorePickups(deps, settingText, "skills", skillPickups, log);
-    const skillReveals = changes.skill_reveals ?? [];
-    for (const { id, reveal } of skillReveals) {
-      if (!ITEM_ID_RE.test(id)) {
-        log.warn({ id }, "skill_reveals 含不合法 id，略過");
-        continue;
-      }
-      await appendLoreReveals(deps.worldDir, "skills", id, [reveal], today, `技能（${id}）`, log);
-    }
-
-    const wikiReveals = changes.wiki_reveals ?? [];
-    if (plan.distill) await plan.distill(wikiReveals, today);
+    // 全新建檔的 NPC 維持 addCharacterIndexRow 的預設「初次登場」，不額外摘要近況
+    // （本回合剛建檔，立刻再摘要一次沒有額外價值，也避免多耗一次小模型呼叫）。
+    const npcIds = results.filter((r) => r.category === "npc").map((r) => r.id);
+    if (existingNpcIds.length > 0) await syncCharacterIndexStatus(deps, existingNpcIds, log);
 
     if (deps.recall) {
-      const touched: string[] = [];
-      for (const { id } of npcUpdates) {
-        if (NPC_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "characters", `${id}.md`));
-      }
-      if (plan.wikiFilePath && wikiReveals.length > 0) touched.push(plan.wikiFilePath);
-      for (const { id } of itemReveals) {
-        if (ITEM_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "items", id, "wiki.md"));
-      }
-      for (const { id } of locationReveals) {
-        if (ITEM_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "locations", id, "wiki.md"));
-      }
-      for (const { id } of skillReveals) {
-        if (ITEM_ID_RE.test(id)) touched.push(path.join(deps.worldDir, "skills", id, "wiki.md"));
-      }
+      const touched: string[] = results.map((r) =>
+        r.category === "npc"
+          ? path.join(deps.worldDir, "characters", `${r.id}.md`)
+          : path.join(loreDir(deps.worldDir, r.category === "dungeon" ? "dungeons" : ENTITY_CATEGORY_TO_LORE[r.category], r.id), "wiki.md"),
+      );
+      if (npcIds.length > 0) touched.push(path.join(deps.worldDir, "characters", "index.md"));
       if (touched.length > 0) await reindexTouchedFiles(deps.recall, deps.worldDir, touched, log);
     }
 
-    const touchedAnything =
-      npcUpdates.length + itemPickups.length + itemReveals.length + locationPickups.length +
-      locationReveals.length + skillPickups.length + skillReveals.length + wikiReveals.length > 0;
-    if (touchedAnything) {
+    if (results.length > 0) {
       const committed = await deps.commit("補完關聯文件（NPC/道具/場景/技能）");
       log.info({ committed }, "回合結束（Layer 3 reactive-lore-sync）");
     } else {
@@ -770,12 +844,11 @@ async function* runRecallBlock(deps: TurnDeps, input: string): AsyncGenerator<Tu
 function scheduleLoreSync(
   deps: TurnDeps,
   narrative: string,
-  today: string,
   settingText: string,
   plan: TurnPlan,
   log: Logger,
 ): Promise<void> {
-  const task = runLoreSync(deps, narrative, today, settingText, plan, log);
+  const task = runLoreSync(deps, narrative, settingText, plan, log);
   if (deps.pendingLoreSync) {
     trackLoreSync(deps.pendingLoreSync, task, log);
     return Promise.resolve();
@@ -809,7 +882,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   };
 
   const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
-  await scheduleLoreSync(deps, narrative, today, settingText, plan, log);
+  await scheduleLoreSync(deps, narrative, settingText, plan, log);
 }
 
 /** 副本敘事回合（讀當前 now.md 的進行中副本，落地到 runs/*.md、提煉 wiki） */
@@ -850,14 +923,12 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
         dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
       }),
     appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
-    distill: (wikiReveals, date) =>
-      appendWikiReveals(deps.worldDir, active.dungeonId, wikiReveals, date, log),
     rawFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "runs", `${active.runId}.md`),
-    wikiFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "wiki.md"),
+    dungeonId: active.dungeonId,
   };
 
   const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
-  await scheduleLoreSync(deps, narrative, today, settingText, plan, log);
+  await scheduleLoreSync(deps, narrative, settingText, plan, log);
 }
 
 const AUTO_CONTINUE_INPUT = "（系統自動推進：延續上一刻，繼續敘事，玩家未介入）";
