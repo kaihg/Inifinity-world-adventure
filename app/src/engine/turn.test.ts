@@ -385,7 +385,7 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(prot).toContain("- 戰術刀\n- 生鏽鐵管");
   });
 
-  it("npc_updates 同步用小模型摘要進 characters/index.md 的最近狀態欄", async () => {
+  it("touched_entities（npc）：整檔重寫角色檔，並用小模型摘要同步進 characters/index.md", async () => {
     await writeFile(path.join(world, "characters", "yeqing.md"), "# 葉晴\n- 姓名：葉晴\n前特種部隊教官\n", "utf8");
     await writeFile(
       path.join(world, "characters", "index.md"),
@@ -396,20 +396,25 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
       ].join("\n"),
       "utf8",
     );
-    const response =
-      "葉晴點點頭，眼神多了幾分信任。\n===STATE===\n" +
-      JSON.stringify({
-        state_changes: { npc_updates: [{ id: "yeqing", update: "對沈奕的信任進一步提升" }] },
-        rolls: [],
-        mode_transition: null,
-        awaiting_user_input: true,
-        suggested_actions: [],
-        commit_summary: "葉晴信任提升",
-      });
+    const ctrl = JSON.stringify({
+      state_changes: {
+        touched_entities: [
+          { id: "yeqing", category: "npc", name: "葉晴", excerpt: "葉晴點點頭，眼神多了幾分信任。" },
+        ],
+      },
+      rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
+      commit_summary: "葉晴信任提升",
+    });
     const events: TurnEvent[] = [];
+    // 序列：主腦敘事 → Layer 2 fast-control(ctrl) → Layer 3 抽取(ctrl) → 比較重寫(新版角色檔全文)
     for await (const ev of runMainSpaceTurn(
       {
-        client: fakeClient([response]),
+        client: sequencedClient([
+          "葉晴點點頭，眼神多了幾分信任。",
+          ctrl,
+          ctrl,
+          "# 葉晴\n- 姓名：葉晴\n前特種部隊教官，對沈奕的信任進一步提升。",
+        ]),
         characterClient: fakeClient(["信任大幅提升"]),
         worldDir: world,
         commit: async () => true,
@@ -420,61 +425,71 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     )) {
       events.push(ev);
     }
+    const yeqing = await readFile(path.join(world, "characters", "yeqing.md"), "utf8");
+    expect(yeqing).toContain("對沈奕的信任進一步提升");
     const index = await readFile(path.join(world, "characters", "index.md"), "utf8");
     expect(index).toContain("| yeqing | 葉晴 | NPC | 信任大幅提升 | - |");
   });
 
-  it("npc_updates 落地到對應 characters/<id>.md（NPC 長期記憶）", async () => {
-    await writeFile(path.join(world, "characters", "yeqing.md"), "# 葉晴\n前特種部隊教官\n", "utf8");
-    const response =
-      "葉晴點點頭，眼神多了幾分信任。\n===STATE===\n" +
-      JSON.stringify({
-        state_changes: { npc_updates: [{ id: "yeqing", update: "對沈奕的信任進一步提升" }] },
-        rolls: [],
-        mode_transition: null,
-        awaiting_user_input: true,
-        suggested_actions: [],
-        commit_summary: "葉晴信任提升",
-      });
+  it("touched_entities（npc，全新角色）：建檔並掛進 characters/index.md", async () => {
+    await writeFile(
+      path.join(world, "characters", "index.md"),
+      ["| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |", "|----|------|------|----------|--------------|"].join("\n"),
+      "utf8",
+    );
+    const ctrl = JSON.stringify({
+      state_changes: {
+        touched_entities: [
+          { id: "newcomer", category: "npc", name: "陌生男子", excerpt: "一名陌生男子從陰影中走出，自稱姓陳。" },
+        ],
+      },
+      rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
+      commit_summary: "新角色登場",
+    });
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
       {
-        client: fakeClient([response]),
+        client: sequencedClient([
+          "一名陌生男子從陰影中走出，自稱姓陳。",
+          ctrl,
+          ctrl,
+          "# 陳先生\n\n自稱姓陳的陌生男子，來歷不明。",
+        ]),
         worldDir: world,
         commit: async () => true,
         today: () => "2026-06-19",
         dicePool: [1],
       },
-      "和葉晴交談",
+      "觀察陌生男子",
     )) {
       events.push(ev);
     }
-    const yeqing = await readFile(path.join(world, "characters", "yeqing.md"), "utf8");
-    expect(yeqing).toContain("## [2026-06-19] 更新");
-    expect(yeqing).toContain("對沈奕的信任進一步提升");
+    const newcomer = await readFile(path.join(world, "characters", "newcomer.md"), "utf8");
+    expect(newcomer).toContain("來歷不明");
+    const index = await readFile(path.join(world, "characters", "index.md"), "utf8");
+    expect(index).toContain("| newcomer | 陳先生 | NPC | 初次登場 | - |");
   });
 
-  it("item_pickups 首次撿到時生成道具 secrets.md，item_reveals 累積進 wiki.md", async () => {
+  it("touched_entities（item，全新）：首次生成 secrets.md，並把比較重寫的內容整檔寫進 wiki.md", async () => {
     const ctrl = JSON.stringify({
       state_changes: {
-        item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }],
-        item_reveals: [{ id: "rusty-pipe", reveal: "管身刻有奇怪符號" }],
+        touched_entities: [
+          { id: "rusty-pipe", category: "item", name: "生鏽鐵管", excerpt: "沈奕從地上撿起一根生鏽鐵管，管身刻有奇怪符號。" },
+        ],
       },
-      rolls: [],
-      mode_transition: null,
-      awaiting_user_input: true,
-      suggested_actions: [],
+      rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
       commit_summary: "撿到鐵管",
     });
     const events: TurnEvent[] = [];
-    // 序列：主腦敘事 → Layer 2 fast-control JSON → Layer 3 lore-sync JSON → 道具 secrets 生成（generateItemSecrets 用 deps.client）
+    // 序列：主腦敘事 → Layer 2(ctrl) → Layer 3 抽取(ctrl) → 道具 secrets 生成（generateItemSecrets 用 deps.client）→ 比較重寫
     for await (const ev of runMainSpaceTurn(
       {
         client: sequencedClient([
-          "沈奕從地上撿起一根生鏽鐵管。",
+          "沈奕從地上撿起一根生鏽鐵管，管身刻有奇怪符號。",
           ctrl,
           ctrl,
           "其實是某把武器的殘骸，蘊含未知力量。",
+          "# 道具（rusty-pipe）\n\n管身刻有奇怪符號，來歷不明。",
         ]),
         worldDir: world,
         commit: async () => true,
@@ -488,29 +503,29 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
     expect(secrets).toContain("某把武器的殘骸");
     const wiki = await readFile(path.join(world, "items", "rusty-pipe", "wiki.md"), "utf8");
-    expect(wiki).toContain("管身刻有奇怪符號");
+    expect(wiki).toContain("管身刻有奇怪符號，來歷不明");
   });
 
-  it("item_pickups 對已有 secrets 的道具不重複生成", async () => {
+  it("touched_entities（item，已有 secrets）：不重複生成 secrets，只整檔重寫 wiki", async () => {
     await mkdir(path.join(world, "items", "rusty-pipe"), { recursive: true });
     await writeFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "# 道具隱藏設定（生鏽鐵管）\n\n原始真相\n");
     const ctrl = JSON.stringify({
-      state_changes: { item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }] },
-      rolls: [],
-      mode_transition: null,
-      awaiting_user_input: true,
-      suggested_actions: [],
+      state_changes: {
+        touched_entities: [
+          { id: "rusty-pipe", category: "item", name: "生鏽鐵管", excerpt: "沈奕又看了一眼鐵管，發現符號似乎在發光。" },
+        ],
+      },
+      rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
       commit_summary: "再次檢視鐵管",
     });
     const events: TurnEvent[] = [];
-    // 序列：主腦敘事 → Layer 2 fast-control JSON → Layer 3 lore-sync JSON →（若誤呼叫生成才會吐這段「不該寫入」，正確時不會用到）
     for await (const ev of runMainSpaceTurn(
       {
         client: sequencedClient([
-          "沈奕又看了一眼鐵管。",
+          "沈奕又看了一眼鐵管，發現符號似乎在發光。",
           ctrl,
           ctrl,
-          "新真相（不該寫入）",
+          "# 道具（rusty-pipe）\n\n管身符號會微微發光。",
         ]),
         worldDir: world,
         commit: async () => true,
@@ -523,7 +538,8 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     }
     const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
     expect(secrets).toContain("原始真相");
-    expect(secrets).not.toContain("不該寫入");
+    const wiki = await readFile(path.join(world, "items", "rusty-pipe", "wiki.md"), "utf8");
+    expect(wiki).toContain("管身符號會微微發光");
   });
 
   it("副大腦輸出無法解析時降級：保留敘事、發 warning、暫停、仍 commit", async () => {
@@ -628,7 +644,7 @@ describe("runTurnLoop — 自動推進", () => {
 });
 
 describe("runDungeonTurn", () => {
-  it("落地到 runs/*.md、提煉 wiki_reveals 進 wiki.md", async () => {
+  it("落地到 runs/*.md、整檔重寫副本 wiki.md（dungeon_wiki_excerpt）", async () => {
     await mkdir(path.join(world, "dungeons", "U-001", "runs"), { recursive: true });
     await writeFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "# run\n");
     await writeFile(path.join(world, "dungeons", "U-001", "secrets.md"), "真相：地板會塌\n");
@@ -638,19 +654,17 @@ describe("runDungeonTurn", () => {
     );
     const narrative = "你踏入大廳，三道門並排。";
     const ctrl = JSON.stringify({
-      state_changes: { wiki_reveals: ["入口大廳有三道門"] },
-      rolls: [],
-      mode_transition: null,
-      awaiting_user_input: true,
-      suggested_actions: [],
+      state_changes: { dungeon_wiki_excerpt: "入口大廳有三道門" },
+      rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
       commit_summary: "進入大廳",
     });
 
     const events: TurnEvent[] = [];
+    // 序列：主腦敘事(client) → Layer 2(controlClient) → Layer 3 抽取(controlClient，loreClient 缺省退回) → 比較重寫(controlClient)
     for await (const ev of runDungeonTurn(
       {
         client: fakeClient([narrative]),
-        controlClient: fakeClient([ctrl]),
+        controlClient: sequencedClient([ctrl, ctrl, "# 副本 U-001 · 已揭露知識（Wiki）\n\n入口大廳有三道門。"]),
         worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5],
       },
       "往前走",
@@ -662,7 +676,7 @@ describe("runDungeonTurn", () => {
     expect(run).toContain("## [2026-06-19] 進入大廳");
     expect(run).toContain("往前走");
     const wiki = await readFile(path.join(world, "dungeons", "U-001", "wiki.md"), "utf8");
-    expect(wiki).toContain("三道門");
+    expect(wiki).toContain("入口大廳有三道門");
     // journal 不該被副本回合寫入
     const journalExists = await readFile(path.join(world, "journal.md"), "utf8").then(() => true).catch(() => false);
     expect(journalExists).toBe(false);
@@ -859,7 +873,7 @@ describe("recall 整合測試", () => {
     expect(capturedSystem).not.toContain("檢索到的相關記錄");
   });
 
-  it("副本回合結束後重新索引 run log 與 wiki（有 wiki_reveals 時）", async () => {
+  it("副本回合結束後重新索引 run log 與 wiki（有 dungeon_wiki_excerpt 時）", async () => {
     await mkdir(path.join(world, "dungeons", "U-001", "runs"), { recursive: true });
     await writeFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "# run\n");
     await writeFile(path.join(world, "dungeons", "U-001", "secrets.md"), "真相：地板會塌\n");
@@ -867,21 +881,21 @@ describe("recall 整合測試", () => {
       path.join(world, "now.md"),
       "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
     );
-    const response =
-      "你踏入大廳，三道門並排。\n===STATE===\n" +
-      JSON.stringify({
-        state_changes: { wiki_reveals: ["入口大廳有三道門"] },
-        rolls: [],
-        mode_transition: null,
-        awaiting_user_input: true,
-        suggested_actions: [],
-        commit_summary: "進入大廳",
-      });
+    const ctrlJson = JSON.stringify({
+      state_changes: { dungeon_wiki_excerpt: "入口大廳有三道門" },
+      rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
+      commit_summary: "進入大廳",
+    });
+    const response = "你踏入大廳，三道門並排。\n===STATE===\n" + ctrlJson;
 
     const recall = fakeRecall();
     const events: TurnEvent[] = [];
     for await (const ev of runDungeonTurn(
-      { client: fakeClient([response]), worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5], recall },
+      {
+        client: fakeClient([response]),
+        loreClient: sequencedClient([ctrlJson, "# 副本 U-001 · 已揭露知識（Wiki）\n\n入口大廳有三道門。"]),
+        worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5], recall,
+      },
       "往前走",
     )) {
       events.push(ev);
@@ -901,17 +915,18 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
       awaiting_user_input: false, suggested_actions: [], commit_summary: "系統強制開啟副本",
     });
     const settleCtl = JSON.stringify({
-      state_changes: { wiki_reveals: ["出口在東側"] }, rolls: [], mode_transition: "settle_dungeon",
+      state_changes: { dungeon_wiki_excerpt: "出口在東側" }, rolls: [], mode_transition: "settle_dungeon",
       awaiting_user_input: true, suggested_actions: [], commit_summary: "撤離副本",
     });
     const client = twoBrainClient([
       "系統警報響起。",     // turn 0 主腦（主空間）
       enterCtl,            // turn 0 Layer 2 fast-control → enter_dungeon
-      enterCtl,            // turn 0 Layer 3 reactive-lore-sync（無 lore 欄位，no-op）
+      enterCtl,            // turn 0 Layer 3 抽取（無 lore 欄位，no-op）
       "這個副本真正的機關是潮汐淹沒。", // secrets 生成（generateSecrets 用 deps.client）
       "你抵達出口。",       // turn 1 主腦（副本）
       settleCtl,           // turn 1 Layer 2 fast-control → settle_dungeon
-      settleCtl,           // turn 1 Layer 3 reactive-lore-sync → wiki_reveals 落地
+      settleCtl,           // turn 1 Layer 3 抽取 → dungeon_wiki_excerpt
+      "# 副本 U-TEST · 已揭露知識（Wiki）\n\n出口在東側。", // 比較重寫
     ]);
 
     const events: TurnEvent[] = [];
@@ -1019,12 +1034,21 @@ describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
 
   it("共用同一個 pendingLoreSync 連續呼叫兩次：第二次呼叫前已等到第一次 Layer 3 落地的檔案", async () => {
     const loreCtrl = JSON.stringify({
-      state_changes: { item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }] },
+      state_changes: {
+        touched_entities: [{ id: "rusty-pipe", category: "item", name: "生鏽鐵管", excerpt: "撿到一根鐵管" }],
+      },
     });
+    let loreCall = 0;
     const loreClient: LlmClient = {
       async *streamChat() {
-        await new Promise((r) => setTimeout(r, 50)); // 模擬較慢的 Layer 3 LLM
-        yield loreCtrl;
+        loreCall++;
+        if (loreCall === 1) {
+          await new Promise((r) => setTimeout(r, 50)); // 模擬較慢的 Layer 3 LLM（抽取階段）
+          yield loreCtrl;
+          return;
+        }
+        // 第二次呼叫：比較重寫階段，回傳整檔新內容
+        yield "# 道具（rusty-pipe）\n\n比較重寫後的內容。";
       },
     };
     const pendingLoreSync = { promise: null as Promise<void> | null };
