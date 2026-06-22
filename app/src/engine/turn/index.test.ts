@@ -1,13 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import os from "node:os";
 import path from "node:path";
-import type { ChatMessage, LlmClient } from "../llm/client.js";
-import { readdir } from "node:fs/promises";
-import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, buildMainSpaceMessages, buildDungeonMessages, buildFastControlMessages, buildLoreSyncMessages, trackLoreSync, type TurnEvent, type TurnDeps, type PendingLoreSync } from "./turn.js";
-import type { GameState } from "./context.js";
-import type { RecallHit, RecallIndex } from "../recall/store.js";
+import type { ChatMessage, LlmClient } from "../../llm/client.js";
+import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, type TurnEvent, type TurnDeps, type PendingLoreSync } from "./index.js";
+import type { RecallHit, RecallIndex } from "../../recall/store.js";
 
 /** 測試用假 RecallIndex：query 回傳固定結果，upsertFile/removeFile 記錄呼叫供斷言 */
 function fakeRecall(hits: RecallHit[] = []): RecallIndex & { upserted: Array<{ relPath: string; content: string }> } {
@@ -62,24 +60,6 @@ function controlJson(awaiting: boolean, summary: string): string {
  */
 const twoBrainClient = sequencedClient;
 
-const sampleState: GameState = {
-  now: {
-    chapter: "第一章", scene: "安全區", companions: "葉晴",
-    activeDungeon: "無", threads: "", nextStep: "", lastUpdated: "",
-  },
-  protagonist: { name: "沈奕", points: "0" },
-  protagonistDetail: {
-    name: "沈奕", points: "0",
-    attributes: "力量 8、敏捷 12",
-    skills: "瞬步（消耗 20 積分）",
-    items: "強化手槍（彈藥 6）",
-    buffs: "新手保護（3 場）",
-  },
-  npcs: [],
-  mode: "main-space",
-  lastTurn: null,
-};
-
 let world: string;
 beforeEach(async () => {
   world = await mkdtemp(path.join(tmpdir(), "iwa-turn-"));
@@ -97,17 +77,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(world, { recursive: true, force: true });
 });
-
-function makeFakeState(): GameState {
-  return {
-    now: { chapter: "c", scene: "s", companions: "", activeDungeon: "無", threads: "", nextStep: "", lastUpdated: "" },
-    protagonist: { name: "沈奕", points: "100" },
-    protagonistDetail: { name: "沈奕", points: "100", attributes: "", skills: "", items: "", buffs: "" },
-    npcs: [],
-    mode: "main-space",
-    lastTurn: null,
-  };
-}
 
 async function makeTempWorld(opts: { withYeqing?: boolean } = {}): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "world-turn-"));
@@ -136,123 +105,6 @@ async function makeTempWorld(opts: { withYeqing?: boolean } = {}): Promise<strin
   }
   return dir;
 }
-
-describe("buildMainSpaceMessages", () => {
-  it("system 含設定、canonical 與骰值，但不再含 JSON 輸出要求", () => {
-    const msgs = buildMainSpaceMessages({
-      settingText: "禁止竄改數值。", state: sampleState, input: "我四處看看", dicePool: [7, 42],
-    });
-    expect(msgs[0].role).toBe("system");
-    expect(msgs[0].content).toContain("禁止竄改數值");
-    expect(msgs[0].content).toContain("[7, 42]");
-    expect(msgs[0].content).not.toContain("===STATE===");
-    expect(msgs[0].content).not.toContain("awaiting_user_input");
-    // 主角詳細狀態（技能/物品/buff）須注入，敘事才能正確演出技能/道具使用
-    expect(msgs[0].content).toContain("瞬步（消耗 20 積分）");
-    expect(msgs[0].content).toContain("強化手槍（彈藥 6）");
-    expect(msgs[0].content).toContain("新手保護（3 場）");
-    expect(msgs[0].content).toContain("力量 8、敏捷 12");
-    expect(msgs[0].content).toContain("第三人稱");
-    expect(msgs[0].content).toContain("絕不可用「你」指稱主角");
-    expect(msgs[1]).toEqual({ role: "user", content: "我四處看看" });
-  });
-
-  it("intentsBlock 有值時出現在 system prompt", () => {
-    const params = {
-      settingText: "設定",
-      state: makeFakeState(),
-      input: "行動",
-      dicePool: [50],
-      intentsBlock: "## 在場角色本回合意圖\n### 葉晴（yeqing）\n- 立場：觀察",
-    };
-    const msgs = buildMainSpaceMessages(params);
-    expect(msgs[0].content).toContain("## 在場角色本回合意圖");
-  });
-
-  it("intentsBlock 為空字串時 system prompt 不含意圖區塊標題", () => {
-    const params = {
-      settingText: "設定",
-      state: makeFakeState(),
-      input: "行動",
-      dicePool: [50],
-      intentsBlock: "",
-    };
-    const msgs = buildMainSpaceMessages(params);
-    expect(msgs[0].content).not.toContain("## 在場角色本回合意圖");
-  });
-});
-
-describe("buildDungeonMessages", () => {
-  it("system 含第三人稱鐵則、wiki/secrets、骰值", () => {
-    const msgs = buildDungeonMessages({
-      settingText: "設定", state: sampleState, input: "往前走", dicePool: [5],
-      dungeonId: "U-001", wiki: "入口有三道門", secrets: "地板會塌",
-    });
-    expect(msgs[0].content).toContain("第三人稱");
-    expect(msgs[0].content).toContain("絕不可用「你」指稱主角");
-    expect(msgs[0].content).toContain("U-001");
-    expect(msgs[0].content).toContain("入口有三道門");
-  });
-});
-
-describe("buildFastControlMessages（Layer 2）", () => {
-  it("主空間：system 含 awaiting_user_input、骰值、現有副本 id，不含 lore 欄位說明", () => {
-    const msgs = buildFastControlMessages({
-      settingText: "設定", state: sampleState, input: "我四處看看",
-      narrative: "沈奕走進資訊室，擲出 42 成功避開警衛。",
-      dicePool: [42, 7], existingDungeonIds: ["U-001", "abandoned-hospital"],
-    });
-    expect(msgs[0].role).toBe("system");
-    expect(msgs[0].content).toContain("awaiting_user_input");
-    expect(msgs[0].content).toContain("[42, 7]");
-    expect(msgs[0].content).toContain("U-001");
-    expect(msgs[0].content).toContain("abandoned-hospital");
-    expect(msgs[0].content).toContain("沈奕走進資訊室");
-    expect(msgs[0].content).not.toContain("touched_entities");
-    expect(msgs[0].content).not.toContain("dungeon_wiki_excerpt");
-    expect(msgs[1].role).toBe("user");
-    expect(msgs[1].content).toContain("我四處看看");
-  });
-
-  it("副本：mode_transition 規則改為 settle_dungeon", () => {
-    const msgs = buildFastControlMessages({
-      settingText: "設定", state: sampleState, input: "往前走",
-      narrative: "沈奕抵達出口。", dicePool: [5], existingDungeonIds: ["U-001"],
-      dungeonId: "U-001", wiki: "入口有三道門", secrets: "地板會塌",
-    });
-    expect(msgs[0].content).toContain("U-001");
-    expect(msgs[0].content).toContain("settle_dungeon");
-  });
-});
-
-describe("buildLoreSyncMessages（Layer 3）", () => {
-  it("system 含 touched_entities/dungeon_wiki_excerpt 欄位說明，不含 mode_transition/awaiting_user_input", () => {
-    const msgs = buildLoreSyncMessages({
-      settingText: "設定", state: sampleState, input: "我四處看看",
-      narrative: "沈奕在資訊室撿到一根生鏽鐵管。",
-      dicePool: [42, 7], existingDungeonIds: ["U-001"],
-    });
-    expect(msgs[0].role).toBe("system");
-    expect(msgs[0].content).toContain("touched_entities");
-    expect(msgs[0].content).toContain("dungeon_wiki_excerpt");
-    expect(msgs[0].content).toContain("npc/item/location/skill");
-    expect(msgs[0].content).not.toContain("awaiting_user_input");
-    expect(msgs[0].content).not.toContain("mode_transition");
-    expect(msgs[0].content).toContain("沈奕在資訊室撿到一根生鏽鐵管");
-    expect(msgs[1].content).toContain("我四處看看");
-  });
-
-  it("副本：system 帶 wiki 與 dungeonId，不外洩 secrets", () => {
-    const msgs = buildLoreSyncMessages({
-      settingText: "設定", state: sampleState, input: "往前走",
-      narrative: "沈奕抵達出口。", dicePool: [5], existingDungeonIds: ["U-001"],
-      dungeonId: "U-001", wiki: "入口有三道門", secrets: "地板會塌",
-    });
-    expect(msgs[0].content).toContain("U-001");
-    expect(msgs[0].content).toContain("入口有三道門");
-    expect(msgs[0].content).not.toContain("地板會塌");
-  });
-});
 
 describe("runMainSpaceTurn — 結構化輸出", () => {
   it("串流敘事、副大腦套用 now/積分、commit，done 帶 awaitingUserInput/suggestedActions", async () => {
@@ -1032,21 +884,6 @@ function createDeferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   const promise = new Promise<T>((r) => (resolve = r));
   return { promise, resolve };
 }
-
-describe("trackLoreSync（永遠 resolve 語意）", () => {
-  it("傳入會 reject 的 promise，包裝後 handle.promise 仍 resolve，並記一筆 warn", async () => {
-    const warnCalls: unknown[] = [];
-    const fakeLog = { warn: (...args: unknown[]) => warnCalls.push(args) } as unknown as import("../logger.js").Logger;
-    const handle: PendingLoreSync = { promise: null };
-    const rejecting = Promise.reject(new Error("Layer 3 任務本身炸了"));
-
-    trackLoreSync(handle, rejecting, fakeLog);
-
-    expect(handle.promise).not.toBeNull();
-    await expect(handle.promise).resolves.toBeUndefined();
-    expect(warnCalls).toHaveLength(1);
-  });
-});
 
 describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
   it("提供 pendingLoreSync 時，done event 在 Layer 3 resolve 前就已送出（不卡主流程）", async () => {
