@@ -145,7 +145,7 @@ const LORE_SYNC_FORMAT_BLOCK = [
   "    excerpt 是本回合敘事中跟這個實體有關的原文片段（之後會有另一步驟拿這段片段去跟現有檔案比較、",
   "    決定怎麼更新，你不需要自己組好最終的完整內容，只要把相關原文片段填進來）。",
   "  - dungeon_wiki_excerpt：劇情中對**當前副本本身**新揭露的知識片段（地圖/機關/規則），不在副本中則省略。",
-  "（本回合若沒有任何相關異動，對應欄位省略或留空陣列即可，不要硬湊內容）",
+  "（本回合若沒有任何相關異動，對應欄位省略即可，不要硬湊內容）",
 ].join("\n");
 
 function canonicalBlock(state: GameState): string {
@@ -438,6 +438,7 @@ async function callLoreRewrite(
   excerpt: string,
   docTitle: string,
   existingContent: string,
+  log: Logger,
 ): Promise<string | null> {
   const messages: ChatMessage[] = [
     {
@@ -469,7 +470,8 @@ async function callLoreRewrite(
   let raw = "";
   try {
     for await (const delta of client.streamChat(messages)) raw += delta;
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Layer 3 整檔重寫 LLM 呼叫失敗，略過該筆");
     return null;
   }
   const content = raw.trim();
@@ -503,7 +505,7 @@ async function rewriteLoreEntity(
     }
     const filePath = path.join(deps.worldDir, "characters", `${entity.id}.md`);
     const existing = await readBestEffort(filePath);
-    const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, `NPC 角色檔案（${entity.name}）`, existing);
+    const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, `NPC 角色檔案（${entity.name}）`, existing, log);
     if (!content) return null;
     // 角色檔重寫後的內容若以 `# 姓名` 開頭，以該標題為準（重寫可能訂正/確認姓名，
     // 例如全新角色從泛稱「陌生男子」具名化成「陳先生」）；否則退回 touched_entities 給的 name。
@@ -523,7 +525,7 @@ async function rewriteLoreEntity(
     await ensureSecrets(deps.worldDir, category, entity.id, secretsText, `隱藏設定（${entity.name}）`, log);
   }
   const title = `${ENTITY_CATEGORY_TITLE[entity.category]}（${entity.id}）`;
-  const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing.wiki);
+  const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing.wiki, log);
   if (!content) return null;
   return { id: entity.id, category: entity.category, title, content };
 }
@@ -700,7 +702,6 @@ async function* runTurnCore(
 async function runLoreSync(
   deps: TurnDeps,
   narrative: string,
-  today: string,
   settingText: string,
   plan: TurnPlan,
   log: Logger,
@@ -722,7 +723,7 @@ async function runLoreSync(
       const rewriteClient = deps.loreClient ?? deps.controlClient ?? deps.client;
       const existing = await loadDungeonLore(deps.worldDir, plan.dungeonId, log);
       const title = `副本 ${plan.dungeonId} · 已揭露知識（Wiki）`;
-      const content = await callLoreRewrite(rewriteClient, settingText, changes.dungeon_wiki_excerpt, title, existing.wiki);
+      const content = await callLoreRewrite(rewriteClient, settingText, changes.dungeon_wiki_excerpt, title, existing.wiki, log);
       if (content) dungeonResult = { id: plan.dungeonId, category: "dungeon", title, content };
     }
 
@@ -843,12 +844,11 @@ async function* runRecallBlock(deps: TurnDeps, input: string): AsyncGenerator<Tu
 function scheduleLoreSync(
   deps: TurnDeps,
   narrative: string,
-  today: string,
   settingText: string,
   plan: TurnPlan,
   log: Logger,
 ): Promise<void> {
-  const task = runLoreSync(deps, narrative, today, settingText, plan, log);
+  const task = runLoreSync(deps, narrative, settingText, plan, log);
   if (deps.pendingLoreSync) {
     trackLoreSync(deps.pendingLoreSync, task, log);
     return Promise.resolve();
@@ -882,7 +882,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   };
 
   const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
-  await scheduleLoreSync(deps, narrative, today, settingText, plan, log);
+  await scheduleLoreSync(deps, narrative, settingText, plan, log);
 }
 
 /** 副本敘事回合（讀當前 now.md 的進行中副本，落地到 runs/*.md、提煉 wiki） */
@@ -928,7 +928,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   };
 
   const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
-  await scheduleLoreSync(deps, narrative, today, settingText, plan, log);
+  await scheduleLoreSync(deps, narrative, settingText, plan, log);
 }
 
 const AUTO_CONTINUE_INPUT = "（系統自動推進：延續上一刻，繼續敘事，玩家未介入）";

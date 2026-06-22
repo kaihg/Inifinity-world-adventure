@@ -1,4 +1,4 @@
-import { readFile, writeFile, appendFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 import { parseLastTurnRecord, type LastTurnRecord } from "./journal.js";

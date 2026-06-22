@@ -470,6 +470,55 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(index).toContain("| newcomer | 陳先生 | NPC | 初次登場 | - |");
   });
 
+  it("touched_entities（兩個 npc）：第一筆重寫回空字串被略過，第二筆仍正常寫檔並 commit", async () => {
+    await writeFile(
+      path.join(world, "characters", "index.md"),
+      [
+        "| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |",
+        "|----|------|------|----------|--------------|",
+      ].join("\n"),
+      "utf8",
+    );
+    const ctrl = JSON.stringify({
+      state_changes: {
+        touched_entities: [
+          { id: "npc-a", category: "npc", name: "甲", excerpt: "甲只是路過，沒說什麼。" },
+          { id: "npc-b", category: "npc", name: "乙", excerpt: "乙自稱是這裡的嚮導。" },
+        ],
+      },
+      rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
+      commit_summary: "兩名 NPC 登場",
+    });
+    let committed = false;
+    const events: TurnEvent[] = [];
+    // 序列：主腦敘事 → Layer 2(ctrl) → Layer 3 抽取(ctrl) → npc-a 重寫（空字串，視為失敗略過）→ npc-b 重寫（正常內容）
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: sequencedClient([
+          "甲只是路過，沒說什麼。乙自稱是這裡的嚮導。",
+          ctrl,
+          ctrl,
+          "",
+          "# 乙\n\n自稱是這裡的嚮導，來歷不明。",
+        ]),
+        worldDir: world,
+        commit: async () => {
+          committed = true;
+          return true;
+        },
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "觀察兩人",
+    )) {
+      events.push(ev);
+    }
+    await expect(readFile(path.join(world, "characters", "npc-a.md"), "utf8")).rejects.toThrow();
+    const npcB = await readFile(path.join(world, "characters", "npc-b.md"), "utf8");
+    expect(npcB).toContain("來歷不明");
+    expect(committed).toBe(true);
+  });
+
   it("touched_entities（item，全新）：首次生成 secrets.md，並把比較重寫的內容整檔寫進 wiki.md", async () => {
     const ctrl = JSON.stringify({
       state_changes: {
