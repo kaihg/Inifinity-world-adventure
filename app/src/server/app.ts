@@ -6,7 +6,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { AppConfig } from "../config.js";
 import { loadState } from "../engine/context.js";
-import { runTurnLoop, type PendingLoreSync } from "../engine/turn.js";
+import { runTurnLoop, type PendingLoreSync } from "../engine/turn/index.js";
 import { createOpenAiClient, type LlmClient } from "../llm/client.js";
 import { commitWorld } from "../git/commit.js";
 import { getAppVersion, type AppVersionInfo } from "../git/version.js";
