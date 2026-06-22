@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import os from "node:os";
@@ -6,6 +6,7 @@ import path from "node:path";
 import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, type TurnEvent, type TurnDeps, type PendingLoreSync } from "./index.js";
 import type { RecallHit, RecallIndex } from "../../recall/store.js";
+import * as contextMod from "../context.js";
 
 /** 測試用假 RecallIndex：query 回傳固定結果，upsertFile/removeFile 記錄呼叫供斷言 */
 function fakeRecall(hits: RecallHit[] = []): RecallIndex & { upserted: Array<{ relPath: string; content: string }> } {
@@ -1023,5 +1024,87 @@ describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
       })(),
     ).resolves.not.toThrow();
     expect(secondEvents.some((e) => e.type === "done")).toBe(true);
+  });
+});
+
+describe("done.state 降級與自動推進多回合覆蓋", () => {
+  it("done 前 loadState 失敗時，done 不帶 state 且回合仍正常結束", async () => {
+    const ctrl = JSON.stringify({
+      state_changes: {},
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: [],
+      commit_summary: "回合",
+    });
+
+    const real = contextMod.loadState;
+    let calls = 0;
+    const spy = vi.spyOn(contextMod, "loadState").mockImplementation(async (dir, logger) => {
+      calls += 1;
+      if (calls >= 2) throw new Error("模擬 loadState 失敗");
+      return real(dir, logger);
+    });
+
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient(["一段敘事。"]),
+        controlClient: fakeClient([ctrl]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [10, 20],
+      },
+      "看看四周",
+    )) {
+      events.push(ev);
+    }
+
+    const done: any = events.at(-1);
+    expect(done.type).toBe("done");
+    expect(done.state).toBeUndefined();
+    spy.mockRestore();
+  });
+
+  it("自動推進多回合時，每個 done 各帶一份 state 快照", async () => {
+    const ctrlAuto = JSON.stringify({
+      state_changes: { now: { scene: "走廊" } },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: false,
+      suggested_actions: [],
+      commit_summary: "自動推進回合",
+    });
+    const ctrlStop = JSON.stringify({
+      state_changes: { now: { scene: "房間" } },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: ["休息"],
+      commit_summary: "停下",
+    });
+
+    const events: TurnEvent[] = [];
+    for await (const ev of runTurnLoop(
+      {
+        client: sequencedClient(["第一段。", "第二段。"]),
+        controlClient: sequencedClient([ctrlAuto, ctrlStop]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [10, 20, 30, 40],
+      },
+      "前進",
+      3,
+    )) {
+      events.push(ev);
+    }
+
+    const dones = events.filter((e) => e.type === "done") as any[];
+    expect(dones).toHaveLength(2);
+    expect(dones[0].state).toBeDefined();
+    expect(dones[1].state).toBeDefined();
+    expect(dones[1].state.now.scene).toBe("房間");
   });
 });
