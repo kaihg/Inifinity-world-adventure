@@ -69,6 +69,7 @@ export type TurnEvent =
       awaitingUserInput: boolean;
       suggestedActions: string[];
       modeTransition: string | null;
+      state?: GameState;
     };
 
 /** 送出一個回合，解析 SSE 串流，逐事件回呼 */

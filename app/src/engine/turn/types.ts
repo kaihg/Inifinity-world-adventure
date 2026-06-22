@@ -2,6 +2,7 @@ import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import type { Logger } from "../../logger.js";
 import type { RecallIndex } from "../../recall/store.js";
 import type { FastControl } from "../schema.js";
+import type { GameState } from "../context.js";
 
 /**
  * Layer 3（reactive-lore-sync）的接力 handle：一個 process 內的 mutable promise 容器，
@@ -52,6 +53,8 @@ export type TurnEvent =
       modeTransition: FastControl["mode_transition"];
       transitionDungeonId?: string;
       transitionDungeonGoal?: string;
+      /** 本回合 Layer 2 落地後的當前狀態快照，供前端面板即時更新；loadState 失敗時省略 */
+      state?: GameState;
     };
 
 /** 一回合所需的訊息建構器與落地設定，由 runMainSpaceTurn/runDungeonTurn 組裝後交給 runTurnCore/lore-sync 使用 */

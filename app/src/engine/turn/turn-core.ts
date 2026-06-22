@@ -4,6 +4,7 @@ import type { Logger } from "../../logger.js";
 import {
   applyPointsDelta,
   applyProtagonistUpdates,
+  loadState,
   type GameState,
 } from "../context.js";
 import { applyNowChanges, bumpNowUpdated, serializeNow } from "../now.js";
@@ -116,6 +117,16 @@ export async function* runTurnCore(
     "回合結束（Layer 2）",
   );
 
+  // done 前讀一次當前狀態快照，內嵌進事件供前端面板即時更新。
+  // 此刻 now.md / 主角檔已落地；Layer 3（NPC/wiki）尚未開始，故 NPC 可能仍是上一回合值（見 spec）。
+  // loadState 失敗不可讓回合崩潰：省略 state、warn、回合照常結束。
+  let stateSnapshot: GameState | undefined;
+  try {
+    stateSnapshot = await loadState(deps.worldDir, log);
+  } catch (err) {
+    log.warn({ err }, "done 前 loadState 失敗，本回合 done 不帶 state 快照");
+  }
+
   yield {
     type: "done",
     narrative,
@@ -125,6 +136,7 @@ export async function* runTurnCore(
     modeTransition: control?.mode_transition ?? null,
     transitionDungeonId: control?.transition_dungeon_id || undefined,
     transitionDungeonGoal: control?.transition_dungeon_goal || undefined,
+    state: stateSnapshot,
   };
 
   return narrative;
