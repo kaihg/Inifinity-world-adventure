@@ -157,6 +157,39 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(commits).toEqual(["沈奕進資訊室"]);
   });
 
+  it("done 帶本回合 Layer 2 落地後的 state 快照", async () => {
+    const narrative = "沈奕走進資訊室。";
+    const ctrl = JSON.stringify({
+      state_changes: { now: { scene: "資訊室", nextStep: "找葉晴" }, protagonist_points_delta: 2 },
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: ["找葉晴"],
+      commit_summary: "沈奕進資訊室",
+    });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient([narrative]),
+        controlClient: fakeClient([ctrl]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [10, 20],
+      },
+      "去資訊室",
+    )) {
+      events.push(ev);
+    }
+
+    const done: any = events.at(-1);
+    expect(done.type).toBe("done");
+    expect(done.state).toBeDefined();
+    expect(done.state.now.scene).toBe("資訊室");
+    expect(done.state.now.nextStep).toBe("找葉晴");
+    expect(Number(done.state.protagonist.points)).toBeGreaterThanOrEqual(2);
+  });
+
   it("副大腦試圖用 now.activeDungeon 自行覆寫副本欄時，引擎忽略該欄（由 mode_transition 管理）", async () => {
     const ctrl = JSON.stringify({
       state_changes: { now: { scene: "詭異的走廊", activeDungeon: "U-999 + run-1" } },
