@@ -9,9 +9,9 @@ import {
   enterDungeon,
   appendRun,
   loadDungeonLore,
-  appendWikiReveals,
   listDungeonIds,
 } from "./dungeon.js";
+import { rewriteLoreWiki } from "./lore.js";
 
 describe("parseActiveDungeon / formatActiveDungeon", () => {
   it("解析「<id> + <run>」", () => {
@@ -36,7 +36,7 @@ describe("nextRunId", () => {
   });
 });
 
-describe("enterDungeon / appendRun / loadDungeonLore / appendWikiReveals", () => {
+describe("enterDungeon / appendRun / loadDungeonLore", () => {
   let world: string;
   beforeEach(async () => {
     world = await mkdtemp(path.join(tmpdir(), "iwa-dungeon-"));
@@ -86,7 +86,7 @@ describe("enterDungeon / appendRun / loadDungeonLore / appendWikiReveals", () =>
     expect(lore.secrets).toContain("真相");
     expect(lore.wiki).toBe(""); // 尚未有 wiki
 
-    await appendWikiReveals(world, "U-001", ["入口大廳有三道門"], "2026-06-19");
+    await rewriteLoreWiki(world, "dungeons", "U-001", "入口大廳有三道門", "副本 U-001 · 已揭露知識（Wiki）");
     const lore2 = await loadDungeonLore(world, "U-001");
     expect(lore2.wiki).toContain("三道門");
   });
