@@ -1046,25 +1046,28 @@ describe("done.state 降級與自動推進多回合覆蓋", () => {
       return real(dir, logger);
     });
 
-    const events: TurnEvent[] = [];
-    for await (const ev of runMainSpaceTurn(
-      {
-        client: fakeClient(["一段敘事。"]),
-        controlClient: fakeClient([ctrl]),
-        worldDir: world,
-        commit: async () => true,
-        today: () => "2026-06-19",
-        dicePool: [10, 20],
-      },
-      "看看四周",
-    )) {
-      events.push(ev);
-    }
+    try {
+      const events: TurnEvent[] = [];
+      for await (const ev of runMainSpaceTurn(
+        {
+          client: fakeClient(["一段敘事。"]),
+          controlClient: fakeClient([ctrl]),
+          worldDir: world,
+          commit: async () => true,
+          today: () => "2026-06-19",
+          dicePool: [10, 20],
+        },
+        "看看四周",
+      )) {
+        events.push(ev);
+      }
 
-    const done: any = events.at(-1);
-    expect(done.type).toBe("done");
-    expect(done.state).toBeUndefined();
-    spy.mockRestore();
+      const done: any = events.at(-1);
+      expect(done.type).toBe("done");
+      expect(done.state).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("自動推進多回合時，每個 done 各帶一份 state 快照", async () => {
