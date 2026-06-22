@@ -55,17 +55,15 @@ export function App() {
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
-  useEffect(() => {
-    storyEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [story]);
-
   async function send(action: string) {
     const text = action.trim();
     if (!text || busy) return;
     setBusy(true);
+    setStory("");
     setSuggested([]);
     setInput("");
-    let firstToken = true;
+    // 新回合：把劇情卡捲到可視區頂端，streaming 期間不再自動捲動
+    storyEndRef.current?.parentElement?.scrollIntoView({ behavior: "smooth", block: "start" });
 
     // 🚀 Capture the exact pre-turn state and lastUpdated snapshot to avoid any race conditions with background refresh
     const preTurnLastUpdated = state?.now?.lastUpdated;
@@ -74,13 +72,10 @@ export function App() {
       await streamTurn(text, (ev) => {
         switch (ev.type) {
           case "delta":
-            setStory((s) =>
-              firstToken ? ((firstToken = false), s + "\n\n" + ev.text) : s + ev.text,
-            );
+            setStory((s) => s + ev.text);
             break;
           case "auto-advance":
             setStory((s) => s + "\n\n—— 系統自動推進 ——\n\n");
-            firstToken = false;
             break;
           case "transition":
             setStory(
