@@ -138,14 +138,12 @@ const FAST_CONTROL_FORMAT_BLOCK = [
 const LORE_SYNC_FORMAT_BLOCK = [
   "## 輸出格式（務必嚴格遵守）",
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
-  "- state_changes: { npc_updates?: [{id, update}], wiki_reveals?: [string],",
-  "    item_pickups?: [{id, name}]（主角本回合首次撿到的道具；id 用英數小寫 slug，name 用顯示名稱，",
-  "      首次撿到時引擎會生成該道具的隱藏設定，之後同 id 不會重複生成）,",
-  "    item_reveals?: [{id, reveal}]（劇情中真的揭露出該道具暗藏的設定時才填，累積進該道具的 wiki）,",
-  "    location_pickups?: [{id, name}]（劇情本回合首次明確帶到的場景/地點，規則同 item_pickups）,",
-  "    location_reveals?: [{id, reveal}]（該場景被劇情進一步揭露的細節，規則同 item_reveals）,",
-  "    skill_pickups?: [{id, name}]（主角本回合首次習得/明確接觸的技能，規則同 item_pickups）,",
-  "    skill_reveals?: [{id, reveal}]（該技能被劇情進一步揭露的細節，規則同 item_reveals） }",
+  "- state_changes: { touched_entities?: [{id, category, name, excerpt}], dungeon_wiki_excerpt?: string }",
+  "  - touched_entities：本回合敘事中明確登場、或知識被進一步揭露/訂正的 NPC、道具、場景、技能。",
+  "    category 只能是 npc/item/location/skill 其中之一；id 用英數小寫 slug；name 用顯示名稱；",
+  "    excerpt 是本回合敘事中跟這個實體有關的原文片段（之後會有另一步驟拿這段片段去跟現有檔案比較、",
+  "    決定怎麼更新，你不需要自己組好最終的完整內容，只要把相關原文片段填進來）。",
+  "  - dungeon_wiki_excerpt：劇情中對**當前副本本身**新揭露的知識片段（地圖/機關/規則），不在副本中則省略。",
   "（本回合若沒有任何相關異動，對應欄位省略或留空陣列即可，不要硬湊內容）",
 ].join("\n");
 

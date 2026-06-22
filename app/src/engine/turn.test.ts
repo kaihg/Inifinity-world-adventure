@@ -226,17 +226,16 @@ describe("buildFastControlMessages（Layer 2）", () => {
 });
 
 describe("buildLoreSyncMessages（Layer 3）", () => {
-  it("system 含 item/location/skill/npc 欄位說明，不含 mode_transition/awaiting_user_input", () => {
+  it("system 含 touched_entities/dungeon_wiki_excerpt 欄位說明，不含 mode_transition/awaiting_user_input", () => {
     const msgs = buildLoreSyncMessages({
       settingText: "設定", state: sampleState, input: "我四處看看",
       narrative: "沈奕在資訊室撿到一根生鏽鐵管。",
       dicePool: [42, 7], existingDungeonIds: ["U-001"],
     });
     expect(msgs[0].role).toBe("system");
-    expect(msgs[0].content).toContain("item_pickups");
-    expect(msgs[0].content).toContain("location_pickups");
-    expect(msgs[0].content).toContain("skill_pickups");
-    expect(msgs[0].content).toContain("npc_updates");
+    expect(msgs[0].content).toContain("touched_entities");
+    expect(msgs[0].content).toContain("dungeon_wiki_excerpt");
+    expect(msgs[0].content).toContain("npc/item/location/skill");
     expect(msgs[0].content).not.toContain("awaiting_user_input");
     expect(msgs[0].content).not.toContain("mode_transition");
     expect(msgs[0].content).toContain("沈奕在資訊室撿到一根生鏽鐵管");
