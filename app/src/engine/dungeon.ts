@@ -1,7 +1,7 @@
 import { writeFile, appendFile, mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
-import { loadLore, ensureSecrets, appendLoreReveals } from "./lore.js";
+import { loadLore, ensureSecrets } from "./lore.js";
 
 /** 檔案不存在（ENOENT）是預期狀況；其他 I/O 錯誤才值得記錄 */
 function logUnexpectedReadError(logger: Logger, file: string, err: unknown): void {
@@ -115,17 +115,6 @@ export async function loadDungeonLore(
   logger: Logger = defaultLogger,
 ): Promise<{ wiki: string; secrets: string }> {
   return loadLore(worldDir, "dungeons", dungeonId, logger);
-}
-
-/** 把本回合已揭露的知識提煉進 wiki.md（append；wiki 不存在則建立） */
-export async function appendWikiReveals(
-  worldDir: string,
-  dungeonId: string,
-  reveals: string[],
-  date: string,
-  logger: Logger = defaultLogger,
-): Promise<void> {
-  await appendLoreReveals(worldDir, "dungeons", dungeonId, reveals, date, `副本 ${dungeonId} · 已揭露知識（Wiki）`, logger);
 }
 
 /** 列舉 world/dungeons/ 下所有副本子目錄名（id）；dungeons/ 不存在回 [] */
