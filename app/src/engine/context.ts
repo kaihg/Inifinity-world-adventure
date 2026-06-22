@@ -1,4 +1,4 @@
-import { readFile, appendFile } from "node:fs/promises";
+import { readFile, writeFile, appendFile } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 import { parseLastTurnRecord, type LastTurnRecord } from "./journal.js";
@@ -205,31 +205,31 @@ export function applyProtagonistUpdates(md: string, updates: ProtagonistUpdates)
 export const NPC_ID_RE = /^[\w.-]+$/;
 
 /**
- * 把模型回報的 npc_updates 落地到對應 characters/<id>.md（append，帶日期標頭）。
- * id 不合法或對應檔案不存在時靜默略過該筆，不中斷其他筆。
+ * 把模型重寫後的完整內容整檔覆寫進 characters/<id>.md（新 NPC 時等同建檔）。
+ * id 不合法時靜默略過，不寫出檔案，不中斷呼叫端的其他筆。
  */
-export async function appendNpcUpdates(
+export async function rewriteNpcFile(
   worldDir: string,
-  updates: Array<{ id: string; update: string }>,
-  date: string,
+  id: string,
+  content: string,
   logger: Logger = defaultLogger,
 ): Promise<void> {
-  for (const { id, update } of updates) {
-    if (!NPC_ID_RE.test(id)) {
-      logger.warn({ id }, "npc_updates 含不合法 id，略過");
-      continue;
-    }
-    const file = path.join(worldDir, "characters", `${id}.md`);
-    try {
-      await appendFile(file, `\n## [${date}] 更新\n\n${update.trim()}\n`, "utf8");
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
-        logger.warn({ id }, "npc_updates 對應角色檔不存在，略過");
-      } else {
-        throw err;
-      }
-    }
+  if (!NPC_ID_RE.test(id)) {
+    logger.warn({ id }, "touched_entities 含不合法 NPC id，略過");
+    return;
   }
+  const file = path.join(worldDir, "characters", `${id}.md`);
+  await writeFile(file, `${content.trim()}\n`, "utf8");
+}
+
+/**
+ * 若 characters/index.md 表格尚未有該 id，在表尾新增一列（新 NPC 首次登場）；
+ * 已存在則原樣回傳（避免重複列）。
+ */
+export function addCharacterIndexRow(md: string, id: string, name: string): string {
+  if (parseCharacterIndex(md).some((npc) => npc.id === id)) return md;
+  const row = `| ${id} | ${name} | NPC | 初次登場 | - |`;
+  return `${md.trimEnd()}\n${row}\n`;
 }
 
 /**
