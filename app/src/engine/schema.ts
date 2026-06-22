@@ -4,6 +4,13 @@ import { z } from "zod";
 const stringCoerce = z.preprocess((val) => {
   if (val === null || val === undefined) return "";
   if (Array.isArray(val)) return val.join(", ");
+  if (typeof val === "object") {
+    try {
+      return JSON.stringify(val);
+    } catch {
+      return String(val);
+    }
+  }
   return String(val);
 }, z.string());
 
@@ -31,14 +38,14 @@ const StateChangesSchema = z
   .object({
     protagonist_points_delta: z.number().optional(),
     protagonist_updates: ProtagonistUpdatesSchema,
-    npc_updates: z.array(z.object({ id: z.string(), update: z.string() })).optional(),
+    npc_updates: z.array(z.object({ id: z.string(), update: stringCoerce })).optional(),
     wiki_reveals: z.array(z.string()).optional(),
     item_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    item_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
+    item_reveals: z.array(z.object({ id: z.string(), reveal: stringCoerce })).optional(),
     location_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    location_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
+    location_reveals: z.array(z.object({ id: z.string(), reveal: stringCoerce })).optional(),
     skill_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    skill_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
+    skill_reveals: z.array(z.object({ id: z.string(), reveal: stringCoerce })).optional(),
     now: NowChangesSchema.optional(),
   })
   .default({});
@@ -91,14 +98,14 @@ export type FastControl = z.infer<typeof FastControlSchema>;
 /** Layer 3（reactive-lore-sync）：npc/item/location/skill/wiki 揭露相關欄位，皆可省略 */
 const LoreStateChangesSchema = z
   .object({
-    npc_updates: z.array(z.object({ id: z.string(), update: z.string() })).optional(),
+    npc_updates: z.array(z.object({ id: z.string(), update: stringCoerce })).optional(),
     wiki_reveals: z.array(z.string()).optional(),
     item_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    item_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
+    item_reveals: z.array(z.object({ id: z.string(), reveal: stringCoerce })).optional(),
     location_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    location_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
+    location_reveals: z.array(z.object({ id: z.string(), reveal: stringCoerce })).optional(),
     skill_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    skill_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
+    skill_reveals: z.array(z.object({ id: z.string(), reveal: stringCoerce })).optional(),
   })
   .default({});
 
