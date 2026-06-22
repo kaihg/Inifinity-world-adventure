@@ -88,17 +88,20 @@ export const FastControlSchema = z.object({
 
 export type FastControl = z.infer<typeof FastControlSchema>;
 
-/** Layer 3（reactive-lore-sync）：npc/item/location/skill/wiki 揭露相關欄位，皆可省略 */
+/** Layer 3（reactive-lore-sync）：本回合摸到的實體列表 + 副本本身的揭露片段，皆可省略 */
+const LoreEntityRefSchema = z.object({
+  id: z.string(),
+  category: z.enum(["npc", "item", "location", "skill"]),
+  name: z.string(),
+  excerpt: z.string(),
+});
+
+export type LoreEntityRef = z.infer<typeof LoreEntityRefSchema>;
+
 const LoreStateChangesSchema = z
   .object({
-    npc_updates: z.array(z.object({ id: z.string(), update: z.string() })).optional(),
-    wiki_reveals: z.array(z.string()).optional(),
-    item_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    item_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
-    location_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    location_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
-    skill_pickups: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
-    skill_reveals: z.array(z.object({ id: z.string(), reveal: z.string() })).optional(),
+    touched_entities: z.array(LoreEntityRefSchema).optional(),
+    dungeon_wiki_excerpt: z.string().optional(),
   })
   .default({});
 

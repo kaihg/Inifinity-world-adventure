@@ -179,23 +179,36 @@ describe("parseFastControlOutput（Layer 2：only now/protagonist/rolls/mode_tra
   });
 });
 
-describe("parseLoreSyncOutput（Layer 3：npc/item/location/skill/wiki reveals，不需 awaiting/commit）", () => {
-  it("接受 npc_updates / item_pickups / location_pickups / skill_pickups 等欄位，且不要求 awaiting_user_input", () => {
+describe("parseLoreSyncOutput（Layer 3：touched_entities + dungeon_wiki_excerpt，不需 awaiting/commit）", () => {
+  it("接受 touched_entities（npc/item/location/skill）與 dungeon_wiki_excerpt", () => {
     const raw = JSON.stringify({
       state_changes: {
-        npc_updates: [{ id: "ye-qing", update: "對沈奕的信任提升" }],
-        item_pickups: [{ id: "rusty-pipe", name: "生鏽鐵管" }],
-        location_pickups: [{ id: "info-room", name: "資訊室" }],
-        skill_pickups: [{ id: "melee-mastery", name: "近戰格鬥精通" }],
-        wiki_reveals: ["資訊室牆上有監視器"],
+        touched_entities: [
+          { id: "ye-qing", category: "npc", name: "葉晴", excerpt: "葉晴的信任又提升了一點。" },
+          { id: "rusty-pipe", category: "item", name: "生鏽鐵管", excerpt: "撿到一根生鏽鐵管。" },
+          { id: "info-room", category: "location", name: "資訊室", excerpt: "資訊室牆上有監視器。" },
+          { id: "melee-mastery", category: "skill", name: "近戰格鬥精通", excerpt: "領悟了近戰格鬥精通。" },
+        ],
+        dungeon_wiki_excerpt: "資訊室牆上有監視器",
       },
     });
     const sync = parseLoreSyncOutput(raw);
-    expect(sync.state_changes.npc_updates).toEqual([{ id: "ye-qing", update: "對沈奕的信任提升" }]);
-    expect(sync.state_changes.item_pickups).toEqual([{ id: "rusty-pipe", name: "生鏽鐵管" }]);
-    expect(sync.state_changes.location_pickups).toEqual([{ id: "info-room", name: "資訊室" }]);
-    expect(sync.state_changes.skill_pickups).toEqual([{ id: "melee-mastery", name: "近戰格鬥精通" }]);
-    expect(sync.state_changes.wiki_reveals).toEqual(["資訊室牆上有監視器"]);
+    expect(sync.state_changes.touched_entities).toEqual([
+      { id: "ye-qing", category: "npc", name: "葉晴", excerpt: "葉晴的信任又提升了一點。" },
+      { id: "rusty-pipe", category: "item", name: "生鏽鐵管", excerpt: "撿到一根生鏽鐵管。" },
+      { id: "info-room", category: "location", name: "資訊室", excerpt: "資訊室牆上有監視器。" },
+      { id: "melee-mastery", category: "skill", name: "近戰格鬥精通", excerpt: "領悟了近戰格鬥精通。" },
+    ]);
+    expect(sync.state_changes.dungeon_wiki_excerpt).toBe("資訊室牆上有監視器");
+  });
+
+  it("category 不在 npc/item/location/skill 之中時拋錯", () => {
+    const raw = JSON.stringify({
+      state_changes: {
+        touched_entities: [{ id: "x", category: "monster", name: "x", excerpt: "x" }],
+      },
+    });
+    expect(() => parseLoreSyncOutput(raw)).toThrow();
   });
 
   it("空物件也能解析（本回合沒有任何 lore 異動）", () => {
