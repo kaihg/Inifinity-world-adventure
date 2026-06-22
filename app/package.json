@@ -18,7 +18,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "reindex": "tsx src/recall/reindex-all.ts"
   },
   "dependencies": {
     "@fastify/static": "^7.0.4",
