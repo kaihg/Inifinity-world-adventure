@@ -4,6 +4,11 @@ import { z } from "zod";
 const stringCoerce = z.preprocess((val) => {
   if (val === null || val === undefined) return "";
   if (Array.isArray(val)) return val.join(", ");
+  if (typeof val === "object" && val !== null) {
+    const values = Object.values(val).filter(v => v !== null && v !== undefined && v !== "");
+    if (values.length === 0) return "";
+    return values.map(v => typeof v === "object" ? JSON.stringify(v) : String(v)).join(", ");
+  }
   return String(val);
 }, z.string());
 
@@ -140,12 +145,17 @@ function extractFromText(text: string): unknown {
 function extractJsonObject(raw: string): unknown {
   const cleaned = raw.replace(/```(?:json)?/gi, "");
 
-  const direct = extractFromText(cleaned);
+  // 移去單行與多行 JS/JSON 註釋，使引擎能容忍代碼模型（如 Qwen 7B Coder）輸出的含註釋 JSON
+  const noComments = cleaned
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  const direct = extractFromText(noComments);
   if (direct !== undefined) return direct;
 
   const keysPattern = "state_changes|rolls|mode_transition|transition_dungeon_id|transition_dungeon_goal|awaiting_user_input|suggested_actions|commit_summary|protagonist_points_delta|protagonist_updates|npc_updates|wiki_reveals|item_pickups|item_reveals|location_pickups|location_reveals|skill_pickups|skill_reveals|now|chapter|scene|companions|activeDungeon|threads|nextStep|desc|value|success|id|name|update|reveal|attributes|skills|items|buffs";
 
-  const repaired = cleaned
+  const repaired = noComments
     // 1. 將無引號的鍵補上雙引號 (例如 { desc: -> { "desc": )
     .replace(new RegExp(`([{,]\\s*)(${keysPattern})\\s*:`, 'g'), '$1"$2":')
     // 2. 將單引號的鍵改為雙引號 (例如 { 'desc': -> { "desc": )
