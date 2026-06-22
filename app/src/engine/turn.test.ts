@@ -208,8 +208,8 @@ describe("buildFastControlMessages（Layer 2）", () => {
     expect(msgs[0].content).toContain("U-001");
     expect(msgs[0].content).toContain("abandoned-hospital");
     expect(msgs[0].content).toContain("沈奕走進資訊室");
-    expect(msgs[0].content).not.toContain("item_pickups");
-    expect(msgs[0].content).not.toContain("npc_updates");
+    expect(msgs[0].content).not.toContain("touched_entities");
+    expect(msgs[0].content).not.toContain("dungeon_wiki_excerpt");
     expect(msgs[1].role).toBe("user");
     expect(msgs[1].content).toContain("我四處看看");
   });

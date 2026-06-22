@@ -326,8 +326,8 @@ export function buildFastControlMessages(params: BuildControlParams): ChatMessag
 
 /**
  * Layer 3（reactive-lore-sync）：讀主腦敘事 + 當前狀態，抽出可延後落地的 lore 欄位
- * （npc_updates、item/location/skill 的 pickups 與 reveals、wiki_reveals）。不卡玩家可見的 done event，
- * 但仍只整理敘事中已發生的事實，規則與 Layer 2 一致。
+ * （touched_entities：NPC/道具/場景/技能的初次接觸與知識揭露、dungeon_wiki_excerpt）。
+ * 不卡玩家可見的 done event，但仍只整理敘事中已發生的事實，規則與 Layer 2 一致。
  */
 export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[] {
   const { settingText, state, input, narrative } = params;
@@ -339,7 +339,7 @@ export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[]
     "",
     "## 鐵則",
     "- 只整理敘事中已經寫出的事實，**不可新增劇情、不可發明敘事未提及的事件**。",
-    "- wiki_reveals / item_reveals / location_reveals / skill_reveals 只填**敘事中明確公開揭露給主角知道**的真相（角色已親眼確認、已被明說）；" +
+    "- touched_entities 的 excerpt 只填**敘事中明確公開揭露給主角知道**的真相（角色已親眼確認、已被明說）；" +
       "敘事中模糊的暗示、伏筆、氣氛描寫一律不可當成已揭露填入，寧可漏填也不可提前洩漏暗線。",
     "",
     LORE_SYNC_FORMAT_BLOCK,
