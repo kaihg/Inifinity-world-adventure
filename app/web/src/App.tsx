@@ -91,6 +91,7 @@ export function App() {
             break;
           case "done":
             setSuggested(ev.suggestedActions ?? []);
+            if (ev.state) setState(ev.state);
             break;
         }
       });
