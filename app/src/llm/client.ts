@@ -14,7 +14,7 @@ export interface ChatMessage {
  */
 export interface LlmClient {
   /** 串流對話，逐段 yield 文字 delta */
-  streamChat(messages: ChatMessage[]): AsyncIterable<string>;
+  streamChat(messages: ChatMessage[], maxTokens?: number): AsyncIterable<string>;
 }
 
 export interface CreateOpenAiClientOptions {
@@ -38,11 +38,11 @@ export function createOpenAiClient(
   const usageLogPath = opts.usageLogPath ?? config.usageLogPath;
 
   return {
-    async *streamChat(messages: ChatMessage[]): AsyncIterable<string> {
+    async *streamChat(messages: ChatMessage[], maxTokens?: number): AsyncIterable<string> {
       const startedAt = Date.now();
       const totalChars = messages.reduce((n, m) => n + m.content.length, 0);
       logger.debug(
-        { model: config.openai.model, baseUrl: config.openai.baseUrl, messageCount: messages.length, totalChars },
+        { model: config.openai.model, baseUrl: config.openai.baseUrl, messageCount: messages.length, totalChars, maxTokens },
         "llm 呼叫開始",
       );
 
@@ -55,6 +55,7 @@ export function createOpenAiClient(
           messages,
           stream: true,
           stream_options: { include_usage: true },
+          ...(maxTokens ? { max_tokens: maxTokens } : {}),
         });
         for await (const chunk of stream) {
           const delta = chunk.choices[0]?.delta?.content;

@@ -412,7 +412,7 @@ async function generateItemSecrets(client: LlmClient, settingText: string, itemN
     { role: "user", content: `道具名稱：${itemName}。請生成其隱藏設定。` },
   ];
   let full = "";
-  for await (const d of client.streamChat(messages)) full += d;
+  for await (const d of client.streamChat(messages, 1000)) full += d;
   return full.trim() || "（生成失敗，待補）";
 }
 
@@ -469,7 +469,7 @@ async function callLoreRewrite(
   ];
   let raw = "";
   try {
-    for await (const delta of client.streamChat(messages)) raw += delta;
+    for await (const delta of client.streamChat(messages, 2000)) raw += delta;
   } catch (err) {
     log.warn({ err }, "Layer 3 整檔重寫 LLM 呼叫失敗，略過該筆");
     return null;
@@ -604,7 +604,7 @@ async function* runTurnCore(
   let control: FastControl | null = null;
   let raw = "";
   try {
-    for await (const delta of controlClient.streamChat(plan.buildFastControl(narrative))) {
+    for await (const delta of controlClient.streamChat(plan.buildFastControl(narrative), 1000)) {
       raw += delta;
     }
     control = parseFastControlOutput(raw);
@@ -627,7 +627,10 @@ async function* runTurnCore(
     control && control.rolls.length > 0
       ? `\n\n擲骰：${control.rolls.map((r) => `${r.desc}=${r.value}${r.success === undefined ? "" : r.success ? "(成功)" : "(失敗)"}`).join("、")}`
       : "";
-  const suggestedActions = control?.suggested_actions ?? [];
+  const awaitingUserInput = control?.awaiting_user_input ?? true;
+  const suggestedActions = control?.suggested_actions && control.suggested_actions.length > 0
+    ? control.suggested_actions
+    : (awaitingUserInput ? ["繼續探索"] : []);
   const suggestedLine = suggestedActions.length > 0 ? `\n\n建議動作：${suggestedActions.join("、")}` : "";
   await plan.appendRaw({
     date: today,
@@ -674,7 +677,7 @@ async function* runTurnCore(
   log.info(
     {
       committed,
-      awaitingUserInput: control?.awaiting_user_input ?? true,
+      awaitingUserInput,
       modeTransition: control?.mode_transition ?? null,
     },
     "回合結束（Layer 2）",
@@ -684,7 +687,7 @@ async function* runTurnCore(
     type: "done",
     narrative,
     committed,
-    awaitingUserInput: control?.awaiting_user_input ?? true,
+    awaitingUserInput,
     suggestedActions,
     modeTransition: control?.mode_transition ?? null,
     transitionDungeonId: control?.transition_dungeon_id || undefined,
@@ -709,7 +712,7 @@ async function runLoreSync(
   try {
     const loreClient = deps.loreClient ?? deps.controlClient ?? deps.client;
     let raw = "";
-    for await (const delta of loreClient.streamChat(plan.buildLoreSync(narrative))) {
+    for await (const delta of loreClient.streamChat(plan.buildLoreSync(narrative), 1500)) {
       raw += delta;
     }
     const sync = parseLoreSyncOutput(raw);

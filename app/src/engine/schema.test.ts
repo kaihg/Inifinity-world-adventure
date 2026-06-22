@@ -131,6 +131,18 @@ describe("parseLoreSyncOutput（Layer 3：touched_entities + dungeon_wiki_excerp
     expect(sync.state_changes).toEqual({});
   });
 
+  it("當 touched_entities 的 name 或 excerpt 等欄位被模型輸出為物件時，自動將其 stringify，不拋出 ZodError", () => {
+    const raw = JSON.stringify({
+      state_changes: {
+        touched_entities: [
+          { id: "ye-qing", category: "npc", name: "葉晴", excerpt: { status: "injured", trust: "high" } },
+        ],
+      },
+    });
+    const sync = parseLoreSyncOutput(raw);
+    expect(sync.state_changes.touched_entities?.[0].excerpt).toEqual('{"status":"injured","trust":"high"}');
+  });
+
   it("找不到 JSON 物件時拋錯", () => {
     expect(() => parseLoreSyncOutput("完全沒有大括號")).toThrow();
   });
