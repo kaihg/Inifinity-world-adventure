@@ -53,6 +53,8 @@ export type TurnEvent =
       modeTransition: FastControl["mode_transition"];
       transitionDungeonId?: string;
       transitionDungeonGoal?: string;
+      /** 主角永久死亡（新手保護耗盡）；true 時前端顯示死亡抉擇 modal */
+      protagonistDied: boolean;
       /** 本回合 Layer 2 落地後的當前狀態快照，供前端面板即時更新；loadState 失敗時省略 */
       state?: GameState;
     };
