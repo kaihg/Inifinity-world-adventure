@@ -20,7 +20,7 @@ import {
   buildLoreSyncMessages,
   buildMainSpaceMessages,
 } from "./prompts.js";
-import { readBestEffort, todayISO } from "./shared.js";
+import { AUTO_CONTINUE_INPUT, readBestEffort, todayISO } from "./shared.js";
 import { runTurnCore } from "./turn-core.js";
 import type { TurnDeps, TurnEvent, TurnPlan } from "./types.js";
 
@@ -100,8 +100,6 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
   await scheduleLoreSync(deps, narrative, settingText, plan, log);
 }
-
-const AUTO_CONTINUE_INPUT = "（系統自動推進：延續上一刻，繼續敘事，玩家未介入）";
 
 /**
  * Mode-aware 自動推進迴圈：依 now.md 模式 dispatch 主空間/副本回合；
