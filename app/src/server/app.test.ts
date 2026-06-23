@@ -98,6 +98,25 @@ describe("POST /api/turn（SSE）", () => {
     await server.close();
   });
 
+  it("pacingClient 注入後，行數達門檻時建議內容出現在串流敘事前的 system prompt（透過 done 事件確認回合正常完成）", async () => {
+    await writeFile(path.join(world, "journal_summary.md"), "- [2026-06-19T09:00:00] (主空間) 之前的事\n");
+    const server = buildServer(loadConfig({ WORLD_DIR: world, PACING_REVIEW_INTERVAL: "1" }), {
+      client: fakeClient(["前半段，", "後半段。"]),
+      controlClient: fakeClient([
+        JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "看看四周",
+        }),
+      ]),
+      pacingClient: fakeClient(["該開新副本了。"]),
+      commit: async () => true,
+    });
+    const res = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "我四處看看" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('"type":"done"');
+    await server.close();
+  });
+
   it("loreClient 卡住也不影響 SSE response 關閉（Layer 3 不卡 Layer 2 完成）", async () => {
     const stuckLoreClient: LlmClient = {
       async *streamChat() {

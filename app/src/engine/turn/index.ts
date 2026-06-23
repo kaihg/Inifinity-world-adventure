@@ -14,17 +14,42 @@ import { rollPool } from "../roll.js";
 import { runPrePassBlock, runRecallBlock } from "./context-blocks.js";
 import { generateSecrets, setNowActiveDungeon } from "./dungeon-transition.js";
 import { scheduleLoreSync } from "./lore-sync.js";
+import { runNudgeBlock } from "./nudge.js";
+import { runPacingBlock } from "./pacing.js";
 import {
   buildDungeonMessages,
   buildFastControlMessages,
   buildLoreSyncMessages,
   buildMainSpaceMessages,
 } from "./prompts.js";
-import { readBestEffort, todayISO } from "./shared.js";
+import { AUTO_CONTINUE_INPUT, readBestEffort, todayISO } from "./shared.js";
 import { runTurnCore } from "./turn-core.js";
 import type { TurnDeps, TurnEvent, TurnPlan } from "./types.js";
 
 export type { PendingLoreSync, TurnDeps, TurnEvent } from "./types.js";
+
+/**
+ * 把兩個獨立的 AsyncGenerator<TurnEvent, string> 並行跑完，
+ * 回傳所有收集到的 events 與各自的 return value。
+ * 適用於 nudgeBlock/pacingBlock 這種互相無資料依賴的情境。
+ */
+async function runBlocksParallel(
+  genA: AsyncGenerator<TurnEvent, string>,
+  genB: AsyncGenerator<TurnEvent, string>,
+): Promise<{ events: TurnEvent[]; resultA: string; resultB: string }> {
+  async function drain(
+    gen: AsyncGenerator<TurnEvent, string>,
+  ): Promise<{ events: TurnEvent[]; result: string }> {
+    const events: TurnEvent[] = [];
+    while (true) {
+      const { value, done } = await gen.next();
+      if (done) return { events, result: value };
+      events.push(value as TurnEvent);
+    }
+  }
+  const [a, b] = await Promise.all([drain(genA), drain(genB)]);
+  return { events: [...a.events, ...b.events], resultA: a.result, resultB: b.result };
+}
 
 /** 主空間敘事回合 */
 export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
@@ -39,10 +64,16 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
 
+  const { events: blockEvents, resultA: nudgeBlock, resultB: pacingBlock } = await runBlocksParallel(
+    runNudgeBlock(deps, input),
+    runPacingBlock(deps, state, settingText),
+  );
+  for (const ev of blockEvents) yield ev;
+
   const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
 
   const plan: TurnPlan = {
-    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock }),
+    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock, nudgeBlock, pacingBlock }),
     buildFastControl: (narrative) =>
       buildFastControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
     buildLoreSync: (narrative) =>
@@ -76,11 +107,17 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
 
+  const { events: blockEvents, resultA: nudgeBlock, resultB: pacingBlock } = await runBlocksParallel(
+    runNudgeBlock(deps, input),
+    runPacingBlock(deps, state, settingText),
+  );
+  for (const ev of blockEvents) yield ev;
+
   const plan: TurnPlan = {
     messages: buildDungeonMessages({
       settingText, state, input, dicePool,
       dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
-      intentsBlock, recallBlock,
+      intentsBlock, recallBlock, nudgeBlock, pacingBlock,
     }),
     buildFastControl: (narrative) =>
       buildFastControlMessages({
@@ -100,8 +137,6 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
   await scheduleLoreSync(deps, narrative, settingText, plan, log);
 }
-
-const AUTO_CONTINUE_INPUT = "（系統自動推進：延續上一刻，繼續敘事，玩家未介入）";
 
 /**
  * Mode-aware 自動推進迴圈：依 now.md 模式 dispatch 主空間/副本回合；

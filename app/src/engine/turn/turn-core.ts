@@ -9,7 +9,8 @@ import {
 } from "../context.js";
 import { applyNowChanges, bumpNowUpdated, serializeNow } from "../now.js";
 import { parseFastControlOutput, type FastControl } from "../schema.js";
-import { deriveSummary, reindexTouchedFiles } from "./shared.js";
+import { appendJournalSummary } from "../journal-summary.js";
+import { deriveSummary, nowISOSeconds, reindexTouchedFiles } from "./shared.js";
 import type { TurnDeps, TurnEvent, TurnPlan } from "./types.js";
 
 /**
@@ -71,6 +72,17 @@ export async function* runTurnCore(
     title: summary,
     body: `玩家行動：${input}\n骰池：[${dicePool.join(", ")}]\n\n${narrative}${rollsLine}${suggestedLine}`,
   });
+
+  // 1b. journal_summary 索引（衍生摘要，給短期/長期節奏機制讀；失敗只警告，不擋本回合落地）
+  try {
+    await appendJournalSummary(deps.worldDir, {
+      timestamp: (deps.now ?? nowISOSeconds)(),
+      mode: plan.dungeonId ? `副本:${plan.dungeonId}` : "主空間",
+      summary,
+    });
+  } catch (err) {
+    log.warn({ err }, "journal_summary.md 寫入失敗，略過（不影響本回合落地）");
+  }
 
   // 2. 提煉頁 now.md
   const nowPath = path.join(deps.worldDir, "now.md");

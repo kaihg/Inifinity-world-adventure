@@ -1,6 +1,7 @@
 import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import type { Logger } from "../../logger.js";
 import type { RecallIndex } from "../../recall/store.js";
+import type { Embedder } from "../../recall/embedder.js";
 import type { FastControl } from "../schema.js";
 import type { GameState } from "../context.js";
 
@@ -20,9 +21,15 @@ export interface TurnDeps {
   controlClient?: LlmClient;
   /** Layer 3 reactive-lore-sync 用的 LLM；未提供時依序退回 controlClient、client */
   loreClient?: LlmClient;
+  /** 長期節奏審閱（劇本大師）用的 LLM（選填）；未提供時依序退回 controlClient、主 client */
+  pacingClient?: LlmClient;
+  /** 長期節奏審閱頻率：每 K 回合跑一次（K = journal_summary.md 行數的倍數），預設 10 */
+  pacingReviewInterval?: number;
   worldDir: string;
   commit: (message: string) => Promise<boolean>;
   today?: () => string;
+  /** journal_summary.md 寫入用的時間戳（測試可注入固定值）；未提供時退回真實 nowISOSeconds() */
+  now?: () => string;
   /** 本回合預擲骰池（測試可注入；預設 crypto 真隨機 6 顆 d100） */
   dicePool?: number[];
   /** 未提供時退回共用的預設 logger（測試環境下為 silent） */
@@ -31,6 +38,12 @@ export interface TurnDeps {
   recall?: RecallIndex;
   /** 每回合檢索片段數上限，預設 5 */
   recallTopK?: number;
+  /** 短期停滯規則用的本地嵌入器（選填；測試可注入 fake，預設 createLocalEmbedder()） */
+  embedder?: Embedder;
+  /** 短期停滯規則比較的視窗大小（最近 N 筆 journal_summary 條目），預設 5 */
+  nudgeWindowSize?: number;
+  /** 短期停滯規則的 cosine similarity 命中門檻（0~1），預設 0.92 */
+  nudgeSimilarityThreshold?: number;
   /**
    * Layer 3 接力 handle（選填）。提供時，本回合的 lore-sync 不 await 完成即讓回合結束
    * （done event 立即送出），handle.promise 會被換成本回合的 lore-sync；

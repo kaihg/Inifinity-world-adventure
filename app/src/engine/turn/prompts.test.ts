@@ -4,6 +4,7 @@ import {
   buildFastControlMessages,
   buildLoreSyncMessages,
   buildMainSpaceMessages,
+  buildPacingMessages,
 } from "./prompts.js";
 import type { GameState } from "../context.js";
 
@@ -150,5 +151,65 @@ describe("buildLoreSyncMessages（Layer 3）", () => {
     expect(msgs[0].content).toContain("U-001");
     expect(msgs[0].content).toContain("入口有三道門");
     expect(msgs[0].content).not.toContain("地板會塌");
+  });
+});
+
+describe("nudgeBlock / pacingBlock 注入", () => {
+  it("nudgeBlock 有值時出現在主空間 system prompt", () => {
+    const msgs = buildMainSpaceMessages({
+      settingText: "設定",
+      state: makeFakeState(),
+      input: "行動",
+      dicePool: [50],
+      nudgeBlock: "## 節奏建議（短期）\n最近幾回合的劇情進展趨於重複。",
+    });
+    expect(msgs[0].content).toContain("## 節奏建議（短期）");
+  });
+
+  it("pacingBlock 有值時出現在副本 system prompt", () => {
+    const msgs = buildDungeonMessages({
+      settingText: "設定",
+      state: makeFakeState(),
+      input: "行動",
+      dicePool: [50],
+      dungeonId: "d1",
+      wiki: "",
+      secrets: "",
+      pacingBlock: "## 節奏建議（長期，劇本大師）\n該開新副本了。",
+    });
+    expect(msgs[0].content).toContain("## 節奏建議（長期，劇本大師）");
+  });
+
+  it("nudgeBlock/pacingBlock 都未提供時不出現任一標題", () => {
+    const msgs = buildMainSpaceMessages({
+      settingText: "設定",
+      state: makeFakeState(),
+      input: "行動",
+      dicePool: [50],
+    });
+    expect(msgs[0].content).not.toContain("## 節奏建議");
+  });
+});
+
+describe("buildPacingMessages", () => {
+  it("system 含歷史摘要時間線與當前局勢，user 是固定請求", () => {
+    const msgs = buildPacingMessages({
+      settingText: "設定",
+      state: makeFakeState(),
+      entries: [
+        { timestamp: "2026-06-23T10:00:00", mode: "主空間", summary: "沈奕整理裝備" },
+        { timestamp: "2026-06-23T10:05:00", mode: "副本:d1", summary: "葉晴擊倒喪屍" },
+      ],
+    });
+    expect(msgs[0].role).toBe("system");
+    expect(msgs[0].content).toContain("劇本大師");
+    expect(msgs[0].content).toContain("沈奕整理裝備");
+    expect(msgs[0].content).toContain("(副本:d1)");
+    expect(msgs[1]).toEqual({ role: "user", content: "請給這回合的長期節奏建議。" });
+  });
+
+  it("沒有歷史摘要時仍正常產出，標示尚無記錄", () => {
+    const msgs = buildPacingMessages({ settingText: "設定", state: makeFakeState(), entries: [] });
+    expect(msgs[0].content).toContain("（尚無記錄）");
   });
 });

@@ -1,13 +1,21 @@
 import type { ChatMessage } from "../../llm/client.js";
 import type { GameState } from "../context.js";
+import type { JournalSummaryEntry } from "../journal-summary.js";
 
 // ---------- 共用 system prompt 片段 ----------
 
-/** 把可選的意圖區塊與語意檢索區塊串接到 prompt 尾段（兩者缺省時各自略去，不留空行） */
-function appendOptionalBlocks(params: { intentsBlock?: string; recallBlock?: string }): string[] {
+/** 把可選的意圖/語意檢索/節奏建議區塊串接到 prompt 尾段（缺省時各自略去，不留空行） */
+function appendOptionalBlocks(params: {
+  intentsBlock?: string;
+  recallBlock?: string;
+  nudgeBlock?: string;
+  pacingBlock?: string;
+}): string[] {
   return [
     ...(params.intentsBlock ? ["", params.intentsBlock] : []),
     ...(params.recallBlock ? ["", params.recallBlock] : []),
+    ...(params.nudgeBlock ? ["", params.nudgeBlock] : []),
+    ...(params.pacingBlock ? ["", params.pacingBlock] : []),
   ];
 }
 
@@ -68,6 +76,8 @@ export interface BuildMessagesParams {
   dicePool: number[];
   intentsBlock?: string;
   recallBlock?: string;
+  nudgeBlock?: string;
+  pacingBlock?: string;
 }
 
 /** 主空間回合的對話訊息（純函式，可測試） */
@@ -251,5 +261,43 @@ export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[]
   return [
     { role: "system", content: system },
     { role: "user", content: `玩家本回合行動：${input}` },
+  ];
+}
+
+export interface BuildPacingParams {
+  /** 保留此欄位與其他 build*Messages 函式的簽名一致；函式本體不使用（節奏審閱不需要完整世界設定全文）。 */
+  settingText: string;
+  state: GameState;
+  entries: JournalSummaryEntry[];
+}
+
+/**
+ * 長期節奏審閱（劇本大師）的對話訊息：讀歷史摘要時間線＋當前局勢，
+ * 請 LLM 給一段自由文字節奏建議（非 JSON），供敘事 LLM 參考、不是指令。
+ */
+export function buildPacingMessages(params: BuildPacingParams): ChatMessage[] {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { state, entries } = params;
+  const historyLines = entries.map((e) => `- [${e.timestamp}] (${e.mode}) ${e.summary}`).join("\n");
+  const system = [
+    "你是「無限恐怖」世界敘事引擎的**劇本大師（長期節奏顧問）**。",
+    "下方是最近的歷史摘要時間線與當前局勢，你的工作是依長期走勢給敘事 LLM 一段節奏建議",
+    "（例如：該不該插入支線、是否該催促/開啟下一個副本、副本內節奏是否該升級），",
+    "建議僅供參考、不是指令，敘事 LLM 會自行決定是否採納。",
+    "",
+    "## 鐵則",
+    "- 只依下方歷史摘要與當前局勢做主觀節奏判斷，不可發明摘要未提及的事件。",
+    "- 不可建議提前揭露任何尚未公開的暗線/真相。",
+    "- 輸出一段簡短的自由文字建議（不超過三、四句），不要輸出 JSON 或條列格式。",
+    "",
+    "## 最近歷史摘要時間線",
+    historyLines || "（尚無記錄）",
+    "",
+    canonicalBlock(state),
+  ].join("\n");
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: "請給這回合的長期節奏建議。" },
   ];
 }

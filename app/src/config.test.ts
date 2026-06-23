@@ -128,6 +128,44 @@ describe("loadConfig", () => {
     });
     expect(config.lore).toBeUndefined();
   });
+
+  it("nudge 設定預設值", () => {
+    const c = loadConfig({});
+    expect(c.nudge.windowSize).toBe(5);
+    expect(c.nudge.similarityThreshold).toBeCloseTo(0.92);
+  });
+
+  it("nudge 設定可由環境變數覆寫", () => {
+    const c = loadConfig({ NUDGE_WINDOW_SIZE: "8", NUDGE_SIMILARITY_THRESHOLD: "0.8" });
+    expect(c.nudge.windowSize).toBe(8);
+    expect(c.nudge.similarityThreshold).toBeCloseTo(0.8);
+  });
+
+  it("NUDGE_SIMILARITY_THRESHOLD 超出 0~1 範圍或非數字時退回預設", () => {
+    expect(loadConfig({ NUDGE_SIMILARITY_THRESHOLD: "2" }).nudge.similarityThreshold).toBeCloseTo(0.92);
+    expect(loadConfig({ NUDGE_SIMILARITY_THRESHOLD: "abc" }).nudge.similarityThreshold).toBeCloseTo(0.92);
+  });
+
+  it("NUDGE_WINDOW_SIZE 非正整數時退回預設", () => {
+    expect(loadConfig({ NUDGE_WINDOW_SIZE: "-1" }).nudge.windowSize).toBe(5);
+  });
+
+  it("pacingReviewInterval 預設 10，可由環境變數覆寫", () => {
+    expect(loadConfig({}).pacingReviewInterval).toBe(10);
+    expect(loadConfig({ PACING_REVIEW_INTERVAL: "20" }).pacingReviewInterval).toBe(20);
+  });
+
+  it("pacing 欄位：有設定時解析", () => {
+    const config = loadConfig({
+      OPENAI_BASE_URL: "http://main/v1", OPENAI_API_KEY: "key", MODEL: "main-model",
+      PACING_OPENAI_BASE_URL: "http://pacing/v1", PACING_MODEL: "qwen2.5:7b",
+    });
+    expect(config.pacing).toEqual({ baseUrl: "http://pacing/v1", model: "qwen2.5:7b" });
+  });
+
+  it("pacing 欄位：未設定時為 undefined", () => {
+    expect(loadConfig({ OPENAI_API_KEY: "key" }).pacing).toBeUndefined();
+  });
 });
 
 describe("configWarnings", () => {
