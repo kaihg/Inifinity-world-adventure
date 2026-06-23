@@ -5,6 +5,7 @@ import path from "node:path";
 import { buildServer } from "./app.js";
 import { loadConfig } from "../config.js";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
+import { isWorldInitialized } from "../engine/world-status.js";
 
 function fakeClient(deltas: string[]): LlmClient {
   return {
@@ -149,6 +150,52 @@ describe("GET /api/world/status", () => {
     const server = buildServer(loadConfig({ WORLD_DIR: world }));
     const res = await server.inject({ method: "GET", url: "/api/world/status" });
     expect(res.json()).toEqual({ initialized: true });
+    await server.close();
+  });
+});
+
+describe("POST /api/world/init", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-init-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    // 未初始化：不寫 setting.md
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("未初始化時成功生成世界，回 GameState，setting.md 變成正常內容", async () => {
+    const commits: string[] = [];
+    // init 內部依序呼叫 client 三次：setting / gm-notes / protagonist
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["# 世界設定\n\n冷酷系統。\n"]),
+      commit: async (m) => { commits.push(m); return true; },
+    });
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/world/init",
+      payload: { preferences: {}, protagonistSeed: {} },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.now).toBeDefined();
+    expect(await isWorldInitialized(world)).toBe(true);
+    expect(commits).toHaveLength(1);
+    await server.close();
+  });
+
+  it("已初始化時回 409，不動檔案", async () => {
+    await writeFile(path.join(world, "setting.md"), "# 已存在世界\n\n內容。\n", "utf8");
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["不該被呼叫"]),
+    });
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/world/init",
+      payload: { preferences: {}, protagonistSeed: {} },
+    });
+    expect(res.statusCode).toBe(409);
     await server.close();
   });
 });

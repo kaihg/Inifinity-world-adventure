@@ -14,6 +14,9 @@ import { getAppVersion, type AppVersionInfo } from "../git/version.js";
 import { createLogger, type Logger } from "../logger.js";
 import { createRecallIndex } from "../recall/index.js";
 import type { RecallIndex } from "../recall/store.js";
+import { initWorld } from "../engine/world-ops.js";
+import { clearRecallIndex } from "../recall/clear-index.js";
+import { todayISO } from "../engine/turn/shared.js";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 // app/src/server/app.ts → app/web（dev：原始檔；prod：Vite build 輸出 web-dist）
@@ -144,6 +147,24 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
   // 前端開機判斷：世界是否已初始化（決定要不要顯示初始化精靈）
   server.get("/api/world/status", async () => {
     return { initialized: await isWorldInitialized(config.worldDir) };
+  });
+
+  server.post("/api/world/init", async (req, reply) => {
+    if (await isWorldInitialized(config.worldDir)) {
+      return reply.code(409).send({ error: "世界已初始化，不可重複初始化" });
+    }
+    const body = (req.body ?? {}) as import("../engine/world-ops.js").WorldInitInput;
+    const opLogger = logger.child({ op: "world-init" });
+    await initWorld({
+      worldDir: config.worldDir,
+      client: makeClient(opLogger),
+      input: body,
+      today: todayISO(),
+      logger: opLogger,
+    });
+    await makeCommit(opLogger)("重置世界、生成新設定");
+    await clearRecallIndex(config.recall);
+    return loadState(config.worldDir, opLogger);
   });
 
   // 推進主空間敘事回合（含自動推進），以 SSE 串流 delta/auto-advance/done 事件
