@@ -36,7 +36,8 @@ function formatNudgeBlock(hint?: string): string {
  */
 export async function* runNudgeBlock(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent, string> {
   // 設定值來自 config.ts DEFAULTS（透過 server/app.ts 注入），local fallback 僅為無注入的測試環境保底
-  const windowSize = deps.nudgeWindowSize ?? 5;
+  // 預設 3（根因 H）：原本 5 在 autoAdvanceMax=4 下窗口長期填不滿、從未觸發；縮到 3 才接得住真實的鬼打牆
+  const windowSize = deps.nudgeWindowSize ?? 3;
   const threshold = deps.nudgeSimilarityThreshold ?? 0.92;
   try {
     const entries = await readJournalSummaryEntries(deps.worldDir);

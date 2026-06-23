@@ -386,16 +386,29 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     });
     let committed = false;
     const events: TurnEvent[] = [];
-    // 序列：主腦敘事 → Layer 2(ctrl) → Layer 3 抽取(ctrl) → npc-a 重寫（空字串，視為失敗略過）→ npc-b 重寫（正常內容）
+    // 兩個 NPC 的整檔重寫透過 Promise.all 併發跑，呼叫順序不保證；
+    // 故依「內容」而非「呼叫序」決定回應：甲→空字串（視為失敗略過）、乙→正常內容。
+    const client: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        const user = messages.find((m) => m.role === "user")?.content ?? "";
+        // Layer 2 fast-control 與 Layer 3 抽取：回 ctrl JSON
+        if (system.includes("fast-control") || system.includes("Layer 3：reactive-lore-sync")) {
+          yield ctrl;
+          return;
+        }
+        // 知識庫維護者（整檔重寫）：依文件標題/片段判斷是甲還是乙
+        if (system.includes("知識庫維護者")) {
+          yield user.includes("甲") ? "" : "# 乙\n\n自稱是這裡的嚮導，來歷不明。";
+          return;
+        }
+        // 主腦敘事
+        yield "甲只是路過，沒說什麼。乙自稱是這裡的嚮導。";
+      },
+    };
     for await (const ev of runMainSpaceTurn(
       {
-        client: sequencedClient([
-          "甲只是路過，沒說什麼。乙自稱是這裡的嚮導。",
-          ctrl,
-          ctrl,
-          "",
-          "# 乙\n\n自稱是這裡的嚮導，來歷不明。",
-        ]),
+        client,
         worldDir: world,
         commit: async () => {
           committed = true;
@@ -968,6 +981,7 @@ describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
       },
     });
     let loreCall = 0;
+    // Layer 3 全程走小模型（loreClient）：依序為 ①抽取 touched_entities ②生成 secrets ③整檔重寫 wiki
     const loreClient: LlmClient = {
       async *streamChat() {
         loreCall++;
@@ -976,13 +990,16 @@ describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
           yield loreCtrl;
           return;
         }
-        // 第二次呼叫：比較重寫階段，回傳整檔新內容
-        yield "# 道具（rusty-pipe）\n\n比較重寫後的內容。";
+        if (loreCall === 2) {
+          yield "鐵管暗線真相內容"; // secrets 生成
+          return;
+        }
+        yield "# 道具（rusty-pipe）\n\n比較重寫後的內容。"; // wiki 整檔重寫
       },
     };
     const pendingLoreSync = { promise: null as Promise<void> | null };
     const deps: TurnDeps = {
-      client: fakeClient(["敘事內容。"]), // 也供 generateItemSecrets 使用
+      client: fakeClient(["敘事內容。"]),
       controlClient: fakeClient([controlJson(true, "x")]),
       loreClient,
       pendingLoreSync,
@@ -999,8 +1016,9 @@ describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
       // 第二回合一開始就 await 同一個 pendingLoreSync，理論上會等到第一回合的 Layer 3 落地
     }
 
+    // secrets.md 已落地即證明第一回合的 Layer 3 在第二回合開始前完成（內容來自小模型 loreClient）
     const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
-    expect(secrets).toContain("敘事內容");
+    expect(secrets).toContain("鐵管暗線真相內容");
   });
 
   it("Layer 3 失敗（loreClient 拋錯）：下一回合仍正常開始、不拋錯", async () => {

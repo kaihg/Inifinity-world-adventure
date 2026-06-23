@@ -1,7 +1,8 @@
 import { writeFile, appendFile, mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
-import { loadLore, ensureSecrets } from "./lore.js";
+import { loadLore, ensureSecrets, listLoreIds } from "./lore.js";
+import { toTraditional } from "./text/traditionalize.js";
 
 /** 檔案不存在（ENOENT）是預期狀況；其他 I/O 錯誤才值得記錄 */
 function logUnexpectedReadError(logger: Logger, file: string, err: unknown): void {
@@ -74,12 +75,13 @@ export async function enterDungeon(
   const runId = nextRunId(existing);
   logger.info({ dungeonId: params.dungeonId, runId }, "進入副本");
 
+  // 動態值（角色摘要、目標）可能含 LLM 產出的簡體，落地前繁體化；模板字串本身已是繁體不需轉
   const header = [
     `# 副本 ${params.dungeonId} · ${runId}`,
     "",
     `- 進入時間：[${params.today}]`,
-    `- 進入時角色狀態：${params.protagonistSummary}`,
-    `- 本次目標：${params.goal}`,
+    `- 進入時角色狀態：${toTraditional(params.protagonistSummary)}`,
+    `- 本次目標：${toTraditional(params.goal)}`,
     "",
     "---",
     "",
@@ -117,17 +119,10 @@ export async function loadDungeonLore(
   return loadLore(worldDir, "dungeons", dungeonId, logger);
 }
 
-/** 列舉 world/dungeons/ 下所有副本子目錄名（id）；dungeons/ 不存在回 [] */
+/** 列舉 world/dungeons/ 下所有副本子目錄名（id）；dungeons/ 不存在回 []。重用通用 listLoreIds。 */
 export async function listDungeonIds(
   worldDir: string,
   logger: Logger = defaultLogger,
 ): Promise<string[]> {
-  const dir = path.join(worldDir, "dungeons");
-  try {
-    const entries = await readdir(dir, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch (err) {
-    logUnexpectedReadError(logger, dir, err);
-    return [];
-  }
+  return listLoreIds(worldDir, "dungeons", logger);
 }

@@ -115,6 +115,16 @@ describe("runNudgeBlock", () => {
     expect(result).not.toContain("玩家最近表達的方向");
   });
 
+  it("預設 windowSize（3）：3 筆連續高相似度即觸發（根因 H：窗口縮小才填得滿）", async () => {
+    for (let i = 0; i < 3; i++) {
+      await appendJournalSummary(world, { timestamp: `2026-06-23T10:0${i}:00`, mode: "主空間", summary: `鬼打牆${i}` });
+    }
+    const embedder = fakeEmbedder({ 鬼打牆0: [1, 0], 鬼打牆1: [1, 0], 鬼打牆2: [1, 0] });
+    // 不傳 nudgeWindowSize，走預設值；3 筆即應觸發
+    const { result } = await collect(runNudgeBlock(baseDeps({ embedder }), "隨便做點事"));
+    expect(result).toContain("## 節奏建議（短期）");
+  });
+
   it("embedder 拋例外時降級回傳空字串並 yield warning 事件", async () => {
     for (let i = 0; i < 5; i++) {
       await appendJournalSummary(world, { timestamp: `2026-06-23T10:0${i}:00`, mode: "主空間", summary: `x${i}` });

@@ -131,7 +131,7 @@ describe("loadConfig", () => {
 
   it("nudge 設定預設值", () => {
     const c = loadConfig({});
-    expect(c.nudge.windowSize).toBe(5);
+    expect(c.nudge.windowSize).toBe(3);
     expect(c.nudge.similarityThreshold).toBeCloseTo(0.92);
   });
 
@@ -147,7 +147,7 @@ describe("loadConfig", () => {
   });
 
   it("NUDGE_WINDOW_SIZE 非正整數時退回預設", () => {
-    expect(loadConfig({ NUDGE_WINDOW_SIZE: "-1" }).nudge.windowSize).toBe(5);
+    expect(loadConfig({ NUDGE_WINDOW_SIZE: "-1" }).nudge.windowSize).toBe(3);
   });
 
   it("pacingReviewInterval 預設 10，可由環境變數覆寫", () => {

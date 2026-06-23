@@ -3,6 +3,7 @@ import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 import { parseLastTurnRecord, type LastTurnRecord } from "./journal.js";
 import { parseActiveDungeon } from "./dungeon.js";
+import { toTraditional } from "./text/traditionalize.js";
 
 /** world/now.md 的七個固定欄位（對應回合收束協議的覆寫頁） */
 export interface NowState {
@@ -162,7 +163,15 @@ export function applyPointsDelta(md: string, delta: number): string {
   );
 }
 
-/** 在 `## <含 titleIncludes 的標題>` 區塊末尾（下一個 `## ` 之前）插入新條目；找不到該區塊則原樣返回 */
+/** 條目正規化：去 bullet 前綴 + trim + 繁體化，用於去重比對（簡繁同義視為同一條） */
+function normalizeItem(s: string): string {
+  return toTraditional(s.trim().replace(/^[-*]\s*/, "").trim());
+}
+
+/**
+ * 在 `## <含 titleIncludes 的標題>` 區塊末尾（下一個 `## ` 之前）插入新條目；找不到該區塊則原樣返回。
+ * 去重（根因 D）：已存在於該區塊的條目（繁體化後相等）不重複附加，本批內部也去重。
+ */
 function appendToSection(md: string, titleIncludes: string, items: string[]): string {
   if (items.length === 0) return md;
   const lines = md.split("\n");
@@ -178,9 +187,25 @@ function appendToSection(md: string, titleIncludes: string, items: string[]): st
     break;
   }
   if (start === -1) return md;
+
+  // 收集該區塊已存在條目的正規化集合，過濾掉重複的新增項（含本批內部重複）
+  const existing = new Set<string>();
+  for (let i = start + 1; i < end; i++) {
+    const t = lines[i].trim();
+    if (t.startsWith("-") || t.startsWith("*")) existing.add(normalizeItem(t));
+  }
+  const fresh: string[] = [];
+  for (const it of items) {
+    const n = normalizeItem(it);
+    if (existing.has(n)) continue;
+    existing.add(n);
+    fresh.push(it);
+  }
+  if (fresh.length === 0) return md;
+
   let insertAt = end;
   while (insertAt > start + 1 && lines[insertAt - 1].trim() === "") insertAt--;
-  lines.splice(insertAt, 0, ...items.map((it) => `- ${it}`));
+  lines.splice(insertAt, 0, ...fresh.map((it) => `- ${it}`));
   return lines.join("\n");
 }
 
@@ -223,13 +248,22 @@ export async function rewriteNpcFile(
 }
 
 /**
- * 若 characters/index.md 表格尚未有該 id，在表尾新增一列（新 NPC 首次登場）；
+ * 若 characters/index.md 表格尚未有該 id，在「表格最後一列之後」新增一列（新 NPC 首次登場）；
  * 已存在則原樣回傳（避免重複列）。
+ * 根因 E：插在最後一個表格資料列之後（而非檔尾），否則會被貼到 `## 鎖定事實` 段落之後、破壞結構。
+ * 用「最後一個符合表格列正則的行」當錨點，不依賴空行/`##` 位置；找不到表格才退回檔尾。
  */
 export function addCharacterIndexRow(md: string, id: string, name: string): string {
   if (parseCharacterIndex(md).some((npc) => npc.id === id)) return md;
   const row = `| ${id} | ${name} | NPC | 初次登場 | - |`;
-  return `${md.trimEnd()}\n${row}\n`;
+  const lines = md.split("\n");
+  let lastTableRow = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\|(.+)\|\s*$/.test(lines[i])) lastTableRow = i; // 標題列/分隔線/資料列皆為表格行
+  }
+  if (lastTableRow === -1) return `${md.trimEnd()}\n${row}\n`;
+  lines.splice(lastTableRow + 1, 0, row);
+  return lines.join("\n");
 }
 
 /**
