@@ -21,6 +21,10 @@ export interface TurnDeps {
   controlClient?: LlmClient;
   /** Layer 3 reactive-lore-sync 用的 LLM；未提供時依序退回 controlClient、client */
   loreClient?: LlmClient;
+  /** 長期節奏審閱（劇本大師）用的 LLM（選填）；未提供時依序退回 controlClient、主 client */
+  pacingClient?: LlmClient;
+  /** 長期節奏審閱頻率：每 K 回合跑一次（K = journal_summary.md 行數的倍數），預設 10 */
+  pacingReviewInterval?: number;
   worldDir: string;
   commit: (message: string) => Promise<boolean>;
   today?: () => string;
