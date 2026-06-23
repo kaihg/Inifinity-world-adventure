@@ -1111,3 +1111,54 @@ describe("done.state 降級與自動推進多回合覆蓋", () => {
     expect(dones[1].state.now.scene).toBe("房間");
   });
 });
+
+describe("journal_summary.md 寫入", () => {
+  it("主空間回合結束後 journal_summary.md 多一行，mode 為主空間", async () => {
+    const response =
+      "沈奕做了某事。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: {}, rolls: [], mode_transition: null,
+        awaiting_user_input: true, suggested_actions: [], commit_summary: "沈奕做了某事",
+      });
+    const deps: TurnDeps = {
+      client: fakeClient([response]),
+      worldDir: world,
+      commit: async () => true,
+      today: () => "2026-06-19",
+      now: () => "2026-06-19T12:00:00",
+      dicePool: [1],
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "行動")) events.push(ev);
+
+    const md = await readFile(path.join(world, "journal_summary.md"), "utf8");
+    expect(md.trim()).toBe("- [2026-06-19T12:00:00] (主空間) 沈奕做了某事");
+  });
+
+  it("副本回合結束後 journal_summary.md mode 標記為 副本:<id>", async () => {
+    await mkdir(path.join(world, "dungeons", "U-001", "runs"), { recursive: true });
+    await writeFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "# run\n");
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
+    );
+    const ctrlJson = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: null,
+      awaiting_user_input: true, suggested_actions: [], commit_summary: "進入大廳",
+    });
+    const response = "你踏入大廳。\n===STATE===\n" + ctrlJson;
+    const deps: TurnDeps = {
+      client: fakeClient([response]),
+      worldDir: world,
+      commit: async () => true,
+      today: () => "2026-06-19",
+      now: () => "2026-06-19T12:00:00",
+      dicePool: [5],
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runDungeonTurn(deps, "往前走")) events.push(ev);
+
+    const md = await readFile(path.join(world, "journal_summary.md"), "utf8");
+    expect(md.trim()).toBe("- [2026-06-19T12:00:00] (副本:U-001) 進入大廳");
+  });
+});

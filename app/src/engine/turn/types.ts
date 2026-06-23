@@ -28,6 +28,8 @@ export interface TurnDeps {
   worldDir: string;
   commit: (message: string) => Promise<boolean>;
   today?: () => string;
+  /** journal_summary.md 寫入用的時間戳（測試可注入固定值）；未提供時退回真實 nowISOSeconds() */
+  now?: () => string;
   /** 本回合預擲骰池（測試可注入；預設 crypto 真隨機 6 顆 d100） */
   dicePool?: number[];
   /** 未提供時退回共用的預設 logger（測試環境下為 silent） */
