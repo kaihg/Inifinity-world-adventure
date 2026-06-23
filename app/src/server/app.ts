@@ -14,7 +14,7 @@ import { getAppVersion, type AppVersionInfo } from "../git/version.js";
 import { createLogger, type Logger } from "../logger.js";
 import { createRecallIndex } from "../recall/index.js";
 import type { RecallIndex } from "../recall/store.js";
-import { initWorld } from "../engine/world-ops.js";
+import { initWorld, endWorld } from "../engine/world-ops.js";
 import { clearRecallIndex } from "../recall/clear-index.js";
 import { todayISO } from "../engine/turn/shared.js";
 
@@ -165,6 +165,27 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     await makeCommit(opLogger)("重置世界、生成新設定");
     await clearRecallIndex(config.recall);
     return loadState(config.worldDir, opLogger);
+  });
+
+  server.post("/api/world/end", async (req, reply) => {
+    if (existsSync(path.join(config.worldDir, ".pending-death"))) {
+      return reply.code(409).send({ error: "請先完成主角換代或結束世界的抉擇" });
+    }
+    const confirmText = (req.body as { confirmText?: string })?.confirmText;
+    if (confirmText !== "封存") {
+      return reply.code(400).send({ error: "確認文字不符" });
+    }
+    const opLogger = logger.child({ op: "world-end" });
+    const archivedTo = await endWorld({
+      repoRoot,
+      worldDir: config.worldDir,
+      client: makeClient(opLogger),
+      today: todayISO(),
+      logger: opLogger,
+    });
+    await makeCommit(opLogger)("封存世界");
+    await clearRecallIndex(config.recall);
+    return { archivedTo };
   });
 
   // 推進主空間敘事回合（含自動推進），以 SSE 串流 delta/auto-advance/done 事件

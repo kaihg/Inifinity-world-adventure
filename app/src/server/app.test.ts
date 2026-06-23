@@ -199,3 +199,53 @@ describe("POST /api/world/init", () => {
     await server.close();
   });
 });
+
+describe("POST /api/world/end", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-end-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    await writeFile(path.join(world, "setting.md"), "# 世界設定\n\n真實世界。\n", "utf8");
+    await writeFile(path.join(world, "gm-notes.md"), "# 隱藏真相\n\n秘密。\n", "utf8");
+    await writeFile(path.join(world, "now.md"), "- 當前篇章：終章\n- 進行中的副本：無\n- 最後更新：[2026-06-23] x\n", "utf8");
+    await writeFile(path.join(world, "journal.md"), "# 日誌\n\n劇情。\n", "utf8");
+    await writeFile(path.join(world, "characters", "protagonist.md"), "- 姓名：沈奕\n- 當前積分：0\n", "utf8");
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("confirmText 不符 → 400，不動世界", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), { client: fakeClient(["摘要"]) });
+    const res = await server.inject({
+      method: "POST", url: "/api/world/end", payload: { confirmText: "刪除" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(await isWorldInitialized(world)).toBe(true);
+    await server.close();
+  });
+
+  it("confirmText 為「封存」→ 封存並重置 setting.md 回佔位狀態", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["這是故事的終章摘要。"]),
+      commit: async () => true,
+    });
+    const res = await server.inject({
+      method: "POST", url: "/api/world/end", payload: { confirmText: "封存" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().archivedTo).toMatch(/^archives\//);
+    expect(await isWorldInitialized(world)).toBe(false);
+    await server.close();
+  });
+
+  it("world/.pending-death 存在時 → 409（先走死亡抉擇）", async () => {
+    await writeFile(path.join(world, ".pending-death"), new Date().toISOString(), "utf8");
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), { client: fakeClient(["摘要"]) });
+    const res = await server.inject({
+      method: "POST", url: "/api/world/end", payload: { confirmText: "封存" },
+    });
+    expect(res.statusCode).toBe(409);
+    await server.close();
+  });
+});

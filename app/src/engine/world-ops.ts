@@ -5,6 +5,11 @@ import type { Logger } from "../logger.js";
 import { serializeNow } from "./now.js";
 import type { NowState } from "./context.js";
 import { buildProtagonistPrompt, type ProtagonistSeed } from "./protagonist-seed.js";
+import { archiveWorld } from "./archive.js";
+import {
+  UNINITIALIZED_SETTING_PLACEHOLDER,
+  UNINITIALIZED_GM_NOTES_PLACEHOLDER,
+} from "./world-status.js";
 
 /** 把一次性 streamChat 收斂成完整字串（世界級生成都是非串流場景） */
 export async function generateText(client: LlmClient, messages: ChatMessage[]): Promise<string> {
@@ -125,4 +130,82 @@ export async function initWorld(opts: {
   const dungeonsDir = path.join(worldDir, "dungeons");
   await rm(dungeonsDir, { recursive: true, force: true }).catch(() => {});
   await mkdir(dungeonsDir, { recursive: true });
+}
+
+/** 把 world/ 重置回「尚未初始化」佔位狀態（覆寫式） */
+export async function resetWorldToPlaceholder(worldDir: string, today: string): Promise<void> {
+  await mkdir(path.join(worldDir, "characters"), { recursive: true });
+  await writeFile(path.join(worldDir, "setting.md"), UNINITIALIZED_SETTING_PLACEHOLDER, "utf8");
+  await writeFile(path.join(worldDir, "gm-notes.md"), UNINITIALIZED_GM_NOTES_PLACEHOLDER, "utf8");
+  await writeFile(
+    path.join(worldDir, "characters", "protagonist.md"),
+    "# 主角檔案\n\n> 尚未初始化。\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(worldDir, "characters", "index.md"),
+    "# 角色索引（Character Index）\n\n| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |\n|----|------|------|----------|--------------|\n",
+    "utf8",
+  );
+  await writeFile(
+    path.join(worldDir, "journal.md"),
+    `# 主空間日誌（Journal）\n\n> 尚未初始化。\n`,
+    "utf8",
+  );
+  await writeFile(path.join(worldDir, "now.md"), serializeNow(initialNow(today)), "utf8");
+  const dungeonsDir = path.join(worldDir, "dungeons");
+  await rm(dungeonsDir, { recursive: true, force: true }).catch(() => {});
+  await mkdir(dungeonsDir, { recursive: true });
+}
+
+/**
+ * 封存目前世界：生成終章摘要 → archiveWorld → 寫 summary.md → 重置回佔位。
+ * 回傳 archivedTo（相對 repoRoot 的封存目錄）。摘要生成失敗以固定文字降級，不中止封存。
+ */
+export async function endWorld(opts: {
+  repoRoot: string;
+  worldDir: string;
+  client: LlmClient;
+  today: string;
+  logger: Logger;
+}): Promise<string> {
+  const { repoRoot, worldDir, client, today, logger } = opts;
+  const readSafe = async (rel: string): Promise<string> => {
+    try {
+      return await readFile(path.join(worldDir, rel), "utf8");
+    } catch {
+      return "";
+    }
+  };
+
+  let summary: string;
+  try {
+    // 摘要 prompt 只讀 setting + journal/now/protagonist，不讀 gm-notes（避免劇透寫進 archives）
+    summary = await generateText(client, [
+      {
+        role: "system",
+        content:
+          "你是說書人。依下列已發生的劇情，寫一篇故事終章摘要（繁體中文，數百字）。" +
+          "只根據提供的內容，不要杜撰未提及的隱藏真相。",
+      },
+      {
+        role: "user",
+        content: [
+          `世界設定：\n${await readSafe("setting.md")}`,
+          `當前局勢：\n${await readSafe("now.md")}`,
+          `主角：\n${await readSafe("characters/protagonist.md")}`,
+          `日誌：\n${await readSafe("journal.md")}`,
+        ].join("\n\n---\n\n"),
+      },
+    ]);
+    if (!summary) summary = "（摘要生成失敗）";
+  } catch (err) {
+    logger.warn({ err }, "終章摘要生成失敗，以固定文字降級");
+    summary = "（摘要生成失敗）";
+  }
+
+  const archivedTo = await archiveWorld(repoRoot, worldDir);
+  await writeFile(path.join(repoRoot, archivedTo, "summary.md"), `# 終章摘要\n\n${summary}\n`, "utf8");
+  await resetWorldToPlaceholder(worldDir, today);
+  return archivedTo;
 }
