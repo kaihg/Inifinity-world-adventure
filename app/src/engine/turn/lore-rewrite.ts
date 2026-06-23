@@ -23,6 +23,7 @@ export async function generateEntitySecrets(
   settingText: string,
   entityName: string,
   category: "item" | "location" | "skill",
+  log: Logger,
 ): Promise<string> {
   const noun = ENTITY_CATEGORY_TITLE[category];
   const messages: ChatMessage[] = [
@@ -36,7 +37,12 @@ export async function generateEntitySecrets(
     { role: "user", content: `${noun}名稱：${entityName}。請生成其隱藏設定。` },
   ];
   let full = "";
-  for await (const d of client.streamChat(messages)) full += d;
+  try {
+    for await (const d of client.streamChat(messages)) full += d;
+  } catch (err) {
+    log.warn({ err }, "隱藏設定生成 LLM 呼叫失敗，回退預設文字");
+    return "（生成失敗，待補）";
+  }
   return full.trim() || "（生成失敗，待補）";
 }
 
@@ -165,7 +171,7 @@ export async function rewriteLoreEntity(
   const category = ENTITY_CATEGORY_TO_LORE[entity.category];
   const existing = await loadLore(deps.worldDir, category, entity.id, log);
   if (!existing.secrets) {
-    const secretsText = await generateEntitySecrets(deps.client, settingText, entity.name, entity.category);
+    const secretsText = await generateEntitySecrets(deps.client, settingText, entity.name, entity.category, log);
     await ensureSecrets(deps.worldDir, category, entity.id, secretsText, `隱藏設定（${entity.name}）`, log);
   }
   const title = `${ENTITY_CATEGORY_TITLE[entity.category]}（${entity.name}）`;

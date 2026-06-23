@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import { logger } from "../../logger.js";
+import type { Logger } from "../../logger.js";
 import { callLoreRewrite, type LoreRewriteCategory, generateEntitySecrets, rewriteLoreEntity } from "./lore-rewrite.js";
 import { mkdtemp, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -16,6 +17,20 @@ function capturingClient(response: string): { client: LlmClient; messages: ChatM
     },
   };
   return result;
+}
+
+function throwingClient(): LlmClient {
+  return {
+    async *streamChat(_messages: ChatMessage[]): AsyncIterable<string> {
+      throw new Error("LLM 呼叫失敗");
+    },
+  };
+}
+
+function fakeLogger(): { log: Logger; warnCalls: unknown[] } {
+  const warnCalls: unknown[] = [];
+  const log = { warn: (...args: unknown[]) => warnCalls.push(args) } as unknown as Logger;
+  return { log, warnCalls };
 }
 
 describe("callLoreRewrite", () => {
@@ -41,6 +56,15 @@ describe("callLoreRewrite", () => {
       expect(system).toContain(keyword);
     },
   );
+
+  it("client.streamChat 拋錯時回 null 並記一筆 warn，不往上拋", async () => {
+    const { log, warnCalls } = fakeLogger();
+
+    const result = await callLoreRewrite(throwingClient(), "世界設定", "片段", "文件標題", "", "item", log);
+
+    expect(result).toBeNull();
+    expect(warnCalls).toHaveLength(1);
+  });
 });
 
 describe("generateEntitySecrets", () => {
@@ -52,13 +76,22 @@ describe("generateEntitySecrets", () => {
     "category=%s 時措辭正確（%s / %s）",
     async (category, roleKeyword, nounKeyword) => {
       const cap = capturingClient("隱藏設定內容");
-      await generateEntitySecrets(cap.client, "世界設定", "測試實體", category);
+      await generateEntitySecrets(cap.client, "世界設定", "測試實體", category, logger);
       const system = cap.messages.find((m) => m.role === "system")?.content ?? "";
       const user = cap.messages.find((m) => m.role === "user")?.content ?? "";
       expect(system).toContain(roleKeyword);
       expect(user).toContain(nounKeyword);
     },
   );
+
+  it("client.streamChat 拋錯時回退預設文字並記一筆 warn，不往上拋", async () => {
+    const { log, warnCalls } = fakeLogger();
+
+    const result = await generateEntitySecrets(throwingClient(), "世界設定", "神祕道具", "item", log);
+
+    expect(result).toBe("（生成失敗，待補）");
+    expect(warnCalls).toHaveLength(1);
+  });
 });
 
 describe("rewriteLoreEntity 標題", () => {
