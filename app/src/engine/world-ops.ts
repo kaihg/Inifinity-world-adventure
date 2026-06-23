@@ -45,8 +45,8 @@ function initialNow(today: string): NowState {
 
 /**
  * 生成一個全新世界，把所有檔案寫進 worldDir。呼叫端負責 commit 與清 recall 索引。
- * 失敗時可能留下半套檔案——呼叫端應在 isWorldInitialized 為 false 時才呼叫，
- * 且失敗就不 commit（見路由層）。
+ * 所有內容先生成到記憶體，最後才一次性寫檔，故 LLM 生成階段失敗不會留下半套世界；
+ * 呼叫端應在 isWorldInitialized 為 false 時才呼叫，且失敗就不 commit（見路由層）。
  */
 export async function initWorld(opts: {
   worldDir: string;

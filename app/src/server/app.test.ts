@@ -198,6 +198,27 @@ describe("POST /api/world/init", () => {
     expect(res.statusCode).toBe(409);
     await server.close();
   });
+
+  it("LLM 失敗時回 500、不 commit、不留半套世界檔案", async () => {
+    const commits: string[] = [];
+    const throwingClient: LlmClient = {
+      async *streamChat() { throw new Error("LLM 連線失敗"); },
+    };
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: throwingClient,
+      commit: async (m) => { commits.push(m); return true; },
+    });
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/world/init",
+      payload: { preferences: {}, protagonistSeed: {} },
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({ error: expect.any(String) });
+    expect(await isWorldInitialized(world)).toBe(false);
+    expect(commits).toHaveLength(0);
+    await server.close();
+  });
 });
 
 describe("POST /api/world/end", () => {

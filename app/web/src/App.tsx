@@ -303,7 +303,10 @@ function StatusDrawer({
             <>
               <p>輸入「封存」以確認結束並封存目前世界：</p>
               <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} />
-              <button className="send-btn" disabled={confirmText !== "封存"} onClick={onEndWorld}>確定封存</button>
+              <button className="send-btn" disabled={confirmText !== "封存"} onClick={async () => {
+                try { await onEndWorld(); }
+                catch { setConfirming(false); setConfirmText(""); }
+              }}>確定封存</button>
             </>
           )}
         </section>

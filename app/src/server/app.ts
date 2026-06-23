@@ -156,16 +156,21 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     }
     const body = (req.body ?? {}) as import("../engine/world-ops.js").WorldInitInput;
     const opLogger = logger.child({ op: "world-init" });
-    await initWorld({
-      worldDir: config.worldDir,
-      client: makeClient(opLogger),
-      input: body,
-      today: todayISO(),
-      logger: opLogger,
-    });
-    await makeCommit(opLogger)("重置世界、生成新設定");
-    await clearRecallIndex(config.recall);
-    return loadState(config.worldDir, opLogger);
+    try {
+      await initWorld({
+        worldDir: config.worldDir,
+        client: makeClient(opLogger),
+        input: body,
+        today: todayISO(),
+        logger: opLogger,
+      });
+      await makeCommit(opLogger)("重置世界、生成新設定");
+      await clearRecallIndex(config.recall);
+      return loadState(config.worldDir, opLogger);
+    } catch (err) {
+      opLogger.error({ err }, "world-init failed");
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   server.post("/api/world/end", async (req, reply) => {
@@ -177,16 +182,21 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       return reply.code(400).send({ error: "確認文字不符" });
     }
     const opLogger = logger.child({ op: "world-end" });
-    const archivedTo = await endWorld({
-      repoRoot,
-      worldDir: config.worldDir,
-      client: makeClient(opLogger),
-      today: todayISO(),
-      logger: opLogger,
-    });
-    await makeCommit(opLogger)("封存世界");
-    await clearRecallIndex(config.recall);
-    return { archivedTo };
+    try {
+      const archivedTo = await endWorld({
+        repoRoot,
+        worldDir: config.worldDir,
+        client: makeClient(opLogger),
+        today: todayISO(),
+        logger: opLogger,
+      });
+      await makeCommit(opLogger)("封存世界");
+      await clearRecallIndex(config.recall);
+      return { archivedTo };
+    } catch (err) {
+      opLogger.error({ err }, "world-end failed");
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   server.post("/api/world/protagonist", async (req, reply) => {
@@ -198,27 +208,31 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       | { choice: "keep-world"; protagonistSeed?: import("../engine/protagonist-seed.js").ProtagonistSeed }
       | { choice: "end-world" };
     const opLogger = logger.child({ op: "world-protagonist" });
+    try {
+      if (body.choice === "end-world") {
+        const archivedTo = await endWorld({
+          repoRoot, worldDir: config.worldDir, client: makeClient(opLogger),
+          today: todayISO(), logger: opLogger,
+        });
+        await makeCommit(opLogger)("封存世界");
+        await rm(pendingPath, { force: true });
+        await clearRecallIndex(config.recall);
+        return { archivedTo };
+      }
 
-    if (body.choice === "end-world") {
-      const archivedTo = await endWorld({
+      // keep-world
+      await replaceProtagonist({
         repoRoot, worldDir: config.worldDir, client: makeClient(opLogger),
-        today: todayISO(), logger: opLogger,
+        protagonistSeed: body.protagonistSeed ?? {}, today: todayISO(), logger: opLogger,
       });
+      await makeCommit(opLogger)("主角換代");
       await rm(pendingPath, { force: true });
-      await makeCommit(opLogger)("封存世界");
       await clearRecallIndex(config.recall);
-      return { archivedTo };
+      return loadState(config.worldDir, opLogger);
+    } catch (err) {
+      opLogger.error({ err }, "world-protagonist failed");
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
-
-    // keep-world
-    await replaceProtagonist({
-      repoRoot, worldDir: config.worldDir, client: makeClient(opLogger),
-      protagonistSeed: body.protagonistSeed ?? {}, today: todayISO(), logger: opLogger,
-    });
-    await rm(pendingPath, { force: true });
-    await makeCommit(opLogger)("主角換代");
-    await clearRecallIndex(config.recall);
-    return loadState(config.worldDir, opLogger);
   });
 
   // 推進主空間敘事回合（含自動推進），以 SSE 串流 delta/auto-advance/done 事件
