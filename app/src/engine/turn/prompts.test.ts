@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildBehaviorLearningMessages,
   buildDungeonMessages,
   buildFastControlMessages,
   buildLoreSyncMessages,
@@ -79,6 +80,17 @@ describe("buildMainSpaceMessages", () => {
     const msgs = buildMainSpaceMessages(params);
     expect(msgs[0].content).not.toContain("## 在場角色本回合意圖");
   });
+
+  it("behaviorBlock 會注入主空間 prompt", () => {
+    const msgs = buildMainSpaceMessages({
+      settingText: "設定",
+      state: makeFakeState(),
+      input: "行動",
+      dicePool: [50],
+      behaviorBlock: "# 主角行為傾向\n- 先觀察後行動",
+    });
+    expect(msgs[0].content).toContain("先觀察後行動");
+  });
 });
 
 describe("buildDungeonMessages", () => {
@@ -150,5 +162,22 @@ describe("buildLoreSyncMessages（Layer 3）", () => {
     expect(msgs[0].content).toContain("U-001");
     expect(msgs[0].content).toContain("入口有三道門");
     expect(msgs[0].content).not.toContain("地板會塌");
+  });
+});
+
+describe("buildBehaviorLearningMessages（Layer 4）", () => {
+  it("system 含不把單次選擇當固定人格的規則與 Markdown 輸出要求", () => {
+    const msgs = buildBehaviorLearningMessages({
+      settingText: "設定",
+      state: sampleState,
+      input: "先撤退再觀察",
+      narrative: "沈奕沒有硬闖，而是先退到掩體後整理情報。",
+      dicePool: [1],
+    });
+    expect(msgs[0].content).toContain("主角行為學習器");
+    expect(msgs[0].content).toContain("不要把單次選擇誇大成固定人格");
+    expect(msgs[0].content).toContain("只輸出**單一 Markdown 文件完整內容**");
+    expect(msgs[0].content).toContain("沈奕沒有硬闖");
+    expect(msgs[1].content).toContain("先撤退再觀察");
   });
 });

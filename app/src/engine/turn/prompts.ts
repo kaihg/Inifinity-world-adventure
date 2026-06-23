@@ -4,10 +4,11 @@ import type { GameState } from "../context.js";
 // ---------- 共用 system prompt 片段 ----------
 
 /** 把可選的意圖區塊與語意檢索區塊串接到 prompt 尾段（兩者缺省時各自略去，不留空行） */
-function appendOptionalBlocks(params: { intentsBlock?: string; recallBlock?: string }): string[] {
+function appendOptionalBlocks(params: { intentsBlock?: string; recallBlock?: string; behaviorBlock?: string }): string[] {
   return [
     ...(params.intentsBlock ? ["", params.intentsBlock] : []),
     ...(params.recallBlock ? ["", params.recallBlock] : []),
+    ...(params.behaviorBlock ? ["", params.behaviorBlock] : []),
   ];
 }
 
@@ -68,6 +69,7 @@ export interface BuildMessagesParams {
   dicePool: number[];
   intentsBlock?: string;
   recallBlock?: string;
+  behaviorBlock?: string;
 }
 
 /** 主空間回合的對話訊息（純函式，可測試） */
@@ -161,6 +163,7 @@ export interface BuildControlParams {
   /** 主腦本回合已產生的完整敘事散文 */
   narrative: string;
   dicePool: number[];
+  behaviorBlock?: string;
   /** 現有副本 id 列表，供主空間模式 enter_dungeon 判斷續用既有 slug 或新建；副本模式不需要（不會 enter_dungeon） */
   existingDungeonIds?: string[];
   /** 副本模式才填 */
@@ -242,6 +245,52 @@ export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[]
       ? ["## 副本已揭露知識（wiki）", (params.wiki ?? "").trim() || "（尚無）",
          "", `## 當前副本 id：${params.dungeonId}`, ""]
       : []),
+    canonicalBlock(state),
+    "",
+    "## 本回合敘事散文（事實來源）",
+    narrative.trim(),
+  ].join("\n");
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: `玩家本回合行動：${input}` },
+  ];
+}
+
+const BEHAVIOR_LEARNING_FORMAT_BLOCK = [
+  "## 輸出格式（務必嚴格遵守）",
+  "只輸出**單一 Markdown 文件完整內容**，不要 JSON、不要前言、不要程式碼框。",
+  "文件用途：主角行為學習檔，只記錄玩家在劇情中的行動偏好與近期傾向，不要把單次選擇誇大成固定人格。",
+  "內容應保守、可持續更新，若本回合證據不足，維持既有內容即可，不要為了更新而硬改。",
+  "建議欄位：",
+  "- 核心行動偏好",
+  "- 風險與決策習慣",
+  "- 社交/合作傾向",
+  "- 近期可觀察例子",
+].join("\n");
+
+export function buildBehaviorLearningMessages(params: BuildControlParams): ChatMessage[] {
+  const { settingText, state, input, narrative } = params;
+  const system = [
+    "你是「無限恐怖」世界的**主角行為學習器（Layer 4：behavior-learning）**。",
+    "你的任務是依據本回合玩家輸入、主腦敘事與既有行為檔，更新主角的行動偏好與決策傾向。",
+    "",
+    "## 鐵則",
+    "- 全程使用繁體中文與台灣用詞。",
+    "- 只觀察行為，不替玩家補寫內心戲；不要把一次選擇視為永久人格定論。",
+    "- 只整理已經發生的事實與可合理歸納的傾向，不可捏造沒有發生的行動。",
+    "- 若本回合資訊不足以改動既有檔案，就盡量維持原樣。",
+    "- 這份檔案是系統觀察用的長期摘要，目標是讓之後的敘事更貼近玩家習慣，而不是限制玩家。",
+    "",
+    BEHAVIOR_LEARNING_FORMAT_BLOCK,
+    "",
+    params.behaviorBlock?.trim()
+      ? `## 既有行為檔\n${params.behaviorBlock.trim()}`
+      : "## 既有行為檔\n（目前沒有既有檔案）",
+    "",
+    "## 世界設定",
+    settingText.trim(),
+    "",
     canonicalBlock(state),
     "",
     "## 本回合敘事散文（事實來源）",

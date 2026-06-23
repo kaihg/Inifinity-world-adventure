@@ -155,7 +155,7 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(journal).toContain("## [2026-06-19] 沈奕進資訊室");
     expect(journal).toContain("去資訊室");
 
-    expect(commits).toEqual(["沈奕進資訊室"]);
+    expect(commits).toContain("沈奕進資訊室");
   });
 
   it("done 帶本回合 Layer 2 落地後的 state 快照", async () => {
@@ -269,6 +269,58 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(prot).toContain("- 當前積分：1");
     expect(prot).toContain("- （無）\n- 近戰格鬥精通");
     expect(prot).toContain("- 戰術刀\n- 生鏽鐵管");
+  });
+
+  it("回合後會更新主角行為傾向檔（layer4）", async () => {
+    await writeFile(
+      path.join(world, "characters", "protagonist-behavior.md"),
+      [
+        "# 主角行為傾向",
+        "",
+        "## 核心行動偏好",
+        "- （尚未形成）",
+      ].join("\n"),
+      "utf8",
+    );
+    const response =
+      "沈奕先退到掩體後觀察局勢。\n===STATE===\n" +
+      JSON.stringify({
+        state_changes: {},
+        rolls: [],
+        mode_transition: null,
+        awaiting_user_input: true,
+        suggested_actions: [],
+        commit_summary: "先觀察局勢",
+      });
+    const control = JSON.stringify({
+      state_changes: {},
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: [],
+      commit_summary: "lore",
+    });
+    const lore = JSON.stringify({ state_changes: {} });
+    const behavior = "# 主角行為傾向\n\n## 核心行動偏好\n- 先觀察後行動\n";
+    const commits: string[] = [];
+    for await (const _ev of runMainSpaceTurn(
+      {
+        client: sequencedClient([response, control, lore, behavior]),
+        worldDir: world,
+        commit: async (m) => {
+          commits.push(m);
+          return true;
+        },
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "先退後進",
+    )) {
+      // drain
+    }
+    expect(commits).toContain("更新主角行為傾向");
+    const behaviorFile = await readFile(path.join(world, "characters", "protagonist-behavior.md"), "utf8");
+    expect(behaviorFile).toContain("先觀察後行動");
   });
 
   it("touched_entities（npc）：整檔重寫角色檔，並用小模型摘要同步進 characters/index.md", async () => {
@@ -857,11 +909,13 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
       "系統警報響起。",     // turn 0 主腦（主空間）
       enterCtl,            // turn 0 Layer 2 fast-control → enter_dungeon
       enterCtl,            // turn 0 Layer 3 抽取（無 lore 欄位，no-op）
+      "",                  // turn 0 Layer 4 行為學習（無實質變更）
       "這個副本真正的機關是潮汐淹沒。", // secrets 生成（generateSecrets 用 deps.client）
       "你抵達出口。",       // turn 1 主腦（副本）
       settleCtl,           // turn 1 Layer 2 fast-control → settle_dungeon
       settleCtl,           // turn 1 Layer 3 抽取 → dungeon_wiki_excerpt
       "# 副本 U-TEST · 已揭露知識（Wiki）\n\n出口在東側。", // 比較重寫
+      "",                  // turn 1 Layer 4 行為學習（無實質變更）
     ]);
 
     const events: TurnEvent[] = [];

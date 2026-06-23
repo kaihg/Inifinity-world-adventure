@@ -12,6 +12,7 @@ import {
 import { appendJournal } from "../journal.js";
 import { rollPool } from "../roll.js";
 import { runPrePassBlock, runRecallBlock } from "./context-blocks.js";
+import { scheduleBehaviorLearning } from "./behavior-learning.js";
 import { generateSecrets, setNowActiveDungeon } from "./dungeon-transition.js";
 import { scheduleLoreSync } from "./lore-sync.js";
 import {
@@ -35,6 +36,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const dicePool = deps.dicePool ?? rollPool(6);
   const state = await loadState(deps.worldDir, log);
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
+  const behaviorText = await readBestEffort(path.join(deps.worldDir, "characters", "protagonist-behavior.md"));
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
@@ -42,7 +44,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
 
   const plan: TurnPlan = {
-    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock }),
+    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock, behaviorBlock: behaviorText }),
     buildFastControl: (narrative) =>
       buildFastControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
     buildLoreSync: (narrative) =>
@@ -53,6 +55,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
 
   const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
   await scheduleLoreSync(deps, narrative, settingText, plan, log);
+  await scheduleBehaviorLearning(deps, settingText, state, input, narrative, log);
 }
 
 /** 副本敘事回合（讀當前 now.md 的進行中副本，落地到 runs/*.md、提煉 wiki） */
@@ -71,6 +74,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   }
   const log = baseLog.child({ mode: "dungeon", dungeonId: active.dungeonId, runId: active.runId });
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
+  const behaviorText = await readBestEffort(path.join(deps.worldDir, "characters", "protagonist-behavior.md"));
   const lore = await loadDungeonLore(deps.worldDir, active.dungeonId, log);
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
@@ -80,6 +84,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
     messages: buildDungeonMessages({
       settingText, state, input, dicePool,
       dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
+      behaviorBlock: behaviorText,
       intentsBlock, recallBlock,
     }),
     buildFastControl: (narrative) =>
@@ -99,6 +104,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
 
   const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
   await scheduleLoreSync(deps, narrative, settingText, plan, log);
+  await scheduleBehaviorLearning(deps, settingText, state, input, narrative, log);
 }
 
 const AUTO_CONTINUE_INPUT = "（系統自動推進：延續上一刻，繼續敘事，玩家未介入）";
