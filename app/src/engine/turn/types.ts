@@ -1,6 +1,7 @@
 import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import type { Logger } from "../../logger.js";
 import type { RecallIndex } from "../../recall/store.js";
+import type { Embedder } from "../../recall/embedder.js";
 import type { FastControl } from "../schema.js";
 import type { GameState } from "../context.js";
 
@@ -31,6 +32,12 @@ export interface TurnDeps {
   recall?: RecallIndex;
   /** 每回合檢索片段數上限，預設 5 */
   recallTopK?: number;
+  /** 短期停滯規則用的本地嵌入器（選填；測試可注入 fake，預設 createLocalEmbedder()） */
+  embedder?: Embedder;
+  /** 短期停滯規則比較的視窗大小（最近 N 筆 journal_summary 條目），預設 5 */
+  nudgeWindowSize?: number;
+  /** 短期停滯規則的 cosine similarity 命中門檻（0~1），預設 0.92 */
+  nudgeSimilarityThreshold?: number;
   /**
    * Layer 3 接力 handle（選填）。提供時，本回合的 lore-sync 不 await 完成即讓回合結束
    * （done event 立即送出），handle.promise 會被換成本回合的 lore-sync；
