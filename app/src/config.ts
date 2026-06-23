@@ -35,6 +35,18 @@ export interface AppConfig {
     baseUrl: string;
     model: string;
   };
+  /** 短期停滯規則（規則式，本地嵌入相似度比較） */
+  nudge: {
+    windowSize: number;
+    similarityThreshold: number;
+  };
+  /** 長期節奏審閱（劇本大師）頻率：每 K 回合跑一次 */
+  pacingReviewInterval: number;
+  /** 長期節奏審閱用 LLM（選填）；缺省時依序退回 control、主 LLM */
+  pacing?: {
+    baseUrl: string;
+    model: string;
+  };
   /** 語意檢索（recall）設定；derived cache，不進 git，預設關閉（需下載嵌入模型） */
   recall: {
     enabled: boolean;
@@ -53,6 +65,9 @@ const DEFAULTS = {
   authorName: "Infinity World Engine",
   authorEmail: "engine@localhost",
   autoAdvanceMax: 4,
+  nudgeWindowSize: 5,
+  nudgeSimilarityThreshold: 0.92,
+  pacingReviewInterval: 10,
   recallTopK: 5,
 };
 
@@ -61,6 +76,14 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (raw === undefined) return fallback;
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) return fallback;
+  return n;
+}
+
+/** 解析 0~1 之間的浮點數，非法或超出範圍時退回預設 */
+function parseUnitFloat(raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 1) return fallback;
   return n;
 }
 
@@ -121,6 +144,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
             baseUrl: env.LORE_OPENAI_BASE_URL,
             model: env.LORE_MODEL,
           }
+        : undefined,
+    nudge: {
+      windowSize: parsePositiveInt(env.NUDGE_WINDOW_SIZE, DEFAULTS.nudgeWindowSize),
+      similarityThreshold: parseUnitFloat(env.NUDGE_SIMILARITY_THRESHOLD, DEFAULTS.nudgeSimilarityThreshold),
+    },
+    pacingReviewInterval: parsePositiveInt(env.PACING_REVIEW_INTERVAL, DEFAULTS.pacingReviewInterval),
+    pacing:
+      env.PACING_OPENAI_BASE_URL && env.PACING_MODEL
+        ? { baseUrl: env.PACING_OPENAI_BASE_URL, model: env.PACING_MODEL }
         : undefined,
     recall: {
       enabled: env.RECALL_ENABLED === "true" || env.RECALL_ENABLED === "1",
