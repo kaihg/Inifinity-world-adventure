@@ -7,6 +7,15 @@ import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import { runMainSpaceTurn, runDungeonTurn, runTurnLoop, type TurnEvent, type TurnDeps, type PendingLoreSync } from "./index.js";
 import type { RecallHit, RecallIndex } from "../../recall/store.js";
 import * as contextMod from "../context.js";
+import type { Embedder } from "../../recall/embedder.js";
+
+function fakeEmbedder(vectorsByText: Record<string, number[]>): Embedder {
+  return {
+    async embed(texts: string[]) {
+      return texts.map((t) => vectorsByText[t] ?? [0, 0]);
+    },
+  };
+}
 
 /** 測試用假 RecallIndex：query 回傳固定結果，upsertFile/removeFile 記錄呼叫供斷言 */
 function fakeRecall(hits: RecallHit[] = []): RecallIndex & { upserted: Array<{ relPath: string; content: string }> } {
@@ -1160,5 +1169,88 @@ describe("journal_summary.md 寫入", () => {
 
     const md = await readFile(path.join(world, "journal_summary.md"), "utf8");
     expect(md.trim()).toBe("- [2026-06-19T12:00:00] (副本:U-001) 進入大廳");
+  });
+});
+
+describe("nudgeBlock / pacingBlock 整合", () => {
+  it("nudgeBlock 命中時出現在主空間 system prompt", async () => {
+    for (let i = 0; i < 5; i++) {
+      await writeFile(
+        path.join(world, "journal_summary.md"),
+        `- [2026-06-19T10:0${i}:00] (主空間) 重複${i}\n`,
+        { flag: "a" },
+      );
+    }
+    let capturedSystem = "";
+    const mainClient: LlmClient = {
+      async *streamChat(msgs) {
+        if (!capturedSystem) capturedSystem = msgs[0].content;
+        yield `敘事\n===STATE===\n${JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "test",
+        })}`;
+      },
+    };
+    const embedder = fakeEmbedder({ 重複0: [1, 0], 重複1: [1, 0], 重複2: [1, 0], 重複3: [1, 0], 重複4: [1, 0] });
+    const deps: TurnDeps = {
+      client: mainClient, worldDir: world, commit: async () => false,
+      today: () => "2026-06-19", dicePool: [50], embedder, nudgeWindowSize: 5,
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "繼續")) events.push(ev);
+
+    expect(capturedSystem).toContain("## 節奏建議（短期）");
+  });
+
+  it("pacingBlock 命中時出現在副本 system prompt", async () => {
+    await mkdir(path.join(world, "dungeons", "U-001", "runs"), { recursive: true });
+    await writeFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "# run\n");
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
+    );
+    await writeFile(path.join(world, "journal_summary.md"), "- [2026-06-19T09:00:00] (主空間) 之前的事\n");
+
+    let capturedSystem = "";
+    const mainClient: LlmClient = {
+      async *streamChat(msgs) {
+        if (!capturedSystem) capturedSystem = msgs[0].content;
+        yield `敘事\n===STATE===\n${JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "test",
+        })}`;
+      },
+    };
+    const pacingClient: LlmClient = { async *streamChat() { yield "這層拖太久了，該升級張力。"; } };
+    const deps: TurnDeps = {
+      client: mainClient, worldDir: world, commit: async () => false,
+      today: () => "2026-06-19", dicePool: [5], pacingClient, pacingReviewInterval: 1,
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runDungeonTurn(deps, "往前走")) events.push(ev);
+
+    expect(capturedSystem).toContain("## 節奏建議（長期，劇本大師）");
+    expect(capturedSystem).toContain("這層拖太久了，該升級張力。");
+  });
+
+  it("沒有 journal_summary.md 時不出現任何節奏建議標題（預設情境）", async () => {
+    let capturedSystem = "";
+    const mainClient: LlmClient = {
+      async *streamChat(msgs) {
+        capturedSystem = msgs[0].content;
+        yield `敘事\n===STATE===\n${JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "test",
+        })}`;
+      },
+    };
+    const deps: TurnDeps = {
+      client: mainClient, worldDir: world, commit: async () => false,
+      today: () => "2026-06-19", dicePool: [50],
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "測試")) events.push(ev);
+
+    expect(capturedSystem).not.toContain("## 節奏建議");
   });
 });

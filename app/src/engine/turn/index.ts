@@ -14,6 +14,8 @@ import { rollPool } from "../roll.js";
 import { runPrePassBlock, runRecallBlock } from "./context-blocks.js";
 import { generateSecrets, setNowActiveDungeon } from "./dungeon-transition.js";
 import { scheduleLoreSync } from "./lore-sync.js";
+import { runNudgeBlock } from "./nudge.js";
+import { runPacingBlock } from "./pacing.js";
 import {
   buildDungeonMessages,
   buildFastControlMessages,
@@ -38,11 +40,13 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
+  const nudgeBlock = yield* runNudgeBlock(deps, input);
+  const pacingBlock = yield* runPacingBlock(deps, state, settingText);
 
   const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
 
   const plan: TurnPlan = {
-    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock }),
+    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock, nudgeBlock, pacingBlock }),
     buildFastControl: (narrative) =>
       buildFastControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
     buildLoreSync: (narrative) =>
@@ -75,12 +79,14 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
+  const nudgeBlock = yield* runNudgeBlock(deps, input);
+  const pacingBlock = yield* runPacingBlock(deps, state, settingText);
 
   const plan: TurnPlan = {
     messages: buildDungeonMessages({
       settingText, state, input, dicePool,
       dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
-      intentsBlock, recallBlock,
+      intentsBlock, recallBlock, nudgeBlock, pacingBlock,
     }),
     buildFastControl: (narrative) =>
       buildFastControlMessages({
