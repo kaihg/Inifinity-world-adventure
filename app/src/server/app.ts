@@ -25,6 +25,7 @@ export interface ServerDeps {
   characterClient?: LlmClient;
   controlClient?: LlmClient;
   loreClient?: LlmClient;
+  pacingClient?: LlmClient;
   commit?: (message: string) => Promise<boolean>;
   logger?: Logger;
   recall?: RecallIndex;
@@ -99,6 +100,23 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         )
       : undefined);
 
+  const pacingClient: LlmClient | undefined =
+    deps.pacingClient ??
+    (config.pacing
+      ? createOpenAiClient(
+          {
+            ...config,
+            openai: {
+              baseUrl: config.pacing.baseUrl,
+              apiKey: config.openai.apiKey,
+              model: config.pacing.model,
+            },
+          },
+          logger,
+          { label: "pacing" },
+        )
+      : undefined);
+
   // 本服務只跑單一主角、單一世界的一條故事線（見 CLAUDE.md），所以整個 server 共用一個
   // pendingLoreSync handle 即可：保證任一回合的 Layer 3 在下一回合（不論哪個請求觸發）開始前落地完。
   const pendingLoreSync: PendingLoreSync = { promise: null };
@@ -170,6 +188,10 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
           logger: turnLogger,
           recall,
           recallTopK: config.recall.topK,
+          pacingClient,
+          nudgeWindowSize: config.nudge.windowSize,
+          nudgeSimilarityThreshold: config.nudge.similarityThreshold,
+          pacingReviewInterval: config.pacingReviewInterval,
         },
         input,
         config.autoAdvanceMax,

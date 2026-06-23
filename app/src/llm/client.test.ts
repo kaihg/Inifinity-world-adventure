@@ -32,6 +32,8 @@ function makeConfig(usageLogPath: string): AppConfig {
     autoAdvanceMax: 4,
     worldDir: "/tmp/world",
     recall: { enabled: false, indexDir: "/tmp/idx", topK: 5 },
+    nudge: { windowSize: 20, similarityThreshold: 0.85 },
+    pacingReviewInterval: 50,
     usageLogPath,
   };
 }
