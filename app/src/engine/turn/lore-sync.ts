@@ -92,7 +92,15 @@ export async function runLoreSync(
       const rewriteClient = deps.loreClient ?? deps.controlClient ?? deps.client;
       const existing = await loadDungeonLore(deps.worldDir, plan.dungeonId, log);
       const title = `副本 ${plan.dungeonId} · 已揭露知識（Wiki）`;
-      const content = await callLoreRewrite(rewriteClient, settingText, changes.dungeon_wiki_excerpt, title, existing.wiki, log);
+      const content = await callLoreRewrite(
+        rewriteClient,
+        settingText,
+        changes.dungeon_wiki_excerpt,
+        title,
+        existing.wiki,
+        "dungeon",
+        log,
+      );
       if (content) dungeonResult = { id: plan.dungeonId, category: "dungeon", title, content };
     }
 
