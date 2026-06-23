@@ -215,6 +215,24 @@ describe("applyProtagonistUpdates", () => {
     expect(() => applyProtagonistUpdates(noBuffSection, { buffs: ["輕傷"] })).not.toThrow();
     expect(applyProtagonistUpdates(noBuffSection, { buffs: ["輕傷"] })).toBe(noBuffSection);
   });
+
+  it("已存在的條目不重複附加（根因 D）", () => {
+    // 區塊已有「戰術刀」，模型又回報一次 → 不應出現兩條
+    const result = applyProtagonistUpdates(md, { items: ["戰術刀"] });
+    expect(result).toBe(md);
+    expect(result.match(/- 戰術刀/g)).toHaveLength(1);
+  });
+
+  it("簡繁同義條目視為同一條，不重複附加（根因 C+D）", () => {
+    // 既有「戰術刀」，模型回報簡體「战术刀」→ 繁體化後相等 → 不重複
+    const result = applyProtagonistUpdates(md, { items: ["战术刀"] });
+    expect(result.match(/戰術刀|战术刀/g)).toHaveLength(1);
+  });
+
+  it("同回合回報重複項，內部也只附加一次", () => {
+    const result = applyProtagonistUpdates(md, { skills: ["瞬步", "瞬步"] });
+    expect(result.match(/- 瞬步/g)).toHaveLength(1);
+  });
 });
 
 describe("applyIndexStatusUpdates", () => {
@@ -302,6 +320,32 @@ describe("addCharacterIndexRow", () => {
     const result = addCharacterIndexRow(INDEX, "newcomer", "新來的人");
     expect(result).toContain("| yeqing | 葉晴 | NPC | 結盟 | - |");
     expect(result).toContain("| newcomer | 新來的人 | NPC | 初次登場 | - |");
+  });
+
+  it("新列插在表格最後一列之後、## 鎖定事實段落之前（根因 E）", () => {
+    const withLocked = [
+      "# 角色索引",
+      "",
+      "| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |",
+      "|----|------|------|----------|--------------|",
+      "| yeqing | 葉晴 | NPC | 結盟 | - |",
+      "",
+      "## 鎖定事實",
+      "",
+      "### yeqing — 葉晴",
+      "- 前特種部隊教官",
+    ].join("\n");
+    const result = addCharacterIndexRow(withLocked, "chenzhe", "陳哲");
+    const lines = result.split("\n");
+    const newRowIdx = lines.findIndex((l) => l.includes("| chenzhe |"));
+    const lockedIdx = lines.findIndex((l) => l.startsWith("## 鎖定事實"));
+    const yeqingRowIdx = lines.findIndex((l) => l.includes("| yeqing |"));
+    // 新列在 yeqing 列之後、且在 ## 鎖定事實 之前（不是貼到檔尾）
+    expect(newRowIdx).toBeGreaterThan(yeqingRowIdx);
+    expect(newRowIdx).toBeLessThan(lockedIdx);
+    // 鎖定事實段落未被破壞
+    expect(result).toContain("### yeqing — 葉晴");
+    expect(result).toContain("- 前特種部隊教官");
   });
 });
 

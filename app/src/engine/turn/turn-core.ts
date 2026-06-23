@@ -10,8 +10,47 @@ import {
 import { applyNowChanges, bumpNowUpdated, serializeNow } from "../now.js";
 import { parseFastControlOutput, type FastControl } from "../schema.js";
 import { appendJournalSummary } from "../journal-summary.js";
+import { toTraditional } from "../text/traditionalize.js";
 import { deriveSummary, nowISOSeconds, reindexTouchedFiles } from "./shared.js";
 import type { TurnDeps, TurnEvent, TurnPlan } from "./types.js";
+
+/**
+ * 逐欄繁體化一個「欄位皆為 (可選) string 或 string[] 的扁平物件」。
+ * 用 Object.keys 走訪而非硬編欄名：schema 之後新增欄位也會自動被涵蓋，
+ * 不會悄悄漏轉（避免重新打開簡體雪球）。undefined 欄保持不存在。
+ */
+function traditionalizeStringBag<T extends Record<string, string | string[] | undefined>>(
+  bag: T | undefined,
+): T | undefined {
+  if (!bag) return bag;
+  const out: Record<string, string | string[] | undefined> = {};
+  for (const key of Object.keys(bag)) {
+    const v = bag[key];
+    if (v === undefined) continue;
+    out[key] = Array.isArray(v) ? v.map(toTraditional) : toTraditional(v);
+  }
+  return out as T;
+}
+
+/**
+ * 把 Layer 2 抽出的「會落地進 world/ 的中文字串欄位」繁體化（決定論兜底）。
+ * 不可變更新：回傳新物件，不動原 control。
+ * 不轉 transition_dungeon_id（slug）與 transition_dungeon_goal（在 dungeon.ts 落地時轉，避免重複）。
+ */
+export function traditionalizeFastControl(control: FastControl): FastControl {
+  const sc = control.state_changes;
+  return {
+    ...control,
+    commit_summary: toTraditional(control.commit_summary),
+    suggested_actions: control.suggested_actions.map(toTraditional),
+    rolls: control.rolls.map((r) => ({ ...r, desc: toTraditional(r.desc) })),
+    state_changes: {
+      ...sc,
+      now: traditionalizeStringBag(sc.now),
+      protagonist_updates: traditionalizeStringBag(sc.protagonist_updates),
+    },
+  };
+}
 
 /**
  * Layer 2（fast-control）：done event 前必須就位的最小狀態（now/主角/骰值/轉場/建議動作）。
@@ -35,7 +74,10 @@ export async function* runTurnCore(
     narrative += delta;
     yield { type: "delta", text: delta };
   }
-  narrative = narrative.trim();
+  // 落地與下游（raw log、deriveSummary、餵 Layer 2/3 的事實來源）全部以繁體為準：
+  // 在源頭轉一次，從根斷掉「簡體寫進 canonical → 下回合餵回模型 → 沿用」的雪球。
+  // 注意：玩家已看到的串流 delta 不重送，只保證落地內容為繁體。
+  narrative = toTraditional(narrative.trim());
 
   // 2) Layer 2：讀完整敘事抽最小狀態子集；失敗則降級（敘事已落地、暫停等玩家）
   const controlClient = deps.controlClient ?? deps.client;
@@ -45,7 +87,8 @@ export async function* runTurnCore(
     for await (const delta of controlClient.streamChat(plan.buildFastControl(narrative))) {
       raw += delta;
     }
-    control = parseFastControlOutput(raw);
+    // 落地進 now.md / protagonist.md / commit / journal_summary 前繁體化（slug 類欄位不轉）
+    control = traditionalizeFastControl(parseFastControlOutput(raw));
   } catch (err) {
     log.error({ err, raw }, "Layer 2 fast-control 結構抽取失敗，本回合僅保留敘事並暫停");
     yield {

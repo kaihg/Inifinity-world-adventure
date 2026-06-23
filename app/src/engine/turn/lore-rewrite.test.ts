@@ -38,7 +38,7 @@ describe("callLoreRewrite", () => {
     const cap = capturingClient("新版內容");
     await callLoreRewrite(cap.client, "世界設定", "片段", "標題", "", "item", logger);
     const system = cap.messages.find((m) => m.role === "system")?.content ?? "";
-    expect(system).toContain("避免使用中國大陸簡體中文慣用詞彙");
+    expect(system).toContain("避免中國大陸簡體中文慣用詞彙");
   });
 
   it.each([
@@ -120,5 +120,136 @@ describe("rewriteLoreEntity 標題", () => {
 
     expect(result).not.toBeNull();
     expect(result?.title).toBe("道具（淬毒匕首）");
+  });
+});
+
+describe("callLoreRewrite — 繁體化與情境（根因 B/C/F）", () => {
+  it("回傳內容繁體化（簡體輸出被轉成正體）", async () => {
+    const cap = capturingClient("叶晴确认了触发机制");
+    const result = await callLoreRewrite(cap.client, "世界設定", "片段", "標題", "", "item", logger);
+    expect(result).toBe("葉晴確認了觸發機制");
+  });
+
+  it("全新建檔 prompt 禁止擴寫敘事未提供的細節（根因 B）", async () => {
+    const cap = capturingClient("新版內容");
+    await callLoreRewrite(cap.client, "世界設定", "片段", "標題", "", "item", logger);
+    const system = cap.messages.find((m) => m.role === "system")?.content ?? "";
+    expect(system).toContain("不可發明、不可擴寫敘事未提供的任何細節");
+    expect(system).not.toContain("可以在風格/氛圍類細節上做簡單合理的擴寫");
+  });
+
+  it("帶 context 時 user content 標明主角在副本內（根因 F）", async () => {
+    const cap = capturingClient("新版內容");
+    await callLoreRewrite(cap.client, "世界設定", "片段", "標題", "", "item", logger, {
+      inDungeon: true,
+      dungeonId: "u-001",
+    });
+    const user = cap.messages.find((m) => m.role === "user")?.content ?? "";
+    expect(user).toContain("在副本「u-001」內");
+  });
+
+  it("帶 context 時 user content 標明主角在安全區（根因 F）", async () => {
+    const cap = capturingClient("新版內容");
+    await callLoreRewrite(cap.client, "世界設定", "片段", "標題", "", "item", logger, { inDungeon: false });
+    const user = cap.messages.find((m) => m.role === "user")?.content ?? "";
+    expect(user).toContain("安全區（非副本）");
+  });
+});
+
+describe("rewriteLoreEntity — NPC 角色檔標題正規化（根因 I）", () => {
+  it("模型用 ### 起頭時補上 H1 角色名，內容不以 ### 開頭", async () => {
+    const worldDir = await mkdtemp(path.join(os.tmpdir(), "world-"));
+    await mkdir(path.join(worldDir, "characters"), { recursive: true });
+    const fakeClient: LlmClient = {
+      async *streamChat() {
+        yield "### 基本資訊\n\n葉晴是前特種部隊教官。";
+      },
+    };
+    const deps: TurnDeps = { client: fakeClient, worldDir, commit: async () => true };
+    const result = await rewriteLoreEntity(
+      deps,
+      "世界設定",
+      { id: "yeqing", category: "npc", name: "葉晴", excerpt: "葉晴登場" },
+      logger,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.content.startsWith("# 葉晴")).toBe(true);
+    expect(result!.content.startsWith("###")).toBe(false);
+    expect(result!.title).toBe("葉晴");
+  });
+
+  it("模型已用 H1（# 姓名）起頭時保留原標題，不重複補", async () => {
+    const worldDir = await mkdtemp(path.join(os.tmpdir(), "world-"));
+    await mkdir(path.join(worldDir, "characters"), { recursive: true });
+    const fakeClient: LlmClient = {
+      async *streamChat() {
+        yield "# 陳哲\n\n老手，拒絕入隊。";
+      },
+    };
+    const deps: TurnDeps = { client: fakeClient, worldDir, commit: async () => true };
+    const result = await rewriteLoreEntity(
+      deps,
+      "世界設定",
+      { id: "chenzhe", category: "npc", name: "陳哲", excerpt: "陳哲登場" },
+      logger,
+    );
+    // 已自帶 H1，內容原樣保留、不重複補標題
+    expect(result!.content).toBe("# 陳哲\n\n老手，拒絕入隊。");
+    expect(result!.title).toBe("陳哲");
+  });
+
+  it("### 開頭但後面某行有 # x 時，仍補開頭 H1（C3：只認開頭 H1，不被任意行的 # 騙過）", async () => {
+    const worldDir = await mkdtemp(path.join(os.tmpdir(), "world-"));
+    await mkdir(path.join(worldDir, "characters"), { recursive: true });
+    const fakeClient: LlmClient = {
+      async *streamChat() {
+        // 首行是 ###，但內文某行出現一個 H1（例如引用、標籤），不可被當成「已自帶標題」
+        yield "### 基本資訊\n\n葉晴是教官。\n\n# 補充\n\n備註。";
+      },
+    };
+    const deps: TurnDeps = { client: fakeClient, worldDir, commit: async () => true };
+    const result = await rewriteLoreEntity(
+      deps,
+      "世界設定",
+      { id: "yeqing", category: "npc", name: "葉晴", excerpt: "葉晴登場" },
+      logger,
+    );
+    expect(result!.content.startsWith("# 葉晴")).toBe(true);
+    expect(result!.content.startsWith("###")).toBe(false);
+    expect(result!.title).toBe("葉晴");
+  });
+});
+
+describe("rewriteLoreEntity — secrets 用小模型（根因 G）", () => {
+  it("生成 secrets 用 loreClient 而非主敘事 client", async () => {
+    const worldDir = await mkdtemp(path.join(os.tmpdir(), "world-"));
+    await mkdir(path.join(worldDir, "items", "amulet-001"), { recursive: true });
+
+    const mainCalls: string[] = [];
+    const loreCalls: string[] = [];
+    const mainClient: LlmClient = {
+      async *streamChat() {
+        mainCalls.push("main");
+        yield "主模型不該被叫到";
+      },
+    };
+    const loreClient: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        loreCalls.push("lore");
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        yield system.includes("劇透文件") ? "隱藏真相" : "# 護符\n\n外觀";
+      },
+    };
+    const deps: TurnDeps = { client: mainClient, loreClient, worldDir, commit: async () => true };
+
+    await rewriteLoreEntity(
+      deps,
+      "世界設定",
+      { id: "amulet-001", category: "item", name: "護符", excerpt: "主角撿到一個護符" },
+      logger,
+    );
+
+    expect(mainCalls).toHaveLength(0); // 主敘事大模型完全不參與 lore 落地
+    expect(loreCalls.length).toBeGreaterThanOrEqual(2); // secrets + wiki 都走小模型
   });
 });

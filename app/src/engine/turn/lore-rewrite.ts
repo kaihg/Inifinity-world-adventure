@@ -4,7 +4,9 @@ import type { Logger } from "../../logger.js";
 import { NPC_ID_RE } from "../context.js";
 import { ensureSecrets, loadLore, type LoreCategory } from "../lore.js";
 import type { LoreEntityRef } from "../schema.js";
+import { TRADITIONAL_CHINESE_RULE } from "./prompts.js";
 import { readBestEffort } from "./shared.js";
+import { toTraditional } from "../text/traditionalize.js";
 import type { TurnDeps } from "./types.js";
 
 /** 防止路徑穿越：道具/場景/技能/副本 id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
@@ -31,7 +33,7 @@ export async function generateEntitySecrets(
       role: "system",
       content:
         `你是「無限恐怖」世界的${ENTITY_SECRETS_DESIGNER_ROLE[category]}。為指定${noun}生成隱藏設定（真實來歷、隱藏效果、與主線的關聯）。` +
-        "這是劇透文件，玩家永遠不會直接看到，只供敘事暗線一致。只輸出設定內容本身，使用繁體中文書寫；避免使用中國大陸簡體中文慣用詞彙（例如「質量」→「品質」、「視頻」→「影片」、「軟件」→「軟體」、「信息」→「資訊」、「打印」→「列印」等），用詞符合台灣繁體中文書寫習慣。不要前言或客套。\n\n" +
+        `這是劇透文件，玩家永遠不會直接看到，只供敘事暗線一致。只輸出設定內容本身。${TRADITIONAL_CHINESE_RULE}不要前言或客套。\n\n` +
         "世界設定：\n" + settingText.trim(),
     },
     { role: "user", content: `${noun}名稱：${entityName}。請生成其隱藏設定。` },
@@ -43,7 +45,8 @@ export async function generateEntitySecrets(
     log.warn({ err }, "隱藏設定生成 LLM 呼叫失敗，回退預設文字");
     return "（生成失敗，待補）";
   }
-  return full.trim() || "（生成失敗，待補）";
+  // 落地進 secrets.md 前繁體化（小模型較易吐簡體，決定論兜底）
+  return toTraditional(full.trim()) || "（生成失敗，待補）";
 }
 
 export const ENTITY_CATEGORY_TO_LORE: Record<"item" | "location" | "skill", LoreCategory> = {
@@ -74,6 +77,19 @@ export const LORE_REWRITE_CATEGORY_OUTLINE: Record<LoreRewriteCategory, string> 
  * 把【現有文件全文】+【本回合相關敘事片段】丟給 LLM，要求輸出完整新版內容（不是 diff、不是片段）。
  * 失敗或輸出空白時回 null，呼叫端視為「這筆略過」。
  */
+/** 本回合情境：讓知識庫維護者判斷場景歸屬，避免把安全區事件誤寫成副本內（反之亦然） */
+export interface LoreRewriteContext {
+  inDungeon: boolean;
+  dungeonId?: string;
+}
+
+function formatContextLine(ctx: LoreRewriteContext): string {
+  const where = ctx.inDungeon
+    ? `在副本「${ctx.dungeonId ?? "進行中副本"}」內`
+    : "在主神空間安全區（非副本）";
+  return `本回合情境：主角目前${where}。只據此判斷場景歸屬，不要把安全區事件誤寫成副本內，反之亦然。`;
+}
+
 export async function callLoreRewrite(
   client: LlmClient,
   settingText: string,
@@ -82,6 +98,7 @@ export async function callLoreRewrite(
   existingContent: string,
   category: LoreRewriteCategory,
   log: Logger,
+  context?: LoreRewriteContext,
 ): Promise<string | null> {
   const messages: ChatMessage[] = [
     {
@@ -90,7 +107,7 @@ export async function callLoreRewrite(
         "你是「無限恐怖」世界敘事引擎的知識庫維護者。任務：把【現有文件】依【本回合敘事片段】更新成一份完整、連貫的新版內容。",
         "",
         "語言與用詞：",
-        "- 一律使用繁體中文書寫；避免使用中國大陸簡體中文慣用詞彙（例如「質量」→「品質」、「視頻」→「影片」、「軟件」→「軟體」、「信息」→「資訊」、「打印」→「列印」等），用詞符合台灣繁體中文書寫習慣。",
+        `- ${TRADITIONAL_CHINESE_RULE}`,
         "",
         "這份文件常見的可寫面向（不是每筆都要填滿；本回合片段沒提到、也沒有合理依據可擴寫的面向不要硬湊）：",
         LORE_REWRITE_CATEGORY_OUTLINE[category],
@@ -98,7 +115,7 @@ export async function callLoreRewrite(
         "鐵則：",
         "- 只輸出文件完整新版內容本身（純文字/Markdown），不要 JSON、不要前言、不要程式碼框。",
         "- 若【現有文件全文】非空（更新既有文件）：不可遺漏現有文件中仍然成立的事實；只在片段明確提供新資訊或訂正時才改動對應部分；不可發明片段未提及的事實。",
-        "- 若目前沒有現有文件（全新建檔）：可以在風格/氛圍類細節上做簡單合理的擴寫（例如視覺風格、材質、光線、氣味、外觀質感），讓內容有畫面感、之後好沿用；但不可發明會影響劇情走向的具體事實（真正用途、特殊機關、隱藏效果、與主線人物事件的關聯）——這些留給之後敘事片段揭露，或由暗線文件承接。本次擴寫過的風格細節，之後更新文件時要視為既定事實，不可無故更動。",
+        "- 若目前沒有現有文件（全新建檔）：只依本回合敘事片段已明確描述的內容整理成檔；**不可發明、不可擴寫敘事未提供的任何細節**（含視覺風格、材質、光線、氣味、用途、效果、機關、來歷、與人物事件的關聯）。片段沒提到的面向就留白，不要硬填、不要為了畫面感而想像。後續敘事揭露更多時再補。",
         "",
         "世界設定：",
         settingText.trim(),
@@ -108,6 +125,7 @@ export async function callLoreRewrite(
       role: "user",
       content: [
         `文件標題：${docTitle}`,
+        ...(context ? ["", formatContextLine(context)] : []),
         "",
         existingContent.trim()
           ? `現有文件全文：\n${existingContent.trim()}`
@@ -124,7 +142,8 @@ export async function callLoreRewrite(
     log.warn({ err }, "Layer 3 整檔重寫 LLM 呼叫失敗，略過該筆");
     return null;
   }
-  const content = raw.trim();
+  // 落地進 wiki.md / 角色檔前繁體化（決定論兜底，斷雪球）
+  const content = toTraditional(raw.trim());
   return content.length > 0 ? content : null;
 }
 
@@ -145,6 +164,7 @@ export async function rewriteLoreEntity(
   settingText: string,
   entity: LoreEntityRef,
   log: Logger,
+  context?: LoreRewriteContext,
 ): Promise<LoreRewriteResult | null> {
   const rewriteClient = deps.loreClient ?? deps.controlClient ?? deps.client;
 
@@ -155,13 +175,18 @@ export async function rewriteLoreEntity(
     }
     const filePath = path.join(deps.worldDir, "characters", `${entity.id}.md`);
     const existing = await readBestEffort(filePath);
-    const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, `NPC 角色檔案（${entity.name}）`, existing, "npc", log);
+    const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, `NPC 角色檔案（${entity.name}）`, existing, "npc", log, context);
     if (!content) return null;
-    // 角色檔重寫後的內容若以 `# 姓名` 開頭，以該標題為準（重寫可能訂正/確認姓名，
-    // 例如全新角色從泛稱「陌生男子」具名化成「陳先生」）；否則退回 touched_entities 給的 name。
-    const titleMatch = content.trim().match(/^#\s+(.+)$/m);
-    const title = titleMatch?.[1].trim() || entity.name;
-    return { id: entity.id, category: "npc", title, content };
+    // 只認「開頭第一行」的 H1（`# 姓名`）為已自帶標題，以該標題為準（重寫可能訂正/確認姓名，
+    // 例如全新角色從泛稱「陌生男子」具名化成「陳先生」），內容原樣保留。
+    // 否則退回 touched_entities 的 name，並補上正確 H1
+    //（根因 I：模型常用 `###` 起頭，不補會讓角色檔從 `###` 開始、層級錯亂；
+    //  C3：錨點限定第一行——與 rewriteLoreWiki 的 /^#\s/ 一致——避免被內文任意行的 `# x` 騙過）。
+    const trimmed = content.trim();
+    const h1Match = trimmed.match(/^#\s+(.+)(?:\n|$)/);
+    const title = h1Match?.[1].trim() || entity.name;
+    const normalized = h1Match ? trimmed : `# ${title}\n\n${trimmed}`;
+    return { id: entity.id, category: "npc", title, content: normalized };
   }
 
   if (!ITEM_ID_RE.test(entity.id)) {
@@ -171,11 +196,14 @@ export async function rewriteLoreEntity(
   const category = ENTITY_CATEGORY_TO_LORE[entity.category];
   const existing = await loadLore(deps.worldDir, category, entity.id, log);
   if (!existing.secrets) {
-    const secretsText = await generateEntitySecrets(deps.client, settingText, entity.name, entity.category, log);
+    // secrets 是玩家永不見、只生成一次的暗線文件，用小模型（loreClient→controlClient→client）即可，
+    // 不必占用主敘事大模型；A 校驗 gate 修好後此處呼叫量本就大降。
+    const secretsClient = deps.loreClient ?? deps.controlClient ?? deps.client;
+    const secretsText = await generateEntitySecrets(secretsClient, settingText, entity.name, entity.category, log);
     await ensureSecrets(deps.worldDir, category, entity.id, secretsText, `隱藏設定（${entity.name}）`, log);
   }
   const title = `${ENTITY_CATEGORY_TITLE[entity.category]}（${entity.name}）`;
-  const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing.wiki, entity.category, log);
+  const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing.wiki, entity.category, log, context);
   if (!content) return null;
   return { id: entity.id, category: entity.category, title, content };
 }

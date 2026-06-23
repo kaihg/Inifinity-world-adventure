@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, access } from "node:fs/promises";
+import { readFile, writeFile, mkdir, access, readdir } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 
@@ -23,6 +23,26 @@ function logUnexpectedReadError(logger: Logger, file: string, err: unknown): voi
 
 export function loreDir(worldDir: string, category: LoreCategory, id: string): string {
   return path.join(worldDir, category, id);
+}
+
+/**
+ * 列舉某 lore 分類下既有的所有 id（子目錄名）；目錄不存在回 []。
+ * 供 Layer 3 prompt 把「現有實體 id」餵給模型對齊（不要為同一實體發明新 id），
+ * 以及落地前 category 衝突對齊（以既有檔案為準）。
+ */
+export async function listLoreIds(
+  worldDir: string,
+  category: LoreCategory,
+  logger: Logger = defaultLogger,
+): Promise<string[]> {
+  const dir = path.join(worldDir, category);
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch (err) {
+    logUnexpectedReadError(logger, dir, err);
+    return [];
+  }
 }
 
 async function exists(p: string, logger: Logger): Promise<boolean> {
@@ -98,6 +118,7 @@ export async function rewriteLoreWiki(
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, "wiki.md");
   const body = content.trim();
-  const finalContent = body.startsWith("#") ? `${body}\n` : `# ${title}\n\n${body}\n`;
+  // 只認 H1（`# `）為「已自帶標題」；`##`/`###` 起頭視為缺標題並補正確 H1（根因 I）
+  const finalContent = /^#\s/.test(body) ? `${body}\n` : `# ${title}\n\n${body}\n`;
   await writeFile(file, finalContent, "utf8");
 }

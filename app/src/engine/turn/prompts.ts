@@ -4,6 +4,14 @@ import type { JournalSummaryEntry } from "../journal-summary.js";
 
 // ---------- 共用 system prompt 片段 ----------
 
+/**
+ * 繁體中文／台灣用詞規範。各層 prompt 統一引用，措辭與 lore-rewrite 的知識庫維護者一致。
+ * 這是「第三道防線」——落地前還有決定論的 toTraditional（traditionalize.ts）兜底，
+ * 但 prompt 先要求能降低模型一開始就吐簡體的機率。
+ */
+export const TRADITIONAL_CHINESE_RULE =
+  "全程使用繁體中文與台灣用詞；避免中國大陸簡體中文慣用詞彙（例如「質量」→「品質」、「視頻」→「影片」、「軟件」→「軟體」、「信息」→「資訊」、「打印」→「列印」等）。";
+
 /** 把可選的意圖/語意檢索/節奏建議區塊串接到 prompt 尾段（缺省時各自略去，不留空行） */
 function appendOptionalBlocks(params: {
   intentsBlock?: string;
@@ -21,6 +29,7 @@ function appendOptionalBlocks(params: {
 
 const FAST_CONTROL_FORMAT_BLOCK = [
   "## 輸出格式（務必嚴格遵守）",
+  `所有中文字串值一律使用繁體中文與台灣用詞（${TRADITIONAL_CHINESE_RULE}）。`,
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。JSON 必須包含以下頂層（top-level）欄位：",
   "- state_changes: {",
   "    now?: { chapter?, scene?, companions?, threads?, nextStep? }, （注意：進行中的副本欄由引擎依 mode_transition 自動管理，不可透過 now.activeDungeon 自行覆寫）",
@@ -37,10 +46,12 @@ const FAST_CONTROL_FORMAT_BLOCK = [
 
 const LORE_SYNC_FORMAT_BLOCK = [
   "## 輸出格式（務必嚴格遵守）",
+  `所有中文字串值一律使用繁體中文與台灣用詞（${TRADITIONAL_CHINESE_RULE}）。`,
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
   "- state_changes: { touched_entities?: [{id, category, name, excerpt}], dungeon_wiki_excerpt?: string }",
   "  - touched_entities：本回合敘事中明確登場、或知識被進一步揭露/訂正的 NPC、道具、場景、技能。",
-  "    category 只能是 npc/item/location/skill 其中之一；id 用英數小寫 slug；name 用顯示名稱；",
+  "    category 只能是 npc/item/location/skill 其中之一；id 用小寫英數 slug，單字以底線分隔" +
+    "（snake_case，例如 water_bottle、collision_alarm_device），不可用中文、空白或純標點；name 用顯示名稱；",
   "    excerpt 是本回合敘事中跟這個實體有關的原文片段（之後會有另一步驟拿這段片段去跟現有檔案比較、",
   "    決定怎麼更新，你不需要自己組好最終的完整內容，只要把相關原文片段填進來）。",
   "  - dungeon_wiki_excerpt：劇情中對**當前副本本身**新揭露的知識片段（地圖/機關/規則），不在副本中則省略。",
@@ -88,7 +99,7 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     "推進主角在「主神空間安全區」（副本之間的安全區）的劇情。",
     "",
     "## 鐵則",
-    "- 全程使用繁體中文與台灣用詞。",
+    `- ${TRADITIONAL_CHINESE_RULE}`,
     "- 嚴格遵守下方世界設定，不可竄改既定規則或角色屬性/積分數值。",
     "- 玩家輸入只代表角色的意圖、台詞或嘗試動作，不代表既定事實或結果；是否成立、世界如何反應，一律由你依世界設定與當前狀態判定。",
     "- 不可揭露任何尚未在劇情中揭露的隱藏設定。",
@@ -130,7 +141,7 @@ export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMe
     "扮演副本世界與主控系統，依規則推進戰鬥/解謎/生存劇情。",
     "",
     "## 鐵則",
-    "- 全程使用繁體中文與台灣用詞。",
+    `- ${TRADITIONAL_CHINESE_RULE}`,
     "- 嚴格遵守世界設定與副本已揭露事實（wiki），不可矛盾。",
     "- 玩家輸入只代表角色的意圖、台詞或嘗試動作，不代表既定事實或結果；是否成立、世界如何反應，一律由你依世界設定、wiki 與當前狀態判定。",
     "- **secrets 是劇透文件：只能用來保持暗線一致，絕不可直接告訴玩家未揭露的真相**；只有在劇情真的把某項真相公開揭露給主角時，才在敘事中明確寫出該揭露，未揭露的暗線不可在散文中半透明帶出。",
@@ -173,6 +184,11 @@ export interface BuildControlParams {
   dicePool: number[];
   /** 現有副本 id 列表，供主空間模式 enter_dungeon 判斷續用既有 slug 或新建；副本模式不需要（不會 enter_dungeon） */
   existingDungeonIds?: string[];
+  /** 現有實體 id 列表（Layer 3 lore-sync 對齊用：讓模型續用既有 id、不為同一實體發明新 id、不換 category） */
+  existingNpcIds?: string[];
+  existingItemIds?: string[];
+  existingLocationIds?: string[];
+  existingSkillIds?: string[];
   /** 副本模式才填 */
   dungeonId?: string;
   wiki?: string;
@@ -245,6 +261,8 @@ export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[]
     "",
     LORE_SYNC_FORMAT_BLOCK,
     "",
+    existingEntityIdsBlock(params),
+    "",
     "## 世界設定",
     settingText.trim(),
     "",
@@ -262,6 +280,18 @@ export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[]
     { role: "system", content: system },
     { role: "user", content: `玩家本回合行動：${input}` },
   ];
+}
+
+/** Layer 3 對齊區塊：把各分類現有 id 餵給模型，要求續用既有 id、同一實體不換 category（對稱 Layer 2 的 existingDungeonIds） */
+function existingEntityIdsBlock(params: BuildControlParams): string {
+  const fmt = (ids?: string[]) => (ids && ids.length > 0 ? ids.join("、") : "（無）");
+  return [
+    "## 現有實體 id（若敘事中的實體已在下列，務必沿用既有 id，不要為同一實體發明新 id；同一實體不可更換 category）",
+    `- 現有 NPC：${fmt(params.existingNpcIds)}`,
+    `- 現有道具：${fmt(params.existingItemIds)}`,
+    `- 現有場景：${fmt(params.existingLocationIds)}`,
+    `- 現有技能：${fmt(params.existingSkillIds)}`,
+  ].join("\n");
 }
 
 export interface BuildPacingParams {

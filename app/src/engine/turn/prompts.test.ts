@@ -54,6 +54,8 @@ describe("buildMainSpaceMessages", () => {
     expect(msgs[0].content).toContain("力量 8、敏捷 12");
     expect(msgs[0].content).toContain("第三人稱");
     expect(msgs[0].content).toContain("絕不可用「你」指稱主角");
+    // 繁體中文/台灣用詞規範（共用 TRADITIONAL_CHINESE_RULE，根因 C 第三道防線）
+    expect(msgs[0].content).toContain("避免中國大陸簡體中文慣用詞彙");
     expect(msgs[1]).toEqual({ role: "user", content: "我四處看看" });
   });
 
@@ -151,6 +153,22 @@ describe("buildLoreSyncMessages（Layer 3）", () => {
     expect(msgs[0].content).toContain("U-001");
     expect(msgs[0].content).toContain("入口有三道門");
     expect(msgs[0].content).not.toContain("地板會塌");
+  });
+
+  it("含現有實體 id 對齊區塊（根因 A：要求模型續用既有 id、不換 category）", () => {
+    const msgs = buildLoreSyncMessages({
+      settingText: "設定", state: sampleState, input: "找葉晴",
+      narrative: "沈奕找葉晴討論。", dicePool: [1],
+      existingNpcIds: ["yeqing", "linsiyu"],
+      existingItemIds: ["rusty-pipe"],
+      existingLocationIds: ["info-room"],
+      existingSkillIds: [],
+    });
+    expect(msgs[0].content).toContain("現有實體 id");
+    expect(msgs[0].content).toContain("不要為同一實體發明新 id");
+    expect(msgs[0].content).toContain("yeqing、linsiyu");
+    expect(msgs[0].content).toContain("rusty-pipe");
+    expect(msgs[0].content).toContain("info-room");
   });
 });
 

@@ -65,7 +65,7 @@ const DEFAULTS = {
   authorName: "Infinity World Engine",
   authorEmail: "engine@localhost",
   autoAdvanceMax: 4,
-  nudgeWindowSize: 5,
+  nudgeWindowSize: 3,
   nudgeSimilarityThreshold: 0.92,
   pacingReviewInterval: 10,
   recallTopK: 5,
