@@ -6,6 +6,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { AppConfig } from "../config.js";
 import { loadState } from "../engine/context.js";
+import { isWorldInitialized } from "../engine/world-status.js";
 import { runTurnLoop, type PendingLoreSync } from "../engine/turn/index.js";
 import { createOpenAiClient, type LlmClient } from "../llm/client.js";
 import { commitWorld } from "../git/commit.js";
@@ -138,6 +139,11 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
   // resume 入口：決定論地讀 world/ 回傳當前局勢
   server.get("/api/state", async () => {
     return loadState(config.worldDir, logger);
+  });
+
+  // 前端開機判斷：世界是否已初始化（決定要不要顯示初始化精靈）
+  server.get("/api/world/status", async () => {
+    return { initialized: await isWorldInitialized(config.worldDir) };
   });
 
   // 推進主空間敘事回合（含自動推進），以 SSE 串流 delta/auto-advance/done 事件

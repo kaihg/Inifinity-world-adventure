@@ -125,3 +125,30 @@ describe("POST /api/turn（SSE）", () => {
     await server.close();
   });
 });
+
+describe("GET /api/world/status", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-status-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("setting.md 不存在 → initialized:false", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }));
+    const res = await server.inject({ method: "GET", url: "/api/world/status" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ initialized: false });
+    await server.close();
+  });
+
+  it("setting.md 有正常內容 → initialized:true", async () => {
+    await writeFile(path.join(world, "setting.md"), "# 世界設定\n\n真實世界。\n", "utf8");
+    const server = buildServer(loadConfig({ WORLD_DIR: world }));
+    const res = await server.inject({ method: "GET", url: "/api/world/status" });
+    expect(res.json()).toEqual({ initialized: true });
+    await server.close();
+  });
+});
