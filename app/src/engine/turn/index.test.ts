@@ -1194,7 +1194,7 @@ describe("nudgeBlock / pacingBlock 整合", () => {
     const embedder = fakeEmbedder({ 重複0: [1, 0], 重複1: [1, 0], 重複2: [1, 0], 重複3: [1, 0], 重複4: [1, 0] });
     const deps: TurnDeps = {
       client: mainClient, worldDir: world, commit: async () => false,
-      today: () => "2026-06-19", dicePool: [50], embedder, nudgeWindowSize: 5,
+      today: () => "2026-06-19", dicePool: [50], embedder, nudgeWindowSize: 5, nudgeSimilarityThreshold: 0.9,
     };
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(deps, "繼續")) events.push(ev);

@@ -265,6 +265,7 @@ export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[]
 }
 
 export interface BuildPacingParams {
+  /** 保留此欄位與其他 build*Messages 函式的簽名一致；函式本體不使用（節奏審閱不需要完整世界設定全文）。 */
   settingText: string;
   state: GameState;
   entries: JournalSummaryEntry[];
@@ -275,6 +276,7 @@ export interface BuildPacingParams {
  * 請 LLM 給一段自由文字節奏建議（非 JSON），供敘事 LLM 參考、不是指令。
  */
 export function buildPacingMessages(params: BuildPacingParams): ChatMessage[] {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { state, entries } = params;
   const historyLines = entries.map((e) => `- [${e.timestamp}] (${e.mode}) ${e.summary}`).join("\n");
   const system = [

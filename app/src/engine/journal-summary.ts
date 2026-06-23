@@ -15,7 +15,10 @@ export async function appendJournalSummary(worldDir: string, entry: JournalSumma
   await appendFile(path.join(worldDir, "journal_summary.md"), line, "utf8");
 }
 
-/** 讀出 journal_summary.md 所有已解析的條目；檔案不存在時回傳空陣列。 */
+/**
+ * 讀出 journal_summary.md 所有已解析的條目；檔案不存在時回傳空陣列。
+ * 格式不符（損毀行、不完整的最後一行）的行靜默跳過，不影響其他條目。
+ */
 export async function readJournalSummaryEntries(worldDir: string): Promise<JournalSummaryEntry[]> {
   let raw: string;
   try {
