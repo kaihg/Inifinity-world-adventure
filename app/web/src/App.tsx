@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchState, fetchVersion, streamTurn, type AppVersion, type GameState } from "./api";
+import { fetchState, fetchVersion, streamTurn, fetchWorldStatus, endWorld, type AppVersion, type GameState } from "./api";
+import { WorldSetupWizard } from "./WorldSetupWizard";
+import { DeathChoiceModal } from "./DeathChoiceModal";
 
 const COMPUTING_HINT = "🌌 主控系統正在運算中…（自架模型首字推論可能需數十秒，請稍候）";
 
@@ -11,6 +13,8 @@ export function App() {
   const [input, setInput] = useState("");
   const [showStatus, setShowStatus] = useState(false);
   const [version, setVersion] = useState<AppVersion | null>(null);
+  const [worldInitialized, setWorldInitialized] = useState<boolean | null>(null);
+  const [protagonistDied, setProtagonistDied] = useState(false);
   const storyEndRef = useRef<HTMLDivElement | null>(null);
   const loadedInitialRef = useRef(false);
   const busyRef = useRef(busy);
@@ -32,6 +36,10 @@ export function App() {
       })
       .catch(() => {});
   useEffect(() => {
+    fetchWorldStatus()
+      .then((s) => setWorldInitialized(s.initialized))
+      .catch(() => setWorldInitialized(true)); // 失敗時保守當已初始化，至少能進主畫面
+
     refresh();
     fetchVersion().then(setVersion).catch(() => {});
 
@@ -90,7 +98,12 @@ export function App() {
             setStory((s) => s + `\n[錯誤] ${ev.message}\n`);
             break;
           case "done":
-            setSuggested(ev.suggestedActions ?? []);
+            if (ev.protagonistDied) {
+              setProtagonistDied(true);
+              setSuggested([]); // 死亡時不顯示建議行動 chips
+            } else {
+              setSuggested(ev.suggestedActions ?? []);
+            }
             if (ev.state) setState(ev.state);
             break;
         }
@@ -142,6 +155,11 @@ export function App() {
 
   const isDungeon = state?.mode === "dungeon";
 
+  if (worldInitialized === null) return <div className="app-shell app-shell--main" />;
+  if (!worldInitialized) {
+    return <WorldSetupWizard onDone={(s) => { setState(s); setWorldInitialized(true); loadedInitialRef.current = true; }} />;
+  }
+
   return (
     <div className={`app-shell ${isDungeon ? "app-shell--dungeon" : "app-shell--main"}`}>
       <div className="ambient-grid" aria-hidden="true" />
@@ -185,7 +203,7 @@ export function App() {
             </section>
             {busy && <div className="computing-hint">{COMPUTING_HINT}</div>}
 
-            {suggested.length > 0 && (
+            {suggested.length > 0 && !protagonistDied && (
               <div className="suggested" role="group" aria-label="建議行動">
                 {suggested.map((a, i) => (
                   <button key={i} className="chip" disabled={busy} onClick={() => send(a)}>
@@ -199,14 +217,14 @@ export function App() {
             <div className="composer">
               <input
                 value={input}
-                disabled={busy}
+                disabled={busy || protagonistDied}
                 placeholder="你的行動，例如：去資訊室找葉晴"
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && send(input)}
               />
               <button
                 className="send-btn"
-                disabled={busy}
+                disabled={busy || protagonistDied}
                 aria-label={busy ? "推進中" : "送出"}
                 onClick={() => send(input)}
               >
@@ -227,7 +245,21 @@ export function App() {
       </div>
 
       {showStatus && state && (
-        <StatusDrawer state={state} onClose={() => setShowStatus(false)} />
+        <StatusDrawer
+          state={state}
+          onClose={() => setShowStatus(false)}
+          dangerDisabled={busy || protagonistDied}
+          onEndWorld={async () => {
+            try { await endWorld("封存"); setShowStatus(false); setWorldInitialized(false); }
+            catch (e) { setStory((s) => s + `\n[錯誤] ${(e as Error).message}\n`); }
+          }}
+        />
+      )}
+      {protagonistDied && (
+        <DeathChoiceModal
+          onKeepWorldDone={(s) => { setState(s); setProtagonistDied(false); setStory("新主角接替了這個世界。"); }}
+          onEndWorldDone={() => { setProtagonistDied(false); setWorldInitialized(false); }}
+        />
       )}
     </div>
   );
@@ -242,18 +274,39 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StatusDrawer({ state, onClose }: { state: GameState; onClose: () => void }) {
+function StatusDrawer({
+  state, onClose, onEndWorld, dangerDisabled,
+}: {
+  state: GameState;
+  onClose: () => void;
+  onEndWorld: () => void;
+  dangerDisabled: boolean;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
   return (
     <div className="drawer-backdrop" onClick={onClose}>
       <aside className="drawer" onClick={(e) => e.stopPropagation()}>
         <div className="drawer-header">
           <h2>角色 / 系統面板</h2>
-          <button className="icon-btn" aria-label="關閉面板" onClick={onClose}>
-            <IconClose />
-          </button>
+          <button className="icon-btn" aria-label="關閉面板" onClick={onClose}><IconClose /></button>
         </div>
         <StatusPanel state={state} />
         <NpcPanel state={state} />
+        <section className="panel">
+          <div className="panel-head"><h2>危險區域</h2></div>
+          {!confirming ? (
+            <button className="chip" disabled={dangerDisabled} onClick={() => setConfirming(true)}>
+              封存故事 / 結束世界
+            </button>
+          ) : (
+            <>
+              <p>輸入「封存」以確認結束並封存目前世界：</p>
+              <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} />
+              <button className="send-btn" disabled={confirmText !== "封存"} onClick={onEndWorld}>確定封存</button>
+            </>
+          )}
+        </section>
       </aside>
     </div>
   );
