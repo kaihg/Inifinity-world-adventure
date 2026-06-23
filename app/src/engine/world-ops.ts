@@ -5,7 +5,7 @@ import type { Logger } from "../logger.js";
 import { serializeNow } from "./now.js";
 import type { NowState } from "./context.js";
 import { buildProtagonistPrompt, type ProtagonistSeed } from "./protagonist-seed.js";
-import { archiveWorld } from "./archive.js";
+import { archiveWorld, archiveWorldFiles } from "./archive.js";
 import {
   UNINITIALIZED_SETTING_PLACEHOLDER,
   UNINITIALIZED_GM_NOTES_PLACEHOLDER,
@@ -207,5 +207,80 @@ export async function endWorld(opts: {
   const archivedTo = await archiveWorld(repoRoot, worldDir);
   await writeFile(path.join(repoRoot, archivedTo, "summary.md"), `# 終章摘要\n\n${summary}\n`, "utf8");
   await resetWorldToPlaceholder(worldDir, today);
+  return archivedTo;
+}
+
+/**
+ * 主角換代（保留世界）：封存舊主角相關檔案（含 now.md）→ 寫前任退場摘要 →
+ * 生成新主角 → 重置主空間時間線（journal/now/index 的主角列）。
+ * 不動 setting.md/gm-notes.md/dungeons/*。回傳封存目錄相對路徑。
+ */
+export async function replaceProtagonist(opts: {
+  repoRoot: string;
+  worldDir: string;
+  client: LlmClient;
+  protagonistSeed: ProtagonistSeed;
+  today: string;
+  logger: Logger;
+}): Promise<string> {
+  const { repoRoot, worldDir, client, protagonistSeed, today, logger } = opts;
+  const readSafe = async (rel: string): Promise<string> => {
+    try { return await readFile(path.join(worldDir, rel), "utf8"); } catch { return ""; }
+  };
+
+  // 1) 前任退場摘要（讀 journal/protagonist，不讀 gm-notes）
+  let farewell: string;
+  try {
+    farewell = await generateText(client, [
+      { role: "system", content: "你是說書人。為退場的前任主角寫一段簡短退場摘要（繁體中文）。只依提供內容，不杜撰隱藏真相。" },
+      { role: "user", content: `主角：\n${await readSafe("characters/protagonist.md")}\n\n日誌：\n${await readSafe("journal.md")}` },
+    ]);
+    if (!farewell) farewell = "（摘要生成失敗）";
+  } catch (err) {
+    logger.warn({ err }, "前任主角退場摘要生成失敗，以固定文字降級");
+    farewell = "（摘要生成失敗）";
+  }
+
+  // 2) 封存舊主角檔（含 now.md 死亡瞬間快照）
+  const archivedTo = await archiveWorldFiles(repoRoot, worldDir, [
+    "characters/protagonist.md",
+    "characters/index.md",
+    "journal.md",
+    "now.md",
+  ]);
+  await writeFile(path.join(repoRoot, archivedTo, "summary.md"), `# 前任主角退場摘要\n\n${farewell}\n`, "utf8");
+
+  // 3) 生成新主角
+  const protagonistMd = await generateText(client, [
+    {
+      role: "system",
+      content:
+        "你是「無限恐怖」世界的角色設計師。生成接替主角的 protagonist.md（繁體中文）：" +
+        "基本資訊、初始積分（一般為 0）、初始屬性、技能、物品欄、Buff/Debuff、新手保護備註。" +
+        "可沿用既有世界觀。只輸出 markdown，開頭是 `# 主角檔案`。",
+    },
+    { role: "user", content: buildProtagonistPrompt(protagonistSeed) },
+  ]);
+
+  // 4) 重置主空間時間線（不動 setting/gm-notes/dungeons）
+  await writeFile(path.join(worldDir, "characters", "protagonist.md"), `${protagonistMd}\n`, "utf8");
+  await writeFile(
+    path.join(worldDir, "characters", "index.md"),
+    [
+      "# 角色索引（Character Index）",
+      "",
+      "| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |",
+      "|----|------|------|----------|--------------|",
+      "| protagonist | 新主角 | 主角 | 接替前任，新開局 | - |",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    path.join(worldDir, "journal.md"),
+    `# 主空間日誌（Journal）\n\n## [${today}] 新主角接替\n\n前任主角已退場，新主角接續這個世界。\n`,
+    "utf8",
+  );
+  await writeFile(path.join(worldDir, "now.md"), serializeNow(initialNow(today)), "utf8");
   return archivedTo;
 }

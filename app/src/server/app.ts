@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -14,7 +15,7 @@ import { getAppVersion, type AppVersionInfo } from "../git/version.js";
 import { createLogger, type Logger } from "../logger.js";
 import { createRecallIndex } from "../recall/index.js";
 import type { RecallIndex } from "../recall/store.js";
-import { initWorld, endWorld } from "../engine/world-ops.js";
+import { initWorld, endWorld, replaceProtagonist } from "../engine/world-ops.js";
 import { clearRecallIndex } from "../recall/clear-index.js";
 import { todayISO } from "../engine/turn/shared.js";
 
@@ -188,11 +189,57 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     return { archivedTo };
   });
 
+  server.post("/api/world/protagonist", async (req, reply) => {
+    const pendingPath = path.join(config.worldDir, ".pending-death");
+    if (!existsSync(pendingPath)) {
+      return reply.code(409).send({ error: "目前不在主角死亡抉擇情境" });
+    }
+    const body = req.body as
+      | { choice: "keep-world"; protagonistSeed?: import("../engine/protagonist-seed.js").ProtagonistSeed }
+      | { choice: "end-world" };
+    const opLogger = logger.child({ op: "world-protagonist" });
+
+    if (body.choice === "end-world") {
+      const archivedTo = await endWorld({
+        repoRoot, worldDir: config.worldDir, client: makeClient(opLogger),
+        today: todayISO(), logger: opLogger,
+      });
+      await rm(pendingPath, { force: true });
+      await makeCommit(opLogger)("封存世界");
+      await clearRecallIndex(config.recall);
+      return { archivedTo };
+    }
+
+    // keep-world
+    await replaceProtagonist({
+      repoRoot, worldDir: config.worldDir, client: makeClient(opLogger),
+      protagonistSeed: body.protagonistSeed ?? {}, today: todayISO(), logger: opLogger,
+    });
+    await rm(pendingPath, { force: true });
+    await makeCommit(opLogger)("主角換代");
+    await clearRecallIndex(config.recall);
+    return loadState(config.worldDir, opLogger);
+  });
+
   // 推進主空間敘事回合（含自動推進），以 SSE 串流 delta/auto-advance/done 事件
   server.post("/api/turn", async (req, reply) => {
     const input = (req.body as { input?: string })?.input ?? "";
     const turnId = randomUUID();
     const turnLogger = logger.child({ turnId });
+
+    if (existsSync(path.join(config.worldDir, ".pending-death"))) {
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+      reply.raw.write(
+        `data: ${JSON.stringify({ type: "error", message: "主角已死亡，請先完成換代或封存抉擇" })}\n\n`,
+      );
+      reply.raw.end();
+      return;
+    }
 
     reply.hijack();
     reply.raw.writeHead(200, {
