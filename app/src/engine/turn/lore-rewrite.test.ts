@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import { logger } from "../../logger.js";
-import { callLoreRewrite, type LoreRewriteCategory } from "./lore-rewrite.js";
+import { callLoreRewrite, type LoreRewriteCategory, generateEntitySecrets, rewriteLoreEntity } from "./lore-rewrite.js";
+import { mkdtemp, mkdir } from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import type { TurnDeps } from "./types.js";
 
 function capturingClient(response: string): { client: LlmClient; messages: ChatMessage[] } {
   const result = { messages: [] as ChatMessage[] } as { client: LlmClient; messages: ChatMessage[] };
@@ -37,4 +41,51 @@ describe("callLoreRewrite", () => {
       expect(system).toContain(keyword);
     },
   );
+});
+
+describe("generateEntitySecrets", () => {
+  it.each([
+    ["item", "道具設計者", "道具名稱"],
+    ["location", "場景設計者", "場景名稱"],
+    ["skill", "技能設計者", "技能名稱"],
+  ] as [("item" | "location" | "skill"), string, string][])(
+    "category=%s 時措辭正確（%s / %s）",
+    async (category, roleKeyword, nounKeyword) => {
+      const cap = capturingClient("隱藏設定內容");
+      await generateEntitySecrets(cap.client, "世界設定", "測試實體", category);
+      const system = cap.messages.find((m) => m.role === "system")?.content ?? "";
+      const user = cap.messages.find((m) => m.role === "user")?.content ?? "";
+      expect(system).toContain(roleKeyword);
+      expect(user).toContain(nounKeyword);
+    },
+  );
+});
+
+describe("rewriteLoreEntity 標題", () => {
+  it("道具 wiki 標題用 entity.name 而非 entity.id", async () => {
+    const worldDir = await mkdtemp(path.join(os.tmpdir(), "world-"));
+    await mkdir(path.join(worldDir, "items", "sword-001"), { recursive: true });
+
+    const fakeClient: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const systemContent = messages.find((m) => m.role === "system")?.content ?? "";
+        yield systemContent.includes("劇透文件") ? "隱藏設定內容" : "# 淬毒匕首\n\n外觀描述";
+      },
+    };
+    const deps: TurnDeps = {
+      client: fakeClient,
+      worldDir,
+      commit: async () => true,
+    };
+
+    const result = await rewriteLoreEntity(
+      deps,
+      "世界設定",
+      { id: "sword-001", category: "item", name: "淬毒匕首", excerpt: "主角拿到一把淬毒匕首" },
+      logger,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("道具（淬毒匕首）");
+  });
 });

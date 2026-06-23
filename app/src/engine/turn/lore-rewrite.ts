@@ -10,17 +10,30 @@ import type { TurnDeps } from "./types.js";
 /** 防止路徑穿越：道具/場景/技能/副本 id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
 export const ITEM_ID_RE = /^[\w.-]+$/;
 
-/** 為指定道具生成隱藏設定（劇透文件，僅供暗線一致，不可外洩）；風格與 generateSecrets 對齊 */
-export async function generateItemSecrets(client: LlmClient, settingText: string, itemName: string): Promise<string> {
+/** 隱藏設定生成者，依分類套用對應的世界觀角色稱呼（道具/場景/技能設計者措辭不同） */
+export const ENTITY_SECRETS_DESIGNER_ROLE: Record<"item" | "location" | "skill", string> = {
+  item: "道具設計者",
+  location: "場景設計者",
+  skill: "技能設計者",
+};
+
+/** 為指定實體生成隱藏設定（劇透文件，僅供暗線一致，不可外洩）；依分類套用正確的角色稱呼與名詞，風格與 callLoreRewrite 對齊 */
+export async function generateEntitySecrets(
+  client: LlmClient,
+  settingText: string,
+  entityName: string,
+  category: "item" | "location" | "skill",
+): Promise<string> {
+  const noun = ENTITY_CATEGORY_TITLE[category];
   const messages: ChatMessage[] = [
     {
       role: "system",
       content:
-        "你是「無限恐怖」世界的道具設計者。為指定道具生成隱藏設定（真實來歷、隱藏效果、與主線的關聯）。" +
-        "這是劇透文件，玩家永遠不會直接看到，只供敘事暗線一致。只輸出設定內容本身，繁體中文，不要前言或客套。\n\n" +
+        `你是「無限恐怖」世界的${ENTITY_SECRETS_DESIGNER_ROLE[category]}。為指定${noun}生成隱藏設定（真實來歷、隱藏效果、與主線的關聯）。` +
+        "這是劇透文件，玩家永遠不會直接看到，只供敘事暗線一致。只輸出設定內容本身，使用繁體中文書寫；避免使用中國大陸簡體中文慣用詞彙（例如「質量」→「品質」、「視頻」→「影片」、「軟件」→「軟體」、「信息」→「資訊」、「打印」→「列印」等），用詞符合台灣繁體中文書寫習慣。不要前言或客套。\n\n" +
         "世界設定：\n" + settingText.trim(),
     },
-    { role: "user", content: `道具名稱：${itemName}。請生成其隱藏設定。` },
+    { role: "user", content: `${noun}名稱：${entityName}。請生成其隱藏設定。` },
   ];
   let full = "";
   for await (const d of client.streamChat(messages)) full += d;
@@ -152,10 +165,10 @@ export async function rewriteLoreEntity(
   const category = ENTITY_CATEGORY_TO_LORE[entity.category];
   const existing = await loadLore(deps.worldDir, category, entity.id, log);
   if (!existing.secrets) {
-    const secretsText = await generateItemSecrets(deps.client, settingText, entity.name);
+    const secretsText = await generateEntitySecrets(deps.client, settingText, entity.name, entity.category);
     await ensureSecrets(deps.worldDir, category, entity.id, secretsText, `隱藏設定（${entity.name}）`, log);
   }
-  const title = `${ENTITY_CATEGORY_TITLE[entity.category]}（${entity.id}）`;
+  const title = `${ENTITY_CATEGORY_TITLE[entity.category]}（${entity.name}）`;
   const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing.wiki, entity.category, log);
   if (!content) return null;
   return { id: entity.id, category: entity.category, title, content };
