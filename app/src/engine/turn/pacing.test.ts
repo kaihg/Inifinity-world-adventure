@@ -20,6 +20,7 @@ function fakeClient(deltas: string[] | (() => never)): LlmClient {
 async function collect(gen: AsyncGenerator<TurnEvent, string>): Promise<{ events: TurnEvent[]; result: string }> {
   const events: TurnEvent[] = [];
   let result = "";
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const { value, done } = await gen.next();
     if (done) { result = value; break; }

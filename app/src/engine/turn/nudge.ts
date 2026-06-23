@@ -1,10 +1,11 @@
 import { readJournalSummaryEntries } from "../journal-summary.js";
 import { createLocalEmbedder } from "../../recall/embedder.js";
+import type { Embedder } from "../../recall/embedder.js";
 import { AUTO_CONTINUE_INPUT } from "./shared.js";
 import type { TurnDeps, TurnEvent } from "./types.js";
 
-const DEFAULT_WINDOW_SIZE = 5;
-const DEFAULT_SIMILARITY_THRESHOLD = 0.92;
+/** process-level singleton；deps.embedder 未提供時重用，避免每回合建立新閉包 */
+const defaultEmbedder: Embedder = createLocalEmbedder();
 
 /** 兩個等長向量的 cosine similarity；任一為零向量時回傳 0（避免除零）。 */
 export function cosineSimilarity(a: number[], b: number[]): number {
@@ -34,15 +35,17 @@ function formatNudgeBlock(hint?: string): string {
  * 失敗時降級為空字串並 yield warning，絕不拋出例外影響主回合管線。
  */
 export async function* runNudgeBlock(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent, string> {
-  const windowSize = deps.nudgeWindowSize ?? DEFAULT_WINDOW_SIZE;
-  const threshold = deps.nudgeSimilarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD;
+  // 設定值來自 config.ts DEFAULTS（透過 server/app.ts 注入），local fallback 僅為無注入的測試環境保底
+  const windowSize = deps.nudgeWindowSize ?? 5;
+  const threshold = deps.nudgeSimilarityThreshold ?? 0.92;
   try {
     const entries = await readJournalSummaryEntries(deps.worldDir);
-    if (entries.length < windowSize) return "";
+    // windowSize < 2 時相鄰對為零，空真值下任意條目都會觸發；要求至少 2 筆才有意義的相鄰比較
+    if (entries.length < windowSize || windowSize < 2) return "";
 
-    const window = entries.slice(-windowSize);
-    const embedder = deps.embedder ?? createLocalEmbedder();
-    const vectors = await embedder.embed(window.map((e) => e.summary));
+    const recentEntries = entries.slice(-windowSize);
+    const embedder = deps.embedder ?? defaultEmbedder;
+    const vectors = await embedder.embed(recentEntries.map((e) => e.summary));
 
     for (let i = 0; i < vectors.length - 1; i++) {
       if (cosineSimilarity(vectors[i], vectors[i + 1]) < threshold) return "";

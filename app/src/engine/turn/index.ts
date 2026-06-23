@@ -28,6 +28,29 @@ import type { TurnDeps, TurnEvent, TurnPlan } from "./types.js";
 
 export type { PendingLoreSync, TurnDeps, TurnEvent } from "./types.js";
 
+/**
+ * 把兩個獨立的 AsyncGenerator<TurnEvent, string> 並行跑完，
+ * 回傳所有收集到的 events 與各自的 return value。
+ * 適用於 nudgeBlock/pacingBlock 這種互相無資料依賴的情境。
+ */
+async function runBlocksParallel(
+  genA: AsyncGenerator<TurnEvent, string>,
+  genB: AsyncGenerator<TurnEvent, string>,
+): Promise<{ events: TurnEvent[]; resultA: string; resultB: string }> {
+  async function drain(
+    gen: AsyncGenerator<TurnEvent, string>,
+  ): Promise<{ events: TurnEvent[]; result: string }> {
+    const events: TurnEvent[] = [];
+    while (true) {
+      const { value, done } = await gen.next();
+      if (done) return { events, result: value };
+      events.push(value as TurnEvent);
+    }
+  }
+  const [a, b] = await Promise.all([drain(genA), drain(genB)]);
+  return { events: [...a.events, ...b.events], resultA: a.result, resultB: b.result };
+}
+
 /** 主空間敘事回合 */
 export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
   const log = (deps.logger ?? defaultLogger).child({ mode: "main-space" });
@@ -40,8 +63,12 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
-  const nudgeBlock = yield* runNudgeBlock(deps, input);
-  const pacingBlock = yield* runPacingBlock(deps, state, settingText);
+
+  const { events: blockEvents, resultA: nudgeBlock, resultB: pacingBlock } = await runBlocksParallel(
+    runNudgeBlock(deps, input),
+    runPacingBlock(deps, state, settingText),
+  );
+  for (const ev of blockEvents) yield ev;
 
   const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
 
@@ -79,8 +106,12 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
-  const nudgeBlock = yield* runNudgeBlock(deps, input);
-  const pacingBlock = yield* runPacingBlock(deps, state, settingText);
+
+  const { events: blockEvents, resultA: nudgeBlock, resultB: pacingBlock } = await runBlocksParallel(
+    runNudgeBlock(deps, input),
+    runPacingBlock(deps, state, settingText),
+  );
+  for (const ev of blockEvents) yield ev;
 
   const plan: TurnPlan = {
     messages: buildDungeonMessages({
