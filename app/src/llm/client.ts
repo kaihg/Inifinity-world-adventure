@@ -22,6 +22,8 @@ export interface CreateOpenAiClientOptions {
   label?: string;
   /** usage log 檔案路徑；缺省退回 config.usageLogPath */
   usageLogPath?: string;
+  /** 覆寫 max_tokens；對輸出上限較低的模型（如 diffusiongemma 預設 256）必須顯式設定 */
+  maxTokens?: number;
 }
 
 /** 以 OpenAI 相容端點實作的 LlmClient；每次呼叫的耗時與 token 用量會 append 進 usage log */
@@ -36,6 +38,7 @@ export function createOpenAiClient(
   });
   const label = opts.label ?? "main";
   const usageLogPath = opts.usageLogPath ?? config.usageLogPath;
+  const maxTokens = opts.maxTokens;
 
   return {
     async *streamChat(messages: ChatMessage[]): AsyncIterable<string> {
@@ -55,6 +58,7 @@ export function createOpenAiClient(
           messages,
           stream: true,
           stream_options: { include_usage: true },
+          ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
         });
         for await (const chunk of stream) {
           const delta = chunk.choices[0]?.delta?.content;

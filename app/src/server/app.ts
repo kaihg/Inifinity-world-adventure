@@ -101,7 +101,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
             },
           },
           logger,
-          { label: "lore" },
+          { label: "lore", maxTokens: 2048 },
         )
       : undefined);
 
