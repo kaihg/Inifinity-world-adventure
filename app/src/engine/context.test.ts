@@ -343,12 +343,12 @@ describe("loadState — lastTurn 還原（fixture worldDir）", () => {
     expect(state.lastTurn).toEqual({ narrative: "主空間敘事內容。", suggestedActions: [] });
   });
 
-  it("副本中：從對應 runs/<run-id>.md 還原，而非 journal.md", async () => {
+  it("副本中：從對應 log.md 還原，而非 journal.md", async () => {
     await writeFile(path.join(dir, "now.md"), nowMd("U-001 + run-1"), "utf8");
     await writeFile(path.join(dir, "journal.md"), "## [2026-06-18] 舊\n\n玩家行動：x\n骰池：[1]\n\n主空間舊敘事。\n", "utf8");
-    await mkdir(path.join(dir, "dungeons", "U-001", "runs"), { recursive: true });
+    await mkdir(path.join(dir, "dungeons", "U-001"), { recursive: true });
     await writeFile(
-      path.join(dir, "dungeons", "U-001", "runs", "run-1.md"),
+      path.join(dir, "dungeons", "U-001", "log.md"),
       "## [2026-06-19] 回合\n\n玩家行動：戰鬥\n骰池：[1]\n\n副本敘事內容。\n\n建議動作：撤退、繼續",
       "utf8",
     );

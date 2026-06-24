@@ -1,4 +1,4 @@
-import { writeFile, appendFile, mkdir, readdir, readFile } from "node:fs/promises";
+import { writeFile, appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 import { loadLore, ensureSecrets, listLoreIds } from "./lore.js";
@@ -28,14 +28,11 @@ export function formatActiveDungeon(d: ActiveDungeon): string {
   return `${d.dungeonId} + ${d.runId}`;
 }
 
-/** 由既有 run 檔名推下一個 run-id（run-1, run-2…） */
-export function nextRunId(existing: string[]): string {
-  const nums = existing
-    .map((f) => f.match(/^run-(\d+)\.md$/)?.[1])
-    .filter((n): n is string => n !== undefined)
-    .map(Number);
-  const max = nums.length > 0 ? Math.max(...nums) : 0;
-  return `run-${max + 1}`;
+/** 從 log.md 內容推下一個 run 序號（## run-1…run-N 的最大值 +1） */
+export function nextRunNumber(logContent: string): number {
+  const matches = [...logContent.matchAll(/^## run-(\d+)/gm)];
+  const nums = matches.map((m) => Number(m[1]));
+  return nums.length > 0 ? Math.max(...nums) + 1 : 1;
 }
 
 function dungeonDir(worldDir: string, dungeonId: string): string {
@@ -52,7 +49,7 @@ export interface EnterDungeonParams {
 }
 
 /**
- * 進入副本：建 runs/<run-id>.md（含進入時間/角色摘要/目標），
+ * 進入副本：在 dungeons/<id>/log.md 新增一個 ## run-N 段落（含進入日期/角色摘要/目標），
  * 首次進入該副本時寫 secrets.md（已存在則不覆寫，保住暗線一致；落地邏輯重用 lore.ts，與道具/技能等其他揭露式知識共用）。
  * 不切 git branch；now.md 進行中的副本欄由上層更新。
  */
@@ -62,31 +59,41 @@ export async function enterDungeon(
   logger: Logger = defaultLogger,
 ): Promise<ActiveDungeon> {
   const dir = dungeonDir(worldDir, params.dungeonId);
-  const runsDir = path.join(dir, "runs");
-  await mkdir(runsDir, { recursive: true });
+  await mkdir(dir, { recursive: true });
 
-  let existing: string[] = [];
+  const logFile = path.join(dir, "log.md");
+  let existing = "";
   try {
-    existing = await readdir(runsDir);
+    existing = await readFile(logFile, "utf8");
   } catch (err) {
-    logUnexpectedReadError(logger, runsDir, err);
-    existing = [];
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
   }
-  const runId = nextRunId(existing);
+
+  const runNumber = nextRunNumber(existing);
+  const runId = `run-${runNumber}`;
   logger.info({ dungeonId: params.dungeonId, runId }, "進入副本");
 
   // 動態值（角色摘要、目標）可能含 LLM 產出的簡體，落地前繁體化；模板字串本身已是繁體不需轉
   const header = [
-    `# 副本 ${params.dungeonId} · ${runId}`,
+    `## ${runId}（${params.today}）`,
     "",
-    `- 進入時間：[${params.today}]`,
     `- 進入時角色狀態：${toTraditional(params.protagonistSummary)}`,
     `- 本次目標：${toTraditional(params.goal)}`,
     "",
     "---",
     "",
   ].join("\n");
-  await writeFile(path.join(runsDir, `${runId}.md`), header, "utf8");
+
+  if (!existing.trim()) {
+    // 首次進入，建立檔案含 h1 標題
+    await writeFile(
+      logFile,
+      `# 副本 ${params.dungeonId} · Log\n\n${header}`,
+      "utf8",
+    );
+  } else {
+    await appendFile(logFile, `\n${header}`);
+  }
 
   await ensureSecrets(worldDir, "dungeons", params.dungeonId, params.secretsText, `副本隱藏真相（${params.dungeonId}）`, logger);
 
@@ -99,16 +106,19 @@ export interface RunEntry {
   body: string;
 }
 
-/** 把回合記錄 append 到 runs/<run-id>.md（副本 raw 層，append-only） */
-export async function appendRun(
+/** 把回合記錄 append 到 dungeons/<id>/log.md（副本 raw 層，append-only） */
+export async function appendLog(
   worldDir: string,
   dungeonId: string,
   runId: string,
   entry: RunEntry,
 ): Promise<void> {
-  const file = path.join(dungeonDir(worldDir, dungeonId), "runs", `${runId}.md`);
-  await appendFile(file, `\n## [${entry.date}] ${entry.title}\n\n${entry.body.trim()}\n`, "utf8");
+  const file = path.join(dungeonDir(worldDir, dungeonId), "log.md");
+  await appendFile(file, `\n### [${entry.date}] ${entry.title}\n\n${entry.body.trim()}\n`, "utf8");
 }
+
+/** @deprecated 請改用 appendLog */
+export const appendRun = appendLog;
 
 /** 讀副本的 wiki（已揭露知識）與 secrets（暗線），缺檔回空字串 */
 export async function loadDungeonLore(

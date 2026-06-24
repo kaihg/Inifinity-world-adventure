@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import os from "node:os";
 import path from "node:path";
@@ -610,9 +610,9 @@ describe("runTurnLoop — 自動推進", () => {
 });
 
 describe("runDungeonTurn", () => {
-  it("落地到 runs/*.md、整檔重寫副本 wiki.md（dungeon_wiki_excerpt）", async () => {
-    await mkdir(path.join(world, "dungeons", "U-001", "runs"), { recursive: true });
-    await writeFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "# run\n");
+  it("落地到 log.md、整檔重寫副本 wiki.md（dungeon_wiki_excerpt）", async () => {
+    await mkdir(path.join(world, "dungeons", "U-001"), { recursive: true });
+    await writeFile(path.join(world, "dungeons", "U-001", "log.md"), "# 副本 U-001 · Log\n\n## run-1（2026-06-19）\n\n- 進入時角色狀態：x\n- 本次目標：g\n\n---\n\n");
     await writeFile(path.join(world, "dungeons", "U-001", "secrets.md"), "真相：地板會塌\n");
     await writeFile(
       path.join(world, "now.md"),
@@ -638,8 +638,8 @@ describe("runDungeonTurn", () => {
       events.push(ev);
     }
 
-    const run = await readFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "utf8");
-    expect(run).toContain("## [2026-06-19] 進入大廳");
+    const run = await readFile(path.join(world, "dungeons", "U-001", "log.md"), "utf8");
+    expect(run).toContain("### [2026-06-19] 進入大廳");
     expect(run).toContain("往前走");
     const wiki = await readFile(path.join(world, "dungeons", "U-001", "wiki.md"), "utf8");
     expect(wiki).toContain("入口大廳有三道門");
@@ -868,7 +868,7 @@ describe("recall 整合測試", () => {
     }
 
     const relPaths = recall.upserted.map((u) => u.relPath);
-    expect(relPaths).toContain(path.join("dungeons", "U-001", "runs", "run-1.md"));
+    expect(relPaths).toContain(path.join("dungeons", "U-001", "log.md"));
     expect(relPaths).toContain(path.join("dungeons", "U-001", "wiki.md"));
   });
 });
@@ -909,13 +909,12 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
 
     const secrets = await readFile(path.join(world, "dungeons", "U-TEST", "secrets.md"), "utf8");
     expect(secrets).toContain("潮汐淹沒");
-    const runs = await readdir(path.join(world, "dungeons", "U-TEST", "runs"));
-    expect(runs).toContain("run-1.md");
+    const logFile = await readFile(path.join(world, "dungeons", "U-TEST", "log.md"), "utf8");
+    expect(logFile).toContain("run-1");
     const wiki = await readFile(path.join(world, "dungeons", "U-TEST", "wiki.md"), "utf8");
     expect(wiki).toContain("出口在東側");
     // 副大腦給的 transition_dungeon_goal 應落地進 run log，而非被硬編碼佔位字串取代
-    const runLog = await readFile(path.join(world, "dungeons", "U-TEST", "runs", "run-1.md"), "utf8");
-    expect(runLog).toContain("找到三把鑰匙");
+    expect(logFile).toContain("找到三把鑰匙");
 
     const now = await readFile(path.join(world, "now.md"), "utf8");
     expect(now).toContain("- 進行中的副本：無"); // 結算後回主空間

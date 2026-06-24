@@ -2,7 +2,7 @@ import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../../logger.js";
 import { loadState, type GameState } from "../context.js";
 import {
-  appendRun,
+  appendLog,
   enterDungeon,
   formatActiveDungeon,
   listDungeonIds,
@@ -111,7 +111,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   await scheduleLoreSync(deps, narrative, settingText, plan, log);
 }
 
-/** 副本敘事回合（讀當前 now.md 的進行中副本，落地到 runs/*.md、提煉 wiki） */
+/** 副本敘事回合（讀當前 now.md 的進行中副本，落地到 dungeons/<id>/log.md、提煉 wiki） */
 export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
   const baseLog = deps.logger ?? defaultLogger;
   await deps.pendingLoreSync?.promise;
@@ -157,8 +157,8 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
         dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
         ...existingEntityIds,
       }),
-    appendRaw: (entry) => appendRun(deps.worldDir, active.dungeonId, active.runId, entry),
-    rawFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "runs", `${active.runId}.md`),
+    appendRaw: (entry) => appendLog(deps.worldDir, active.dungeonId, active.runId, entry),
+    rawFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "log.md"),
     dungeonId: active.dungeonId,
   };
 

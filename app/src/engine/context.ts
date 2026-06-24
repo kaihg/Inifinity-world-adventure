@@ -258,11 +258,11 @@ async function readOrEmpty(file: string, logger: Logger): Promise<string> {
   }
 }
 
-/** 還原畫面用：依 now 的「進行中的副本」欄決定讀 journal.md 或對應 runs/*.md，解析最後一段記錄 */
+/** 還原畫面用：依 now 的「進行中的副本」欄決定讀 journal.md 或對應 log.md，解析最後一段記錄 */
 async function loadLastTurn(worldDir: string, now: NowState, logger: Logger): Promise<LastTurnRecord | null> {
   const active = parseActiveDungeon(now.activeDungeon);
   const rawFile = active
-    ? path.join(worldDir, "dungeons", active.dungeonId, "runs", `${active.runId}.md`)
+    ? path.join(worldDir, "dungeons", active.dungeonId, "log.md")
     : path.join(worldDir, "journal.md");
   const md = await readOrEmpty(rawFile, logger);
   return md ? parseLastTurnRecord(md) : null;
