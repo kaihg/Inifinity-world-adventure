@@ -18,15 +18,6 @@ const NowChangesSchema = z
   })
   .partial();
 
-const ProtagonistUpdatesSchema = z
-  .object({
-    attributes: z.array(z.string()).optional(),
-    skills: z.array(z.string()).optional(),
-    items: z.array(z.string()).optional(),
-    buffs: z.array(z.string()).optional(),
-  })
-  .optional();
-
 const RollReportSchema = z.object({
   desc: z.string(),
   value: z.number(),
@@ -35,11 +26,9 @@ const RollReportSchema = z.object({
 
 export type NowChanges = z.infer<typeof NowChangesSchema>;
 
-/** Layer 2（fast-control）：done event 與 now/主角/commit 所需的最小欄位子集 */
+/** Layer 2（fast-control）：done event 與 now/commit 所需的最小欄位子集 */
 const FastStateChangesSchema = z
   .object({
-    protagonist_points_delta: z.number().optional(),
-    protagonist_updates: ProtagonistUpdatesSchema,
     now: NowChangesSchema.optional(),
   })
   .default({});
@@ -72,6 +61,8 @@ const LoreStateChangesSchema = z
   .object({
     touched_entities: z.array(LoreEntityRefSchema).optional(),
     dungeon_wiki_excerpt: z.string().optional(),
+    protagonist_points_delta: z.number().optional(),
+    protagonist_changed: z.boolean().default(false),
   })
   .default({});
 
