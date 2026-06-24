@@ -20,8 +20,7 @@ export async function generateText(client: LlmClient, messages: ChatMessage[]): 
 
 export interface WorldInitInput {
   preferences?: {
-    tone?: string;
-    horrorIntensity?: string;
+    difficulty?: string;
     godPersona?: string;
     protectionRule?: string;
   };
@@ -70,8 +69,8 @@ export async function initWorld(opts: {
     {
       role: "user",
       content: [
-        `基調/可參考作品：${pref.tone?.trim() || UNSPEC}`,
-        `恐怖/驚悚強度：${pref.horrorIntensity?.trim() || UNSPEC}`,
+        // 主神「表面性格」只進玩家可見的 setting.md；內在真實動機由 gm-notes 另行生成（不讀此偏好）
+        `難度：${pref.difficulty?.trim() || UNSPEC}`,
         `主神表面性格：${pref.godPersona?.trim() || UNSPEC}`,
         `新手保護規則草案：${pref.protectionRule?.trim() || UNSPEC}`,
       ].join("\n"),

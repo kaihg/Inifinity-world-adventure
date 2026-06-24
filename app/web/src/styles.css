@@ -708,6 +708,34 @@ button {
   font-size: 0.85rem;
 }
 
+/* 單選 chip 群組（難度/主神性格/新手保護） */
+.choice-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.choice-label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.choice-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip--select {
+  padding: 0.45rem 0.95rem;
+}
+
+.chip--select.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent-strong);
+}
+
 /* 世界初始化精靈：欄位垂直堆疊，沿用 .modal-field 的輸入框樣式 */
 .setup-form {
   display: flex;

@@ -58,16 +58,15 @@ export async function archiveWorldFiles(repoRoot: string, worldDir: string, rela
 ```typescript
 interface WorldInitRequest {
   preferences?: {
-    tone?: string;            // 基調/可參考作品
-    horrorIntensity?: string; // 恐怖/驚悚強度
-    godPersona?: string;      // 主神表面性格
-    protectionRule?: string;  // 新手保護規則草案
+    difficulty?: string;      // 難度（前端單選：簡單/普通/困難/地獄）
+    godPersona?: string;      // 主神表面性格（前端單選；內在動機由 gm-notes 另生）
+    protectionRule?: string;  // 新手保護（前端單選：寬鬆/標準/嚴苛/無保護）
   };
-  protagonistSeed?: ProtagonistSeed; // ProtagonistSeed 內 name/origin 也都是 optional
+  protagonistSeed?: ProtagonistSeed; // ProtagonistSeed 內 name/freeform 皆 optional
 }
 ```
 
-所有欄位皆為 optional，**不做後端預設值補齊或字串驗證**：未填的欄位在生成 prompt 時標注「使用者未指定，由你自由發揮」，交給 LLM 在生成 `setting.md`/`protagonist.md` 時一併決定（理由：單機單玩家場景，輸入是給 LLM 發揮的素材而非需要防禦的外部資料，加驗證只會限制創作彈性）。
+所有欄位皆為 optional，**不做後端預設值補齊或字串驗證**：未填的欄位在生成 prompt 時標注「使用者未指定，由你自由發揮」，交給 LLM 在生成 `setting.md`/`protagonist.md` 時一併決定（理由：單機單玩家場景，輸入是給 LLM 發揮的素材而非需要防禦的外部資料，加驗證只會限制創作彈性）。前端三個偏好以單選 chip 呈現，並提供「隨機」（送出當下抽一個具體值）與「不選」（送空字串＝交給 LLM）兩種選擇；`difficulty` 取代原本的自由文字 `tone`/`horrorIntensity`（基調移除、由 LLM 自行發揮）。
 
 只在 `isWorldInitialized() === false` 時允許呼叫（已初始化時回 409）。世界級生成一律用 `app.ts` 既有的主 `client`（`makeClient`/`createOpenAiClient` 的預設那一份），不重用 `characterClient`/`controlClient`/`loreClient`——那三個是回合內分工用的，世界初始化是一次性、低頻操作，不值得為它新開一個 config 區塊。流程（單次、無草稿預覽步驟）：
 
@@ -148,8 +147,7 @@ protagonist_permanent_death: z.boolean().default(false),
 ```typescript
 export interface ProtagonistSeed {
   name?: string;
-  origin?: string;
-  freeform?: string;
+  freeform?: string; // 出身、性格、目標等自由描述（合併原 origin/freeform 兩欄）
 }
 
 // 現在不實作任何欄位內容，只佔住型別與函式簽章位置；
@@ -190,7 +188,7 @@ export function buildProtagonistPrompt(seed: ProtagonistSeed): string
 
 ### `WorldSetupWizard`（新檔案，例如 `app/web/web/src/WorldSetupWizard.tsx`）
 
-單一表單（無草稿預覽步驟）：基調參考、恐怖強度、主神表面性格、新手保護規則、主角姓名/出身/自由描述 → 送出 `POST /api/world/init` → loading 狀態（提示文案可比照現有 `COMPUTING_HINT` 的風格）→ 成功後呼叫傳入的 `onDone(state)`，由 `App.tsx` 切回主畫面並用回傳的 `GameState` 初始化。
+單一表單（無草稿預覽步驟）：難度、主神性格、新手保護（三者皆單選 chip，含「隨機」、可不選）＋ 主角姓名 ＋ 主角描述（合併出身/自由描述的單一 textarea）→ 送出 `POST /api/world/init` → loading 狀態（提示文案可比照現有 `COMPUTING_HINT` 的風格）→ 成功後呼叫傳入的 `onDone(state)`，由 `App.tsx` 切回主畫面並用回傳的 `GameState` 初始化。「基調」欄移除（由 LLM 自行發揮）；單選的 label 用「主神性格」而非「表面性格」，避免一開始就向玩家暗示有第二層人格（後端仍維持表面/內在分離）。
 
 ### header 操作列：封存世界
 

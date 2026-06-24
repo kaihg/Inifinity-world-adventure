@@ -106,14 +106,13 @@ export async function streamTurn(input: string, onEvent: (ev: TurnEvent) => void
 
 export interface ProtagonistSeed {
   name?: string;
-  origin?: string;
+  /** 出身、性格、目標等自由描述（合併原 origin/freeform 兩欄） */
   freeform?: string;
 }
 
 export interface WorldInitRequest {
   preferences?: {
-    tone?: string;
-    horrorIntensity?: string;
+    difficulty?: string;
     godPersona?: string;
     protectionRule?: string;
   };

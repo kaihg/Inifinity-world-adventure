@@ -9,7 +9,6 @@ interface Props {
 export function DeathChoiceModal({ onKeepWorldDone, onEndWorldDone }: Props) {
   const [mode, setMode] = useState<"choose" | "keep-form" | "end-confirm">("choose");
   const [name, setName] = useState("");
-  const [origin, setOrigin] = useState("");
   const [freeform, setFreeform] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -17,7 +16,7 @@ export function DeathChoiceModal({ onKeepWorldDone, onEndWorldDone }: Props) {
   async function keepWorld() {
     if (busy) return;
     setBusy(true); setError("");
-    const seed: ProtagonistSeed = { name, origin, freeform };
+    const seed: ProtagonistSeed = { name, freeform };
     try {
       const result = await resolveProtagonistDeath({ choice: "keep-world", protagonistSeed: seed });
       onKeepWorldDone(result as GameState);
@@ -54,8 +53,7 @@ export function DeathChoiceModal({ onKeepWorldDone, onEndWorldDone }: Props) {
             <p className="modal-body">描述接替的新主角（皆可留空，交由主控系統自由發揮）：</p>
             <div className="modal-form">
               <label className="modal-field">新主角姓名<input value={name} disabled={busy} onChange={(e) => setName(e.target.value)} /></label>
-              <label className="modal-field">出身<textarea value={origin} disabled={busy} onChange={(e) => setOrigin(e.target.value)} /></label>
-              <label className="modal-field">自由描述<textarea value={freeform} disabled={busy} onChange={(e) => setFreeform(e.target.value)} /></label>
+              <label className="modal-field">主角描述（出身、性格、目標等，可留空）<textarea value={freeform} disabled={busy} onChange={(e) => setFreeform(e.target.value)} /></label>
             </div>
             <div className="modal-actions">
               <button className="btn btn--ghost" disabled={busy} onClick={() => setMode("choose")}>返回</button>
