@@ -8,7 +8,7 @@ import { logger as defaultLogger, type Logger } from "../logger.js";
  * 副本（dungeons/<id>）目前用這套；之後道具/技能說明文件要接上同一套關聯規則時，
  * 直接傳對應 category 重用即可，不必各自重新發明落地邏輯。
  */
-export type LoreCategory = "dungeons" | "items" | "skills" | "locations";
+export type LoreCategory = "dungeons" | "items" | "skills" | "scenes";
 
 export interface LoreContent {
   wiki: string;

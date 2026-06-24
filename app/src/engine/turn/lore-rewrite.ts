@@ -13,9 +13,9 @@ import type { TurnDeps } from "./types.js";
 export const ITEM_ID_RE = /^[\w.-]+$/;
 
 /** 隱藏設定生成者，依分類套用對應的世界觀角色稱呼（道具/場景/技能設計者措辭不同） */
-export const ENTITY_SECRETS_DESIGNER_ROLE: Record<"item" | "location" | "skill", string> = {
+export const ENTITY_SECRETS_DESIGNER_ROLE: Record<"item" | "scene" | "skill", string> = {
   item: "道具設計者",
-  location: "場景設計者",
+  scene: "場景設計者",
   skill: "技能設計者",
 };
 
@@ -24,7 +24,7 @@ export async function generateEntitySecrets(
   client: LlmClient,
   settingText: string,
   entityName: string,
-  category: "item" | "location" | "skill",
+  category: "item" | "scene" | "skill",
   log: Logger,
 ): Promise<string> {
   const noun = ENTITY_CATEGORY_TITLE[category];
@@ -49,26 +49,26 @@ export async function generateEntitySecrets(
   return toTraditional(full.trim()) || "（生成失敗，待補）";
 }
 
-export const ENTITY_CATEGORY_TO_LORE: Record<"item" | "location" | "skill", LoreCategory> = {
+export const ENTITY_CATEGORY_TO_LORE: Record<"item" | "scene" | "skill", LoreCategory> = {
   item: "items",
-  location: "locations",
+  scene: "scenes",
   skill: "skills",
 };
 
-export const ENTITY_CATEGORY_TITLE: Record<"item" | "location" | "skill", string> = {
+export const ENTITY_CATEGORY_TITLE: Record<"item" | "scene" | "skill", string> = {
   item: "道具",
-  location: "場景",
+  scene: "場景",
   skill: "技能",
 };
 
-export type LoreRewriteCategory = "npc" | "item" | "location" | "skill" | "dungeon";
+export type LoreRewriteCategory = "npc" | "item" | "scene" | "skill" | "dungeon";
 
 /** 各分類 wiki 常見可寫面向，純引導模型涵蓋玩家會想知道的基本說明，不是強制欄位 */
 export const LORE_REWRITE_CATEGORY_OUTLINE: Record<LoreRewriteCategory, string> = {
   npc: "- 基本資訊（外觀/身份/性格）\n- 與主角的關係\n- 已知情報（自述/可驗證情報）\n- 備註/未解疑點",
   item:
     "- 外觀與基本辨識\n- 已知效果/用途（玩家視角已知的）\n- 取得或使用方式/限制\n- 目前已知的來歷或關聯人物事件（僅寫敘事中已揭露的部分）",
-  location: "- 地理/環境描述\n- 已知規則或機關（已揭露部分）\n- 已知危險與資源\n- 出沒生物或 NPC",
+  scene: "- 地理/環境描述\n- 已知規則或機關（已揭露部分）\n- 已知危險與資源\n- 出沒生物或 NPC",
   skill: "- 效果說明\n- 施展條件/限制\n- 已知代價或副作用\n- 取得方式",
   dungeon: "- 已揭露地圖/環境\n- 已知規則或機關\n- 已知危險與資源\n- 相關人物事件",
 };

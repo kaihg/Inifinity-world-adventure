@@ -68,7 +68,7 @@ export type FastControl = z.infer<typeof FastControlSchema>;
 /** Layer 3（reactive-lore-sync）：本回合摸到的實體列表 + 副本本身的揭露片段，皆可省略 */
 const LoreEntityRefSchema = z.object({
   id: z.string(),
-  category: z.enum(["npc", "item", "location", "skill"]),
+  category: z.enum(["npc", "item", "scene", "skill"]),
   name: z.string(),
   excerpt: z.string(),
 });

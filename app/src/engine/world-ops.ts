@@ -177,7 +177,7 @@ export async function initWorld(opts: {
 /**
  * 把 world/ 重置回「尚未初始化」佔位狀態。
  * 先整個清空 worldDir 再重建佔位——不是逐檔覆寫白名單，否則遊玩過程動態長出的
- * 檔案（NPC 檔、locations/、items/、journal_summary.md…）會殘留進新世界。
+ * 檔案（NPC 檔、scenes/、items/、journal_summary.md…）會殘留進新世界。
  * 呼叫端（endWorld）必須在此之前已完成封存複製。
  */
 export async function resetWorldToPlaceholder(worldDir: string, today: string): Promise<void> {
