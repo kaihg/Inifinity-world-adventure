@@ -3,7 +3,10 @@ import { z } from "zod";
 /** now.md 七欄的可選覆寫（最後更新由引擎管理，不由模型給） */
 const stringCoerce = z.preprocess((val) => {
   if (val === null || val === undefined) return "";
-  if (Array.isArray(val)) return val.join(", ");
+  if (Array.isArray(val))
+    return val
+      .map((item) => (typeof item === "object" && item !== null ? JSON.stringify(item) : String(item)))
+      .join(", ");
   return String(val);
 }, z.string());
 
