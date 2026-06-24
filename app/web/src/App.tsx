@@ -304,8 +304,10 @@ function StatusDrawer({
               <p>輸入「封存」以確認結束並封存目前世界：</p>
               <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} />
               <button className="send-btn" disabled={confirmText !== "封存"} onClick={async () => {
+                // onEndWorld 內部自行 catch 不 rethrow（成功會 unmount 本 drawer）；
+                // 用 finally 確保封存失敗時也把確認框收回，不停在可立即再送的狀態
                 try { await onEndWorld(); }
-                catch { setConfirming(false); setConfirmText(""); }
+                finally { setConfirming(false); setConfirmText(""); }
               }}>確定封存</button>
             </>
           )}
