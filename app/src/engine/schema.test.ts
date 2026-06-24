@@ -135,3 +135,26 @@ describe("parseLoreSyncOutput（Layer 3：touched_entities + dungeon_wiki_excerp
     expect(() => parseLoreSyncOutput("完全沒有大括號")).toThrow();
   });
 });
+
+describe("protagonist_permanent_death 欄位", () => {
+  it("省略時預設為 false", () => {
+    const control = parseFastControlOutput(
+      '{"awaiting_user_input":true,"commit_summary":"x"}',
+    );
+    expect(control.protagonist_permanent_death).toBe(false);
+  });
+
+  it("顯式 true 被保留", () => {
+    const control = parseFastControlOutput(
+      '{"awaiting_user_input":true,"commit_summary":"x","protagonist_permanent_death":true}',
+    );
+    expect(control.protagonist_permanent_death).toBe(true);
+  });
+
+  it("顯式 false 被保留", () => {
+    const control = parseFastControlOutput(
+      '{"awaiting_user_input":true,"commit_summary":"x","protagonist_permanent_death":false}',
+    );
+    expect(control.protagonist_permanent_death).toBe(false);
+  });
+});

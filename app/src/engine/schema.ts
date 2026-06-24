@@ -51,6 +51,7 @@ export const FastControlSchema = z.object({
   transition_dungeon_id: z.string().nullable().optional(),
   transition_dungeon_goal: z.string().nullable().optional(),
   awaiting_user_input: z.boolean(),
+  protagonist_permanent_death: z.boolean().default(false),
   suggested_actions: z.array(z.string()).default([]),
   commit_summary: z.string().min(1),
 });

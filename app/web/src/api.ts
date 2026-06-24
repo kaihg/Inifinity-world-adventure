@@ -69,6 +69,9 @@ export type TurnEvent =
       awaitingUserInput: boolean;
       suggestedActions: string[];
       modeTransition: string | null;
+      transitionDungeonId?: string;
+      transitionDungeonGoal?: string;
+      protagonistDied: boolean;
       state?: GameState;
     };
 
@@ -99,4 +102,60 @@ export async function streamTurn(input: string, onEvent: (ev: TurnEvent) => void
       }
     }
   }
+}
+
+export interface ProtagonistSeed {
+  name?: string;
+  origin?: string;
+  freeform?: string;
+}
+
+export interface WorldInitRequest {
+  preferences?: {
+    tone?: string;
+    horrorIntensity?: string;
+    godPersona?: string;
+    protectionRule?: string;
+  };
+  protagonistSeed?: ProtagonistSeed;
+}
+
+export async function fetchWorldStatus(): Promise<{ initialized: boolean }> {
+  const res = await fetch("/api/world/status");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+export async function initWorld(body: WorldInitRequest): Promise<GameState> {
+  const res = await fetch("/api/world/init", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+export async function endWorld(confirmText: string): Promise<{ archivedTo: string }> {
+  const res = await fetch("/api/world/end", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmText }),
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+export async function resolveProtagonistDeath(
+  body:
+    | { choice: "keep-world"; protagonistSeed: ProtagonistSeed }
+    | { choice: "end-world" },
+): Promise<GameState | { archivedTo: string }> {
+  const res = await fetch("/api/world/protagonist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
 }
