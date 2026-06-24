@@ -180,8 +180,23 @@ export async function rewriteNpcFile(
     logger.warn({ id }, "touched_entities 含不合法 NPC id，略過");
     return;
   }
+  // 防止模型把多個 NPC 混在同一份輸出：遇到第二個一級標題就截斷
+  const lines = content.split("\n");
+  let h1Count = 0;
+  let cutAt = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#\s/.test(lines[i])) {
+      h1Count++;
+      if (h1Count === 2) {
+        logger.warn({ id, extraHeading: lines[i] }, "NPC 重寫輸出含多個一級標題，截斷第二個之後的內容");
+        cutAt = i;
+        break;
+      }
+    }
+  }
+  const safe = lines.slice(0, cutAt).join("\n");
   const file = path.join(worldDir, "characters", `${id}.md`);
-  await writeFile(file, `${content.trim()}\n`, "utf8");
+  await writeFile(file, `${safe.trim()}\n`, "utf8");
 }
 
 /**
