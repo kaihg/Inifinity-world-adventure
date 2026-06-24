@@ -2,8 +2,6 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Logger } from "../../logger.js";
 import {
-  applyPointsDelta,
-  applyProtagonistUpdates,
   loadState,
   parseNow,
   type GameState,
@@ -48,7 +46,6 @@ export function traditionalizeFastControl(control: FastControl): FastControl {
     state_changes: {
       ...sc,
       now: traditionalizeStringBag(sc.now),
-      protagonist_updates: traditionalizeStringBag(sc.protagonist_updates),
     },
   };
 }
@@ -141,24 +138,9 @@ export async function* runTurnCore(
     await writeFile(nowPath, bumpNowUpdated(nowMd, { date: today, summary }), "utf8");
   }
 
-  // 3. 主角狀態（積分 + 屬性/技能/物品/buff 新增項，否則主角的成長不會被記住）
-  const delta = control?.state_changes.protagonist_points_delta ?? 0;
-  const protagonistUpdates = control?.state_changes.protagonist_updates;
-  if (delta || protagonistUpdates) {
-    const pPath = path.join(deps.worldDir, "characters", "protagonist.md");
-    let pMd = await readFile(pPath, "utf8");
-    if (delta) pMd = applyPointsDelta(pMd, delta);
-    if (protagonistUpdates) pMd = applyProtagonistUpdates(pMd, protagonistUpdates);
-    await writeFile(pPath, pMd, "utf8");
-  }
-
-  // 4. 語意檢索索引：把本回合異動的檔案重新切塊嵌入（derived cache，與 git commit 內容無關）
+  // 4. 語意檢索索引：把本回合異動的 raw 檔重新切塊嵌入（protagonist 改由 Layer 3 重建）
   if (deps.recall) {
-    const touched = [plan.rawFilePath];
-    if (delta || protagonistUpdates) {
-      touched.push(path.join(deps.worldDir, "characters", "protagonist.md"));
-    }
-    await reindexTouchedFiles(deps.recall, deps.worldDir, touched, log);
+    await reindexTouchedFiles(deps.recall, deps.worldDir, [plan.rawFilePath], log);
   }
 
   // 5. commit

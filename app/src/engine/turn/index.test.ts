@@ -117,22 +117,37 @@ async function makeTempWorld(opts: { withYeqing?: boolean } = {}): Promise<strin
 }
 
 describe("runMainSpaceTurn — 結構化輸出", () => {
-  it("串流敘事、副大腦套用 now/積分、commit，done 帶 awaitingUserInput/suggestedActions", async () => {
+  it("串流敘事、副大腦套用 now，Layer 3 落地積分、commit，done 帶 awaitingUserInput/suggestedActions", async () => {
     const commits: string[] = [];
     const narrative = "沈奕走進資訊室。";
     const ctrl = JSON.stringify({
-      state_changes: { now: { scene: "資訊室", nextStep: "找葉晴" }, protagonist_points_delta: 2 },
+      state_changes: { now: { scene: "資訊室", nextStep: "找葉晴" } },
       rolls: [],
       mode_transition: null,
       awaiting_user_input: true,
       suggested_actions: ["找葉晴", "離開"],
       commit_summary: "沈奕進資訊室",
     });
+    const ls = JSON.stringify({
+      state_changes: { protagonist_points_delta: 2, protagonist_changed: true },
+    });
+    // 依 system prompt 路由：Layer 3 lore-sync → ls；主角重寫 → 含積分2的全文；其餘 → ctrl
+    const client: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("reactive-lore-sync")) { yield ls; return; }
+        if (system.includes("主角檔案維護者")) {
+          yield "# 主角\n- 姓名：沈奕\n- 當前積分：2\n";
+          return;
+        }
+        yield ctrl;
+      },
+    };
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
       {
         client: fakeClient([narrative]),
-        controlClient: fakeClient([ctrl]),
+        controlClient: client,
         worldDir: world,
         commit: async (m) => { commits.push(m); return true; },
         today: () => "2026-06-19",
@@ -164,13 +179,13 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(journal).toContain("## [2026-06-19] 沈奕進資訊室");
     expect(journal).toContain("去資訊室");
 
-    expect(commits).toEqual(["沈奕進資訊室"]);
+    expect(commits[0]).toBe("沈奕進資訊室");
   });
 
-  it("done 帶本回合 Layer 2 落地後的 state 快照", async () => {
+  it("done 帶本回合 Layer 2 落地後的 state 快照（now 欄已更新）", async () => {
     const narrative = "沈奕走進資訊室。";
     const ctrl = JSON.stringify({
-      state_changes: { now: { scene: "資訊室", nextStep: "找葉晴" }, protagonist_points_delta: 2 },
+      state_changes: { now: { scene: "資訊室", nextStep: "找葉晴" } },
       rolls: [],
       mode_transition: null,
       awaiting_user_input: true,
@@ -195,9 +210,10 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     const done: any = events.at(-1);
     expect(done.type).toBe("done");
     expect(done.state).toBeDefined();
+    // now 欄由 Layer 2 落地，done.state 快照已包含這些更新
     expect(done.state.now.scene).toBe("資訊室");
     expect(done.state.now.nextStep).toBe("找葉晴");
-    expect(Number(done.state.protagonist.points)).toBeGreaterThanOrEqual(2);
+    // 注意：積分由 Layer 3 落地，done.state 快照（Layer 2 完成時）不含 Layer 3 的成長
   });
 
   it("副大腦試圖用 now.activeDungeon 自行覆寫副本欄時，引擎忽略該欄（由 mode_transition 管理）", async () => {
@@ -231,53 +247,46 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(now).not.toContain("U-999");
   });
 
-  it("protagonist_updates 落地到 protagonist.md 對應區塊（主角成長記憶）", async () => {
+  it("主角成長改由 Layer 3 落地（積分 + 技能/物品整合進 protagonist.md）", async () => {
     await writeFile(
       path.join(world, "characters", "protagonist.md"),
-      [
-        "# 主角",
-        "- 姓名：沈奕",
-        "- 當前積分：0",
-        "",
-        "## 技能 / 異能",
-        "- （無）",
-        "",
-        "## 物品欄",
-        "- 戰術刀",
-        "",
-      ].join("\n"),
+      ["# 主角", "- 姓名：沈奕", "- 當前積分：0", "", "## 技能 / 異能", "- （無）", "", "## 物品欄", "- 戰術刀", ""].join("\n"),
       "utf8",
     );
-    const response =
-      "沈奕領悟了一套新的格鬥技巧，並從地上拾起一根鐵管。\n===STATE===\n" +
-      JSON.stringify({
-        state_changes: {
-          protagonist_points_delta: 1,
-          protagonist_updates: { skills: ["近戰格鬥精通"], items: ["生鏽鐵管"] },
-        },
-        rolls: [],
-        mode_transition: null,
-        awaiting_user_input: true,
-        suggested_actions: [],
-        commit_summary: "沈奕成長",
-      });
+    await writeFile(path.join(world, "characters", "index.md"), "| ID | 姓名 |\n|----|------|\n", "utf8");
+    // Layer 2 只出顯示欄位；Layer 3 出 protagonist 變化
+    const fc = JSON.stringify({
+      state_changes: { now: { scene: "訓練場" } },
+      rolls: [], mode_transition: null, awaiting_user_input: true,
+      suggested_actions: [], commit_summary: "沈奕成長",
+    });
+    const ls = JSON.stringify({
+      state_changes: { protagonist_points_delta: 1, protagonist_changed: true },
+    });
+    // fakeClient 依 system prompt 內容回不同層；主角重寫回整檔新版
+    const client: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("Layer 3：reactive-lore-sync") || system.includes("reactive-lore-sync")) { yield ls; return; }
+        if (system.includes("主角檔案維護者")) {
+          yield "# 主角\n- 姓名：沈奕\n- 當前積分：1\n\n## 技能 / 異能\n- 近戰格鬥精通\n\n## 物品欄\n- 戰術刀\n- 生鏽鐵管\n";
+          return;
+        }
+        if (system.includes("fast-control")) { yield fc; return; }
+        yield "沈奕領悟近戰格鬥精通，撿起鐵管。"; // 主腦敘事
+      },
+    };
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
-      {
-        client: fakeClient([response]),
-        worldDir: world,
-        commit: async () => true,
-        today: () => "2026-06-19",
-        dicePool: [1],
-      },
+      { client, worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [1] },
       "練習格鬥",
     )) {
       events.push(ev);
     }
     const prot = await readFile(path.join(world, "characters", "protagonist.md"), "utf8");
     expect(prot).toContain("- 當前積分：1");
-    expect(prot).toContain("- （無）\n- 近戰格鬥精通");
-    expect(prot).toContain("- 戰術刀\n- 生鏽鐵管");
+    expect(prot).toContain("近戰格鬥精通");
+    expect(prot).toContain("生鏽鐵管");
   });
 
   it("touched_entities（npc）：整檔重寫角色檔，並用小模型摘要同步進 characters/index.md", async () => {

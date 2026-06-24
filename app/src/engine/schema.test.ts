@@ -64,7 +64,8 @@ describe("parseFastControlOutput（Layer 2：only now/protagonist/rolls/mode_tra
     });
     const control = parseFastControlOutput(raw);
     // protagonist_updates 不再是 Layer 2 schema 的欄位，zod 會忽略它
-    expect(control.state_changes.protagonist_updates).toBeUndefined();
+    // 用 as any 存取以通過 TS 型別檢查（語意：驗證「已移除」的屬性確實不存在）
+    expect((control.state_changes as Record<string, unknown>).protagonist_updates).toBeUndefined();
   });
 
   it("修復無引號的鍵後仍能解析", () => {
