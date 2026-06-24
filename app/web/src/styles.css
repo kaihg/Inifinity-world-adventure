@@ -495,10 +495,32 @@ button {
 }
 
 .value {
-  white-space: pre-wrap;
   margin: 0.15rem 0 0;
   font-size: 0.88rem;
   color: var(--text);
+}
+
+.value p {
+  margin: 0 0 0.3rem;
+}
+
+.value p:last-child {
+  margin-bottom: 0;
+}
+
+.value ul,
+.value ol {
+  margin: 0.2rem 0;
+  padding-left: 1.1rem;
+}
+
+.value li {
+  margin: 0.1rem 0;
+}
+
+.value strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .npc-list {

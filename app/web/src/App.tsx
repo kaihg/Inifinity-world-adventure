@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { fetchState, fetchVersion, streamTurn, fetchWorldStatus, endWorld, type AppVersion, type GameState } from "./api";
 import { WorldSetupWizard } from "./WorldSetupWizard";
 import { DeathChoiceModal } from "./DeathChoiceModal";
@@ -284,7 +285,9 @@ function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="label">{label}</div>
-      <div className="value">{value || "—"}</div>
+      <div className="value">
+        {value ? <ReactMarkdown>{value}</ReactMarkdown> : "—"}
+      </div>
     </div>
   );
 }
