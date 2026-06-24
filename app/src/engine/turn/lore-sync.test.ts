@@ -3,7 +3,7 @@ import type { Logger } from "../../logger.js";
 import { logger } from "../../logger.js";
 import { trackLoreSync, runLoreSync } from "./lore-sync.js";
 import type { PendingLoreSync } from "./types.js";
-import { mkdtemp, mkdir, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import type { ChatMessage, LlmClient } from "../../llm/client.js";
@@ -116,5 +116,97 @@ describe("runLoreSync 的 touched_entities 校驗 gate（根因 A）", () => {
     // 不應建出 skills/system 或 items/none 的 wiki
     await expect(readFile(path.join(worldDir, "skills", "system", "wiki.md"), "utf8")).rejects.toThrow();
     await expect(readFile(path.join(worldDir, "items", "none", "wiki.md"), "utf8")).rejects.toThrow();
+  });
+});
+
+describe("runLoreSync 的 protagonist 落地", () => {
+  async function setupWorld(): Promise<string> {
+    const worldDir = await mkdtemp(path.join(os.tmpdir(), "world-prot-"));
+    await mkdir(path.join(worldDir, "characters"), { recursive: true });
+    await writeFile(
+      path.join(worldDir, "characters", "protagonist.md"),
+      "# 主角檔案\n- 姓名：沈奕\n- 當前積分：5\n\n## 物品欄\n- 戰術刀\n",
+      "utf8",
+    );
+    await writeFile(path.join(worldDir, "characters", "index.md"), "| ID | 姓名 |\n|----|------|\n", "utf8");
+    return worldDir;
+  }
+
+  function planFor(worldDir: string): TurnPlan {
+    return {
+      messages: [],
+      buildFastControl: () => [],
+      buildLoreSync: () => [{ role: "system", content: "Layer 3 prompt" }],
+      appendRaw: async () => {},
+      rawFilePath: path.join(worldDir, "journal.md"),
+    };
+  }
+
+  it("protagonist_points_delta=3 時：先 applyPointsDelta 落地積分，再 callProtagonistRewrite 覆寫", async () => {
+    const worldDir = await setupWorld();
+    const fakeClient: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("Layer 3")) {
+          yield JSON.stringify({ state_changes: { protagonist_points_delta: 3, protagonist_changed: true } });
+        } else if (system.includes("主角檔案維護者")) {
+          const user = messages.find((m) => m.role === "user")?.content ?? "";
+          // 斷言：餵進來的現有全文積分已是 8（5+3 由引擎先算好）
+          expect(user).toContain("當前積分：8");
+          yield "# 主角檔案\n- 姓名：沈奕\n- 當前積分：8\n\n## 物品欄\n- 戰術刀\n- 生鏽鐵管\n";
+        }
+      },
+    };
+    const deps: TurnDeps = { client: fakeClient, worldDir, commit: async () => true, today: () => "2026-06-24" };
+    await runLoreSync(deps, "沈奕撿起鐵管，完成測試得 3 分。", "設定", planFor(worldDir), logger);
+
+    const prot = await readFile(path.join(worldDir, "characters", "protagonist.md"), "utf8");
+    expect(prot).toContain("當前積分：8");
+    expect(prot).toContain("生鏽鐵管");
+  });
+
+  it("delta=0 且 protagonist_changed=false 時：完全不重寫主角檔（內容不變）", async () => {
+    const worldDir = await setupWorld();
+    const before = await readFile(path.join(worldDir, "characters", "protagonist.md"), "utf8");
+    let rewriteCalled = false;
+    const fakeClient: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("Layer 3")) {
+          yield JSON.stringify({ state_changes: {} });
+        } else if (system.includes("主角檔案維護者")) {
+          rewriteCalled = true;
+          yield "不該被呼叫";
+        }
+      },
+    };
+    const deps: TurnDeps = { client: fakeClient, worldDir, commit: async () => true, today: () => "2026-06-24" };
+    await runLoreSync(deps, "沈奕只是看了看四周。", "設定", planFor(worldDir), logger);
+
+    expect(rewriteCalled).toBe(false);
+    const after = await readFile(path.join(worldDir, "characters", "protagonist.md"), "utf8");
+    expect(after).toBe(before);
+  });
+
+  it("protagonist_changed=true 但 delta 缺省：積分不變，仍重寫（整合成長）", async () => {
+    const worldDir = await setupWorld();
+    const fakeClient: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("Layer 3")) {
+          yield JSON.stringify({ state_changes: { protagonist_changed: true } });
+        } else if (system.includes("主角檔案維護者")) {
+          const user = messages.find((m) => m.role === "user")?.content ?? "";
+          expect(user).toContain("當前積分：5"); // 無 delta，積分照舊
+          yield "# 主角檔案\n- 姓名：沈奕\n- 當前積分：5\n\n## 技能 / 異能\n- 近戰格鬥精通\n";
+        }
+      },
+    };
+    const deps: TurnDeps = { client: fakeClient, worldDir, commit: async () => true, today: () => "2026-06-24" };
+    await runLoreSync(deps, "沈奕領悟近戰格鬥精通。", "設定", planFor(worldDir), logger);
+
+    const prot = await readFile(path.join(worldDir, "characters", "protagonist.md"), "utf8");
+    expect(prot).toContain("近戰格鬥精通");
+    expect(prot).toContain("當前積分：5");
   });
 });

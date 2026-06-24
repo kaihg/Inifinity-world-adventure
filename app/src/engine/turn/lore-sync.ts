@@ -1,8 +1,9 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   addCharacterIndexRow,
   applyIndexStatusUpdates,
+  applyPointsDelta,
   parseProtagonist,
   rewriteNpcFile,
 } from "../context.js";
@@ -15,6 +16,7 @@ import { summarizeNpcStatus } from "../npc-status-summary.js";
 import {
   ENTITY_CATEGORY_TO_LORE,
   callLoreRewrite,
+  callProtagonistRewrite,
   rewriteLoreEntity,
   type LoreRewriteContext,
   type LoreRewriteResult,
@@ -133,6 +135,32 @@ export async function runLoreSync(
       if (content) dungeonResult = { id: plan.dungeonId, category: "dungeon", title, content };
     }
 
+    // protagonist 落地（Layer 權責重劃）：積分由引擎決定論先算，再整檔重寫整合成長。
+    // delta 或 protagonist_changed 任一成立才動；兩者皆否完全跳過。
+    const pointsDelta = changes.protagonist_points_delta ?? 0;
+    const protagonistChanged = changes.protagonist_changed === true;
+    let protagonistTouched = false;
+    if (pointsDelta !== 0 || protagonistChanged) {
+      const pPath = path.join(deps.worldDir, "characters", "protagonist.md");
+      const before = await readBestEffort(pPath);
+      if (before) {
+        const withPoints = pointsDelta !== 0 ? applyPointsDelta(before, pointsDelta) : before;
+        const rewritten = await callProtagonistRewrite(
+          deps.loreClient ?? deps.controlClient ?? deps.client,
+          settingText,
+          narrative,
+          withPoints,
+          log,
+          loreContext,
+        );
+        // 重寫成功用新版；失敗至少落地積分（withPoints），不丟分
+        await writeFile(pPath, rewritten ?? withPoints, "utf8");
+        protagonistTouched = true;
+      } else {
+        log.warn("protagonist.md 不存在，略過本回合主角落地");
+      }
+    }
+
     const results = [
       ...entityResults.filter((r): r is LoreRewriteResult => r !== null),
       ...(dungeonResult ? [dungeonResult] : []),
@@ -168,11 +196,12 @@ export async function runLoreSync(
           : path.join(loreDir(deps.worldDir, r.category === "dungeon" ? "dungeons" : ENTITY_CATEGORY_TO_LORE[r.category], r.id), "wiki.md"),
       );
       if (npcIds.length > 0) touched.push(path.join(deps.worldDir, "characters", "index.md"));
+      if (protagonistTouched) touched.push(path.join(deps.worldDir, "characters", "protagonist.md"));
       if (touched.length > 0) await reindexTouchedFiles(deps.recall, deps.worldDir, touched, log);
     }
 
-    if (results.length > 0) {
-      const committed = await deps.commit("補完關聯文件（NPC/道具/場景/技能）");
+    if (results.length > 0 || protagonistTouched) {
+      const committed = await deps.commit("補完關聯文件（主角/NPC/道具/場景/技能）");
       log.info({ committed }, "回合結束（Layer 3 reactive-lore-sync）");
     } else {
       log.debug("Layer 3 reactive-lore-sync 本回合無 lore 異動，跳過 commit");
