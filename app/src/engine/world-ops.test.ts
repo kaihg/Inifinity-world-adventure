@@ -41,7 +41,7 @@ async function seedDirtyWorld(worldDir: string): Promise<void> {
   await mkdir(path.join(worldDir, "characters"), { recursive: true });
   await mkdir(path.join(worldDir, "locations", "iron_gate"), { recursive: true });
   await mkdir(path.join(worldDir, "items", "metal_club"), { recursive: true });
-  await mkdir(path.join(worldDir, "dungeons", "new_dungeon", "runs"), { recursive: true });
+  await mkdir(path.join(worldDir, "dungeons", "new_dungeon"), { recursive: true });
   await writeFile(path.join(worldDir, "setting.md"), "# 世界設定（World Setting）\n\n舊世界。\n", "utf8");
   await writeFile(path.join(worldDir, "gm-notes.md"), "# 世界隱藏真相（GM Notes）\n\n舊真相。\n", "utf8");
   await writeFile(path.join(worldDir, "now.md"), "- 當前篇章：第一章\n", "utf8");
@@ -53,7 +53,7 @@ async function seedDirtyWorld(worldDir: string): Promise<void> {
   await writeFile(path.join(worldDir, "characters", "linsiyu.md"), "# NPC：林思雨\n", "utf8");
   await writeFile(path.join(worldDir, "locations", "iron_gate", "wiki.md"), "# 鐵門\n", "utf8");
   await writeFile(path.join(worldDir, "items", "metal_club", "wiki.md"), "# 鐵棍\n", "utf8");
-  await writeFile(path.join(worldDir, "dungeons", "new_dungeon", "runs", "run-1.md"), "run\n", "utf8");
+  await writeFile(path.join(worldDir, "dungeons", "new_dungeon", "log.md"), "# 副本 new_dungeon · Log\n\n## run-1（2026-06-24）\n\nrun\n", "utf8");
 }
 
 describe("resetWorldToPlaceholder", () => {
