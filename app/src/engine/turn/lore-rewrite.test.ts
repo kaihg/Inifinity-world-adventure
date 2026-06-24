@@ -253,3 +253,68 @@ describe("rewriteLoreEntity — secrets 用小模型（根因 G）", () => {
     expect(loreCalls.length).toBeGreaterThanOrEqual(2); // secrets + wiki 都走小模型
   });
 });
+
+import { callProtagonistRewrite } from "./lore-rewrite.js";
+
+describe("callProtagonistRewrite", () => {
+  function fakeClient(captured: { system: string[]; user: string[] }, out: string): LlmClient {
+    return {
+      async *streamChat(messages: ChatMessage[]) {
+        captured.system.push(messages.find((m) => m.role === "system")?.content ?? "");
+        captured.user.push(messages.find((m) => m.role === "user")?.content ?? "");
+        yield out;
+      },
+    };
+  }
+
+  it("把現有 protagonist 全文 + 敘事片段送進去，回傳整檔新版（繁體化）", async () => {
+    const captured = { system: [] as string[], user: [] as string[] };
+    const existing = "# 主角檔案\n- 姓名：沈奕\n- 當前積分：3\n\n## 物品欄\n- 戰術刀\n";
+    const out = await callProtagonistRewrite(
+      fakeClient(captured, "# 主角檔案\n- 姓名：沈奕\n- 當前積分：3\n\n## 物品欄\n- 戰術刀\n- 生鏽鐵管\n"),
+      "世界設定",
+      "沈奕從地上撿起一根生鏽鐵管。",
+      existing,
+      logger,
+    );
+    expect(out).toContain("生鏽鐵管");
+    expect(captured.user[0]).toContain("沈奕從地上撿起一根生鏽鐵管"); // 敘事片段有送進去
+    expect(captured.user[0]).toContain("當前積分：3"); // 現有全文有送進去
+  });
+
+  it("system prompt 含「積分區塊照抄不可改動」與「禁止照搬敘事散文」鐵則", async () => {
+    const captured = { system: [] as string[], user: [] as string[] };
+    await callProtagonistRewrite(fakeClient(captured, "x"), "設定", "片段", "# 主角\n- 當前積分：0\n", logger);
+    expect(captured.system[0]).toContain("積分");
+    expect(captured.system[0]).toContain("照抄");
+    expect(captured.system[0]).toContain("禁止");
+  });
+
+  it("簡體輸出會被繁體化（決定論兜底）", async () => {
+    const captured = { system: [] as string[], user: [] as string[] };
+    const out = await callProtagonistRewrite(fakeClient(captured, "# 主角\n- 获得资讯\n"), "設定", "片段", "# 主角\n", logger);
+    expect(out).toContain("資訊");
+    expect(out).not.toContain("资讯");
+  });
+
+  it("LLM 回空白時回 null", async () => {
+    const captured = { system: [] as string[], user: [] as string[] };
+    const out = await callProtagonistRewrite(fakeClient(captured, "   "), "設定", "片段", "# 主角\n", logger);
+    expect(out).toBeNull();
+  });
+});
+
+describe("callLoreRewrite 禁止照搬敘事散文", () => {
+  it("system prompt 含「禁止照搬敘事/系統提示」鐵則", async () => {
+    const captured: string[] = [];
+    const client: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        captured.push(messages.find((m) => m.role === "system")?.content ?? "");
+        yield "# 道具（鐵管）\n";
+      },
+    };
+    await callLoreRewrite(client, "設定", "片段", "道具（鐵管）", "", "item", logger);
+    expect(captured[0]).toContain("禁止");
+    expect(captured[0]).toMatch(/照搬|轉貼|系統提示/);
+  });
+});
