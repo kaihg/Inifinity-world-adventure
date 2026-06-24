@@ -9,7 +9,6 @@ import {
   parseProtagonistDetail,
   parseCharacterIndex,
   applyPointsDelta,
-  applyProtagonistUpdates,
   rewriteNpcFile,
   addCharacterIndexRow,
   applyIndexStatusUpdates,
@@ -160,80 +159,6 @@ describe("applyPointsDelta", () => {
   });
 });
 
-describe("applyProtagonistUpdates", () => {
-  const md = `# 主角檔案
-
-## 基本資訊
-- 姓名：沈奕
-
-## 積分與兌換
-- 當前積分：0
-
-## 屬性
-- 力量：中等偏上
-- 敏捷：中等
-
-## 技能 / 異能
-- （無）
-
-## 物品欄
-- 戰術刀
-
-## Buff / Debuff / 狀態
-- （無）
-
-## 備註
-- 新手保護：3 次
-`;
-
-  it("把新增項附加到對應區塊末尾，不動其他區塊", () => {
-    const result = applyProtagonistUpdates(md, { skills: ["近戰格鬥精通"], items: ["生鏽鐵管"] });
-    expect(result).toContain("- （無）\n- 近戰格鬥精通\n\n## 物品欄");
-    expect(result).toContain("- 戰術刀\n- 生鏽鐵管\n\n## Buff");
-    expect(result).toContain("- 力量：中等偏上"); // 既有內容保留
-  });
-
-  it("沒有對應更新時原樣返回", () => {
-    expect(applyProtagonistUpdates(md, {})).toBe(md);
-  });
-
-  it("多區塊同時更新都生效", () => {
-    const result = applyProtagonistUpdates(md, {
-      attributes: ["力量：提升至強"],
-      skills: ["近戰格鬥精通"],
-      items: ["生鏽鐵管"],
-      buffs: ["輕傷"],
-    });
-    expect(result).toContain("- 敏捷：中等\n- 力量：提升至強");
-    expect(result).toContain("- （無）\n- 近戰格鬥精通\n\n## 物品欄");
-    expect(result).toContain("- 戰術刀\n- 生鏽鐵管\n\n## Buff");
-    expect(result).toContain("- （無）\n- 輕傷\n\n## 備註");
-  });
-
-  it("找不到對應區塊標題時該項略過，不拋錯", () => {
-    const noBuffSection = md.replace("## Buff / Debuff / 狀態\n- （無）\n\n", "");
-    expect(() => applyProtagonistUpdates(noBuffSection, { buffs: ["輕傷"] })).not.toThrow();
-    expect(applyProtagonistUpdates(noBuffSection, { buffs: ["輕傷"] })).toBe(noBuffSection);
-  });
-
-  it("已存在的條目不重複附加（根因 D）", () => {
-    // 區塊已有「戰術刀」，模型又回報一次 → 不應出現兩條
-    const result = applyProtagonistUpdates(md, { items: ["戰術刀"] });
-    expect(result).toBe(md);
-    expect(result.match(/- 戰術刀/g)).toHaveLength(1);
-  });
-
-  it("簡繁同義條目視為同一條，不重複附加（根因 C+D）", () => {
-    // 既有「戰術刀」，模型回報簡體「战术刀」→ 繁體化後相等 → 不重複
-    const result = applyProtagonistUpdates(md, { items: ["战术刀"] });
-    expect(result.match(/戰術刀|战术刀/g)).toHaveLength(1);
-  });
-
-  it("同回合回報重複項，內部也只附加一次", () => {
-    const result = applyProtagonistUpdates(md, { skills: ["瞬步", "瞬步"] });
-    expect(result.match(/- 瞬步/g)).toHaveLength(1);
-  });
-});
 
 describe("applyIndexStatusUpdates", () => {
   const indexMd = `# 角色索引

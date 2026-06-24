@@ -56,15 +56,16 @@ describe("parseFastControlOutput（Layer 2：only now/protagonist/rolls/mode_tra
     expect(() => parseFastControlOutput('{"commit_summary":"x"}')).toThrow();
   });
 
-  it("接受 protagonist_updates 子欄位", () => {
+  it("Layer 2 不再接受 protagonist_updates（已移至 Layer 3）", () => {
     const raw = JSON.stringify({
       state_changes: { protagonist_updates: { skills: ["近戰格鬥精通"], items: ["生鏽鐵管"] } },
       awaiting_user_input: true,
       commit_summary: "x",
     });
     const control = parseFastControlOutput(raw);
-    expect(control.state_changes.protagonist_updates?.skills).toEqual(["近戰格鬥精通"]);
-    expect(control.state_changes.protagonist_updates?.items).toEqual(["生鏽鐵管"]);
+    // protagonist_updates 不再是 Layer 2 schema 的欄位，zod 會忽略它
+    // 用 as any 存取以通過 TS 型別檢查（語意：驗證「已移除」的屬性確實不存在）
+    expect((control.state_changes as Record<string, unknown>).protagonist_updates).toBeUndefined();
   });
 
   it("修復無引號的鍵後仍能解析", () => {
@@ -128,7 +129,10 @@ describe("parseLoreSyncOutput（Layer 3：touched_entities + dungeon_wiki_excerp
 
   it("空物件也能解析（本回合沒有任何 lore 異動）", () => {
     const sync = parseLoreSyncOutput("{}");
-    expect(sync.state_changes).toEqual({});
+    // protagonist_changed 預設為 false
+    expect(sync.state_changes.protagonist_changed).toBe(false);
+    expect(sync.state_changes.touched_entities).toBeUndefined();
+    expect(sync.state_changes.dungeon_wiki_excerpt).toBeUndefined();
   });
 
   it("找不到 JSON 物件時拋錯", () => {
@@ -156,5 +160,37 @@ describe("protagonist_permanent_death 欄位", () => {
       '{"awaiting_user_input":true,"commit_summary":"x","protagonist_permanent_death":false}',
     );
     expect(control.protagonist_permanent_death).toBe(false);
+  });
+});
+
+describe("Layer 權責重劃：protagonist 欄位移到 Layer 3", () => {
+  it("FastControl 解析時忽略殘留的 protagonist_points_delta（不再是 schema 欄位）", () => {
+    const control = parseFastControlOutput(
+      JSON.stringify({
+        state_changes: { now: { scene: "資訊室" }, protagonist_points_delta: 5 },
+        awaiting_user_input: true,
+        commit_summary: "x",
+      }),
+    );
+    // 欄位已從 FastStateChangesSchema 移除：解析不應再暴露它
+    expect((control.state_changes as Record<string, unknown>).protagonist_points_delta).toBeUndefined();
+    expect((control.state_changes as Record<string, unknown>).protagonist_updates).toBeUndefined();
+    expect(control.state_changes.now?.scene).toBe("資訊室");
+  });
+
+  it("LoreSync 解析 protagonist_points_delta 與 protagonist_changed", () => {
+    const sync = parseLoreSyncOutput(
+      JSON.stringify({
+        state_changes: { protagonist_points_delta: 3, protagonist_changed: true },
+      }),
+    );
+    expect(sync.state_changes.protagonist_points_delta).toBe(3);
+    expect(sync.state_changes.protagonist_changed).toBe(true);
+  });
+
+  it("LoreSync 的 protagonist_changed 缺省時為 false", () => {
+    const sync = parseLoreSyncOutput(JSON.stringify({ state_changes: {} }));
+    expect(sync.state_changes.protagonist_changed).toBe(false);
+    expect(sync.state_changes.protagonist_points_delta).toBeUndefined();
   });
 });

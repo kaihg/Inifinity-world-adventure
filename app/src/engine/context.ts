@@ -3,7 +3,6 @@ import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 import { parseLastTurnRecord, type LastTurnRecord } from "./journal.js";
 import { parseActiveDungeon } from "./dungeon.js";
-import { toTraditional } from "./text/traditionalize.js";
 
 /** world/now.md 的七個固定欄位（對應回合收束協議的覆寫頁） */
 export interface NowState {
@@ -163,68 +162,6 @@ export function applyPointsDelta(md: string, delta: number): string {
   );
 }
 
-/** 條目正規化：去 bullet 前綴 + trim + 繁體化，用於去重比對（簡繁同義視為同一條） */
-function normalizeItem(s: string): string {
-  return toTraditional(s.trim().replace(/^[-*]\s*/, "").trim());
-}
-
-/**
- * 在 `## <含 titleIncludes 的標題>` 區塊末尾（下一個 `## ` 之前）插入新條目；找不到該區塊則原樣返回。
- * 去重（根因 D）：已存在於該區塊的條目（繁體化後相等）不重複附加，本批內部也去重。
- */
-function appendToSection(md: string, titleIncludes: string, items: string[]): string {
-  if (items.length === 0) return md;
-  const lines = md.split("\n");
-  let start = -1;
-  let end = lines.length;
-  for (let i = 0; i < lines.length; i++) {
-    if (!/^##\s+/.test(lines[i])) continue;
-    if (start === -1) {
-      if (lines[i].includes(titleIncludes)) start = i;
-      continue;
-    }
-    end = i;
-    break;
-  }
-  if (start === -1) return md;
-
-  // 收集該區塊已存在條目的正規化集合，過濾掉重複的新增項（含本批內部重複）
-  const existing = new Set<string>();
-  for (let i = start + 1; i < end; i++) {
-    const t = lines[i].trim();
-    if (t.startsWith("-") || t.startsWith("*")) existing.add(normalizeItem(t));
-  }
-  const fresh: string[] = [];
-  for (const it of items) {
-    const n = normalizeItem(it);
-    if (existing.has(n)) continue;
-    existing.add(n);
-    fresh.push(it);
-  }
-  if (fresh.length === 0) return md;
-
-  let insertAt = end;
-  while (insertAt > start + 1 && lines[insertAt - 1].trim() === "") insertAt--;
-  lines.splice(insertAt, 0, ...fresh.map((it) => `- ${it}`));
-  return lines.join("\n");
-}
-
-export interface ProtagonistUpdates {
-  attributes?: string[];
-  skills?: string[];
-  items?: string[];
-  buffs?: string[];
-}
-
-/** 把模型回報的主角成長（屬性/技能/物品/buff 新增項）落地到 protagonist.md 對應區塊 */
-export function applyProtagonistUpdates(md: string, updates: ProtagonistUpdates): string {
-  let result = md;
-  result = appendToSection(result, "屬性", updates.attributes ?? []);
-  result = appendToSection(result, "技能", updates.skills ?? []);
-  result = appendToSection(result, "物品", updates.items ?? []);
-  result = appendToSection(result, "Buff", updates.buffs ?? []);
-  return result;
-}
 
 /** 防止路徑穿越：NPC id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
 export const NPC_ID_RE = /^[\w.-]+$/;

@@ -116,6 +116,7 @@ export async function callLoreRewrite(
         "- 只輸出文件完整新版內容本身（純文字/Markdown），不要 JSON、不要前言、不要程式碼框。",
         "- 若【現有文件全文】非空（更新既有文件）：不可遺漏現有文件中仍然成立的事實；只在片段明確提供新資訊或訂正時才改動對應部分；不可發明片段未提及的事實。",
         "- 若目前沒有現有文件（全新建檔）：只依本回合敘事片段已明確描述的內容整理成檔；**不可發明、不可擴寫敘事未提供的任何細節**（含視覺風格、材質、光線、氣味、用途、效果、機關、來歷、與人物事件的關聯）。片段沒提到的面向就留白，不要硬填、不要為了畫面感而想像。後續敘事揭露更多時再補。",
+        "- 輸出是**整理過的知識條目**，不是敘事轉貼。禁止把本回合敘事片段的散文、對白、系統提示（如【系統公告】【副本載入完畢】【系統提示】）原文照搬進文件；只能把片段中的事實**提煉**成條列式設定描述。文件中不應出現「本回合」「沈奕這時」這類敘事時序語句。",
         "",
         "世界設定：",
         settingText.trim(),
@@ -143,6 +144,61 @@ export async function callLoreRewrite(
     return null;
   }
   // 落地進 wiki.md / 角色檔前繁體化（決定論兜底，斷雪球）
+  const content = toTraditional(raw.trim());
+  return content.length > 0 ? content : null;
+}
+
+/**
+ * 主角檔案（protagonist.md）整檔重寫：把【現有全文（積分已由引擎決定論落地）】+【本回合敘事片段】
+ * 丟給 LLM，要求輸出完整新版內容。對標 callLoreRewrite，但積分區塊必須照抄不可改動
+ * （引擎已算好寫進現有全文），模型只負責整合屬性/技能/物品/buff 的成長，天然去重。
+ * 失敗或空白回 null（呼叫端保留現有全文不覆寫）。
+ */
+export async function callProtagonistRewrite(
+  client: LlmClient,
+  settingText: string,
+  excerpt: string,
+  existingContent: string,
+  log: Logger,
+  context?: LoreRewriteContext,
+): Promise<string | null> {
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: [
+        "你是「無限恐怖」世界敘事引擎的主角檔案維護者。任務：把【現有主角檔案全文】依【本回合敘事片段】更新成一份完整、連貫的新版內容。",
+        "",
+        "語言與用詞：",
+        `- ${TRADITIONAL_CHINESE_RULE}`,
+        "",
+        "鐵則：",
+        "- 只輸出主角檔案完整新版內容本身（純文字/Markdown），不要 JSON、不要前言、不要程式碼框。",
+        "- **「當前積分」數值與其所在區塊一律照抄現有全文，絕不可改動**（積分由引擎另行計算，你動了就是錯）。",
+        "- 不可遺漏現有全文中仍然成立的事實；只在敘事片段明確提供新的屬性/技能/物品/buff 變化時，才把該變化整合進對應區塊。",
+        "- 整合時若某項已存在（即使措辭不同），更新該項而非新增重複條目；不可發明敘事未提及的成長。",
+        "- 輸出是整理過的角色檔案，不是敘事轉貼。禁止把敘事片段的散文、對白、系統提示原文照抄進檔；文件中不應出現「本回合」這類敘事時序語句。",
+        "",
+        "世界設定：",
+        settingText.trim(),
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        ...(context ? [formatContextLine(context), ""] : []),
+        `現有主角檔案全文：\n${existingContent.trim()}`,
+        "",
+        `本回合敘事片段：\n${excerpt.trim()}`,
+      ].join("\n"),
+    },
+  ];
+  let raw = "";
+  try {
+    for await (const delta of client.streamChat(messages)) raw += delta;
+  } catch (err) {
+    log.warn({ err }, "主角檔案整檔重寫 LLM 呼叫失敗，保留現有檔案");
+    return null;
+  }
   const content = toTraditional(raw.trim());
   return content.length > 0 ? content : null;
 }
