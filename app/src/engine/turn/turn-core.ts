@@ -52,7 +52,7 @@ export function traditionalizeFastControl(control: FastControl): FastControl {
 
 /**
  * Layer 2（fast-control）：done event 前必須就位的最小狀態（now/主角/骰值/轉場/建議動作）。
- * npc/item/location/skill/wiki 等可延後落地的欄位交給 runLoreSync（Layer 3），不在此處理。
+ * npc/item/scene/skill/wiki 等可延後落地的欄位交給 runLoreSync（Layer 3），不在此處理。
  * 回傳本回合敘事全文，供呼叫端接著餵給 Layer 3。
  */
 export async function* runTurnCore(
