@@ -7,6 +7,19 @@ const stringCoerce = z.preprocess((val) => {
   return String(val);
 }, z.string());
 
+/**
+ * 7B 偶發把「沒有值」的欄位吐成字串 "null"/"none"/"undefined"（而非 JSON null），
+ * 害 .nullable() 驗證失敗、整個 fast-control 解析降級。落地前先把這些哨兵字串
+ * 正規化成真 null，再交給下游 schema 驗證。包住既有 schema，保留其原本的型別檢查。
+ */
+const NULLISH_STRINGS = new Set(["null", "none", "undefined", "nil", "n/a", ""]);
+function nullishStringCoerce<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((val) => {
+    if (typeof val === "string" && NULLISH_STRINGS.has(val.trim().toLowerCase())) return null;
+    return val;
+  }, schema);
+}
+
 const NowChangesSchema = z
   .object({
     chapter: stringCoerce,
@@ -36,9 +49,11 @@ const FastStateChangesSchema = z
 export const FastControlSchema = z.object({
   state_changes: FastStateChangesSchema,
   rolls: z.array(RollReportSchema).default([]),
-  mode_transition: z.enum(["enter_dungeon", "settle_dungeon"]).nullable().default(null),
-  transition_dungeon_id: z.string().nullable().optional(),
-  transition_dungeon_goal: z.string().nullable().optional(),
+  mode_transition: nullishStringCoerce(
+    z.enum(["enter_dungeon", "settle_dungeon"]).nullable().default(null),
+  ),
+  transition_dungeon_id: nullishStringCoerce(z.string().nullable().optional()),
+  transition_dungeon_goal: nullishStringCoerce(z.string().nullable().optional()),
   awaiting_user_input: z.boolean(),
   protagonist_permanent_death: z.boolean().default(false),
   suggested_actions: z.array(z.string()).default([]),
