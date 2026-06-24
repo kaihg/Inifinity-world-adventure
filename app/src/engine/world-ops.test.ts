@@ -39,7 +39,7 @@ const PLACEHOLDER_FILES = [
 /** 在 worldDir 鋪一個「玩過、長出一堆動態檔案」的髒世界 */
 async function seedDirtyWorld(worldDir: string): Promise<void> {
   await mkdir(path.join(worldDir, "characters"), { recursive: true });
-  await mkdir(path.join(worldDir, "locations", "iron_gate"), { recursive: true });
+  await mkdir(path.join(worldDir, "scenes", "iron_gate"), { recursive: true });
   await mkdir(path.join(worldDir, "items", "metal_club"), { recursive: true });
   await mkdir(path.join(worldDir, "dungeons", "new_dungeon"), { recursive: true });
   await writeFile(path.join(worldDir, "setting.md"), "# 世界設定（World Setting）\n\n舊世界。\n", "utf8");
@@ -51,7 +51,7 @@ async function seedDirtyWorld(worldDir: string): Promise<void> {
   await writeFile(path.join(worldDir, "characters", "index.md"), "| ID | 姓名 |\n", "utf8");
   await writeFile(path.join(worldDir, "characters", "chenzhe.md"), "# NPC：陳哲\n", "utf8");
   await writeFile(path.join(worldDir, "characters", "linsiyu.md"), "# NPC：林思雨\n", "utf8");
-  await writeFile(path.join(worldDir, "locations", "iron_gate", "wiki.md"), "# 鐵門\n", "utf8");
+  await writeFile(path.join(worldDir, "scenes", "iron_gate", "wiki.md"), "# 鐵門\n", "utf8");
   await writeFile(path.join(worldDir, "items", "metal_club", "wiki.md"), "# 鐵棍\n", "utf8");
   await writeFile(path.join(worldDir, "dungeons", "new_dungeon", "log.md"), "# 副本 new_dungeon · Log\n\n## run-1（2026-06-24）\n\nrun\n", "utf8");
 }
@@ -65,7 +65,7 @@ describe("resetWorldToPlaceholder", () => {
     await rm(worldDir, { recursive: true, force: true });
   });
 
-  it("清掉所有動態長出的殘留（NPC/locations/items/journal_summary），只留佔位檔", async () => {
+  it("清掉所有動態長出的殘留（NPC/scenes/items/journal_summary），只留佔位檔", async () => {
     await seedDirtyWorld(worldDir);
     await resetWorldToPlaceholder(worldDir, "2026-06-24");
 
@@ -106,9 +106,9 @@ describe("endWorld", () => {
       logger: createLogger(),
     });
 
-    // 1) archive 完整保留舊世界（含 locations/items/NPC）
+    // 1) archive 完整保留舊世界（含 scenes/items/NPC）
     const archivedFiles = await listFiles(path.join(repoRoot, archivedTo, "world"));
-    expect(archivedFiles).toContain("locations/iron_gate/wiki.md");
+    expect(archivedFiles).toContain("scenes/iron_gate/wiki.md");
     expect(archivedFiles).toContain("items/metal_club/wiki.md");
     expect(archivedFiles).toContain("characters/chenzhe.md");
     expect(archivedFiles).toContain("journal_summary.md");

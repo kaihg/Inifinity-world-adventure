@@ -126,13 +126,13 @@ describe("parseFastControlOutput（Layer 2：only now/protagonist/rolls/mode_tra
 });
 
 describe("parseLoreSyncOutput（Layer 3：touched_entities + dungeon_wiki_excerpt，不需 awaiting/commit）", () => {
-  it("接受 touched_entities（npc/item/location/skill）與 dungeon_wiki_excerpt", () => {
+  it("接受 touched_entities（npc/item/scene/skill）與 dungeon_wiki_excerpt", () => {
     const raw = JSON.stringify({
       state_changes: {
         touched_entities: [
           { id: "ye-qing", category: "npc", name: "葉晴", excerpt: "葉晴的信任又提升了一點。" },
           { id: "rusty-pipe", category: "item", name: "生鏽鐵管", excerpt: "撿到一根生鏽鐵管。" },
-          { id: "info-room", category: "location", name: "資訊室", excerpt: "資訊室牆上有監視器。" },
+          { id: "info-room", category: "scene", name: "資訊室", excerpt: "資訊室牆上有監視器。" },
           { id: "melee-mastery", category: "skill", name: "近戰格鬥精通", excerpt: "領悟了近戰格鬥精通。" },
         ],
         dungeon_wiki_excerpt: "資訊室牆上有監視器",
@@ -142,13 +142,13 @@ describe("parseLoreSyncOutput（Layer 3：touched_entities + dungeon_wiki_excerp
     expect(sync.state_changes.touched_entities).toEqual([
       { id: "ye-qing", category: "npc", name: "葉晴", excerpt: "葉晴的信任又提升了一點。" },
       { id: "rusty-pipe", category: "item", name: "生鏽鐵管", excerpt: "撿到一根生鏽鐵管。" },
-      { id: "info-room", category: "location", name: "資訊室", excerpt: "資訊室牆上有監視器。" },
+      { id: "info-room", category: "scene", name: "資訊室", excerpt: "資訊室牆上有監視器。" },
       { id: "melee-mastery", category: "skill", name: "近戰格鬥精通", excerpt: "領悟了近戰格鬥精通。" },
     ]);
     expect(sync.state_changes.dungeon_wiki_excerpt).toBe("資訊室牆上有監視器");
   });
 
-  it("category 不在 npc/item/location/skill 之中時拋錯", () => {
+  it("category 不在 npc/item/scene/skill 之中時拋錯", () => {
     const raw = JSON.stringify({
       state_changes: {
         touched_entities: [{ id: "x", category: "monster", name: "x", excerpt: "x" }],

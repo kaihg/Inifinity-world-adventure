@@ -94,7 +94,7 @@ describe("sanitizeTouchedEntities", () => {
 });
 
 describe("reconcileEntityCategories", () => {
-  const empty = { npc: new Set<string>(), item: new Set<string>(), location: new Set<string>(), skill: new Set<string>() };
+  const empty = { npc: new Set<string>(), item: new Set<string>(), scene: new Set<string>(), skill: new Set<string>() };
 
   it("既有檔案是 NPC，模型誤標成 item：改回 npc 並 warn", () => {
     const { log, warnCalls } = fakeLogger();

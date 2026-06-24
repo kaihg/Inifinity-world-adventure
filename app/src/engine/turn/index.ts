@@ -61,16 +61,16 @@ async function collectExistingEntityIds(
   worldDir: string,
   state: GameState,
   log: Logger,
-): Promise<{ existingNpcIds: string[]; existingItemIds: string[]; existingLocationIds: string[]; existingSkillIds: string[] }> {
-  const [existingItemIds, existingLocationIds, existingSkillIds] = await Promise.all([
+): Promise<{ existingNpcIds: string[]; existingItemIds: string[]; existingSceneIds: string[]; existingSkillIds: string[] }> {
+  const [existingItemIds, existingSceneIds, existingSkillIds] = await Promise.all([
     listLoreIds(worldDir, "items", log),
-    listLoreIds(worldDir, "locations", log),
+    listLoreIds(worldDir, "scenes", log),
     listLoreIds(worldDir, "skills", log),
   ]);
   return {
     existingNpcIds: state.npcs.map((n) => n.id),
     existingItemIds,
-    existingLocationIds,
+    existingSceneIds,
     existingSkillIds,
   };
 }

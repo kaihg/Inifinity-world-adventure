@@ -69,7 +69,7 @@ export function trackLoreSync(handle: PendingLoreSync, task: Promise<void>, log:
 }
 
 /**
- * Layer 3（reactive-lore-sync）：讀主腦敘事，抽出 npc/item/location/skill/wiki 的延後落地欄位。
+ * Layer 3（reactive-lore-sync）：讀主腦敘事，抽出 npc/item/scene/skill/wiki 的延後落地欄位。
  * 不卡玩家可見的 done event；任何步驟失敗只 log.warn，永遠不拋錯（保證 pendingLoreSync.promise 不 reject）。
  * 本回合若沒有任何 lore 異動則不 commit，避免空 commit。
  */
@@ -94,9 +94,9 @@ export async function runLoreSync(
     // 2) 與既有檔案 category 對齊（既有檔案是 canonical truth）
     // 這道 gate 同時抑制假 entity 暴增 LLM 重寫呼叫（根因 G 的呼叫量來源）。
     const sanitized = sanitizeTouchedEntities(changes.touched_entities ?? [], log);
-    const [itemIds, locationIds, skillIds] = await Promise.all([
+    const [itemIds, sceneIds, skillIds] = await Promise.all([
       listLoreIds(deps.worldDir, "items", log),
-      listLoreIds(deps.worldDir, "locations", log),
+      listLoreIds(deps.worldDir, "scenes", log),
       listLoreIds(deps.worldDir, "skills", log),
     ]);
     const indexMdForIds = await readBestEffort(path.join(deps.worldDir, "characters", "index.md"));
@@ -107,7 +107,7 @@ export async function runLoreSync(
       {
         npc: new Set(npcEntries.map((n) => n.id)),
         item: new Set(itemIds),
-        location: new Set(locationIds),
+        scene: new Set(sceneIds),
         skill: new Set(skillIds),
       },
       log,

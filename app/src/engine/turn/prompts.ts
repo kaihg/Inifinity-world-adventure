@@ -49,7 +49,7 @@ const LORE_SYNC_FORMAT_BLOCK = [
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
   "- state_changes: { touched_entities?: [{id, category, name, excerpt}], dungeon_wiki_excerpt?: string, protagonist_points_delta?: number, protagonist_changed?: boolean }",
   "  - touched_entities：本回合敘事中明確登場、或知識被進一步揭露/訂正的 NPC、道具、場景、技能。",
-  "    category 只能是 npc/item/location/skill 其中之一；id 用小寫英數 slug，單字以底線分隔（snake_case）；",
+  "    category 只能是 npc/item/scene/skill 其中之一；id 用小寫英數 slug，單字以底線分隔（snake_case）；",
   "    **id 必須是 name 的英文直譯**，例如「辨識震動」→ identify_vibration、「碰撞警報裝置」→ collision_alarm_device；" +
     "不可用系統視角的功能描述詞（如 system_monitor、handler、manager、detector）取代實體本身的名字；不可用中文、空白或純標點；name 用顯示名稱；",
   "    excerpt 是本回合敘事中跟這個實體有關的原文片段（之後會有另一步驟拿這段片段去跟現有檔案比較、",
@@ -202,7 +202,7 @@ export interface BuildControlParams {
 /**
  * Layer 2（fast-control）：讀主腦敘事 + 當前狀態，只抽出「done event 前必須就位」
  * 的最小欄位子集（now/主角/骰值/轉場/awaiting_user_input/suggested_actions/commit_summary）。
- * npc/item/location/skill/wiki 等可延後落地的欄位交給 buildLoreSyncMessages。
+ * npc/item/scene/skill/wiki 等可延後落地的欄位交給 buildLoreSyncMessages。
  */
 export function buildFastControlMessages(params: BuildControlParams): ChatMessage[] {
   const { settingText, state, input, narrative, dicePool } = params;

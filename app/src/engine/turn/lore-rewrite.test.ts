@@ -43,7 +43,7 @@ describe("callLoreRewrite", () => {
 
   it.each([
     ["item", "外觀與基本辨識"],
-    ["location", "已知規則或機關"],
+    ["scene", "已知規則或機關"],
     ["skill", "施展條件/限制"],
     ["npc", "與主角的關係"],
     ["dungeon", "已揭露地圖/環境"],
@@ -70,9 +70,9 @@ describe("callLoreRewrite", () => {
 describe("generateEntitySecrets", () => {
   it.each([
     ["item", "道具設計者", "道具名稱"],
-    ["location", "場景設計者", "場景名稱"],
+    ["scene", "場景設計者", "場景名稱"],
     ["skill", "技能設計者", "技能名稱"],
-  ] as [("item" | "location" | "skill"), string, string][])(
+  ] as [("item" | "scene" | "skill"), string, string][])(
     "category=%s 時措辭正確（%s / %s）",
     async (category, roleKeyword, nounKeyword) => {
       const cap = capturingClient("隱藏設定內容");

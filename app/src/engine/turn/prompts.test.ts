@@ -146,7 +146,7 @@ describe("buildLoreSyncMessages（Layer 3）", () => {
     expect(msgs[0].role).toBe("system");
     expect(msgs[0].content).toContain("touched_entities");
     expect(msgs[0].content).toContain("dungeon_wiki_excerpt");
-    expect(msgs[0].content).toContain("npc/item/location/skill");
+    expect(msgs[0].content).toContain("npc/item/scene/skill");
     expect(msgs[0].content).not.toContain("awaiting_user_input");
     expect(msgs[0].content).not.toContain("mode_transition");
     expect(msgs[0].content).toContain("沈奕在資訊室撿到一根生鏽鐵管");
