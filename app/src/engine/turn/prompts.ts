@@ -32,10 +32,7 @@ const FAST_CONTROL_FORMAT_BLOCK = [
   `所有中文字串值一律使用繁體中文與台灣用詞（${TRADITIONAL_CHINESE_RULE}）。`,
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。JSON 必須包含以下頂層（top-level）欄位：",
   "- state_changes: {",
-  "    now?: { chapter?, scene?, companions?, threads?, nextStep? }, （注意：進行中的副本欄由引擎依 mode_transition 自動管理，不可透過 now.activeDungeon 自行覆寫）",
-  "    protagonist_points_delta?: number,",
-  "    protagonist_updates?: { attributes?: string[], skills?: string[], items?: string[], buffs?: string[] }",
-  "      （只填新增/變化的條目，會附加到對應區塊，不要重複列已有項目） }",
+  "    now?: { chapter?, scene?, companions?, threads?, nextStep? } （注意：進行中的副本欄由引擎依 mode_transition 自動管理，不可透過 now.activeDungeon 自行覆寫） }",
   "- rolls: [{desc, value, success?}]（敘事中實際用到的骰值與判定，沒有就空陣列）",
   '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
   "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
@@ -48,13 +45,16 @@ const LORE_SYNC_FORMAT_BLOCK = [
   "## 輸出格式（務必嚴格遵守）",
   `所有中文字串值一律使用繁體中文與台灣用詞（${TRADITIONAL_CHINESE_RULE}）。`,
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
-  "- state_changes: { touched_entities?: [{id, category, name, excerpt}], dungeon_wiki_excerpt?: string }",
+  "- state_changes: { touched_entities?: [{id, category, name, excerpt}], dungeon_wiki_excerpt?: string, protagonist_points_delta?: number, protagonist_changed?: boolean }",
   "  - touched_entities：本回合敘事中明確登場、或知識被進一步揭露/訂正的 NPC、道具、場景、技能。",
-  "    category 只能是 npc/item/location/skill 其中之一；id 用小寫英數 slug，單字以底線分隔" +
-    "（snake_case，例如 water_bottle、collision_alarm_device），不可用中文、空白或純標點；name 用顯示名稱；",
+  "    category 只能是 npc/item/location/skill 其中之一；id 用小寫英數 slug，單字以底線分隔（snake_case）；",
+  "    **id 必須是 name 的英文直譯**，例如「辨識震動」→ identify_vibration、「碰撞警報裝置」→ collision_alarm_device；" +
+    "不可用系統視角的功能描述詞（如 system_monitor、handler、manager、detector）取代實體本身的名字；不可用中文、空白或純標點；name 用顯示名稱；",
   "    excerpt 是本回合敘事中跟這個實體有關的原文片段（之後會有另一步驟拿這段片段去跟現有檔案比較、",
   "    決定怎麼更新，你不需要自己組好最終的完整內容，只要把相關原文片段填進來）。",
   "  - dungeon_wiki_excerpt：劇情中對**當前副本本身**新揭露的知識片段（地圖/機關/規則），不在副本中則省略。",
+  "  - protagonist_points_delta：本回合主角積分的增減量（敘事明確發生才填，沒有就省略或 0）。",
+  "  - protagonist_changed：本回合敘事是否涉及主角屬性/技能/物品/buff 的變化（有就 true，純積分變動或無變化則省略/false）。",
   "（本回合若沒有任何相關異動，對應欄位省略即可，不要硬湊內容）",
 ].join("\n");
 
@@ -211,7 +211,6 @@ export function buildFastControlMessages(params: BuildControlParams): ChatMessag
     "",
     "## 鐵則",
     "- 只整理敘事中已經寫出的事實，**不可新增劇情、不可發明敘事未提及的數值或事件**。",
-    "- protagonist_points_delta 只反映敘事中明確發生的積分增減；沒寫到就填 0 或省略。",
     "- rolls 只回報敘事中實際用到的骰值（對照下方骰池），沒有就空陣列。",
     inDungeon
       ? "- 副本達主線目標/主角死亡/撤退離開時，mode_transition 設為 settle_dungeon。"

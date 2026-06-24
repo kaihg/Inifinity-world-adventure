@@ -116,6 +116,15 @@ describe("buildFastControlMessages（Layer 2）", () => {
     expect(msgs[1].content).toContain("我四處看看");
   });
 
+  it("Layer 2 不再含 protagonist_updates / protagonist_points_delta 欄位說明", () => {
+    const msgs = buildFastControlMessages({
+      settingText: "設定", state: sampleState, input: "看看四周",
+      narrative: "沈奕環顧四周。", dicePool: [1],
+    });
+    expect(msgs[0].content).not.toContain("protagonist_updates");
+    expect(msgs[0].content).not.toContain("protagonist_points_delta");
+  });
+
   it("副本：mode_transition 規則改為 settle_dungeon", () => {
     const msgs = buildFastControlMessages({
       settingText: "設定", state: sampleState, input: "往前走",
@@ -142,6 +151,25 @@ describe("buildLoreSyncMessages（Layer 3）", () => {
     expect(msgs[0].content).not.toContain("mode_transition");
     expect(msgs[0].content).toContain("沈奕在資訊室撿到一根生鏽鐵管");
     expect(msgs[1].content).toContain("我四處看看");
+  });
+
+  it("Layer 3 含 protagonist_points_delta / protagonist_changed 欄位說明", () => {
+    const msgs = buildLoreSyncMessages({
+      settingText: "設定", state: sampleState, input: "練格鬥",
+      narrative: "沈奕得 2 分並領悟新技能。", dicePool: [1],
+    });
+    expect(msgs[0].content).toContain("protagonist_points_delta");
+    expect(msgs[0].content).toContain("protagonist_changed");
+  });
+
+  it("Layer 3 含 id 直譯規則與反例（根因 Bug 2）", () => {
+    const msgs = buildLoreSyncMessages({
+      settingText: "設定", state: sampleState, input: "辨識震動",
+      narrative: "沈奕練成辨識震動。", dicePool: [1],
+    });
+    expect(msgs[0].content).toContain("直譯");
+    expect(msgs[0].content).toContain("identify_vibration");
+    expect(msgs[0].content).toContain("system_monitor"); // 作為反例出現
   });
 
   it("副本：system 帶 wiki 與 dungeonId，不外洩 secrets", () => {
