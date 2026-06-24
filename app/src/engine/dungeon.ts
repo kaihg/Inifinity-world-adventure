@@ -4,12 +4,6 @@ import { logger as defaultLogger, type Logger } from "../logger.js";
 import { loadLore, ensureSecrets, listLoreIds } from "./lore.js";
 import { toTraditional } from "./text/traditionalize.js";
 
-/** 檔案不存在（ENOENT）是預期狀況；其他 I/O 錯誤才值得記錄 */
-function logUnexpectedReadError(logger: Logger, file: string, err: unknown): void {
-  if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return;
-  logger.warn({ err, file }, "讀取副本檔案失敗（非檔案不存在）");
-}
-
 export interface ActiveDungeon {
   dungeonId: string;
   runId: string;

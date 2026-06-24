@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. **世界狀態**存在 `world/`，是當前 lifetime 的唯一真相來源（canonical truth）。引擎與任何維護對話都讀寫這同一份。
 2. **resume 讀 `world/now.md`**（覆寫式「當前局勢」快照），不讀 `journal.md`。引擎每回合用**狀態載入器**決定論地固定載入 `now.md` + `setting.md` + `characters/index.md`，消除「讀多少」的落差。
 3. **回合（三層管線）**：引擎組 prompt → Layer 1 主腦串流純敘事（不含任何控制 sentinel）→ 敘事結束後發 Layer 2（fast-control）獨立 call 抽取「done event 前必須就位」的最小狀態子集（now/主角/骰子回報/`mode_transition`/建議動作）→ npc/item/location/skill/wiki 等可延後欄位交給 Layer 3（reactive-lore-sync），不卡玩家可見的 done event → 決定論落地三層（raw append、提煉 canonical、覆寫 `now.md`）→ 每回合自動 commit `world/`。任一層結構抽取失敗時安全降級：保留敘事、暫停等玩家、發 warning。機率判定由**伺服器端真隨機**預擲骰池並寫進 log。
-4. **模式（不是 branch）**：`now.md`「進行中的副本」欄決定主空間 vs 副本回合。raw 層主空間記到 `world/journal.md`、副本記到 `dungeons/<id>/runs/<run-id>.md`。
+4. **模式（不是 branch）**：`now.md`「進行中的副本」欄決定主空間 vs 副本回合。raw 層主空間記到 `world/journal.md`、副本記到 `dungeons/<id>/log.md`（append-only，對稱 journal）。
 5. **自動推進**：結構化輸出的 `awaiting_user_input=false`（純環境/系統旁白/NPC 自行動作）時，伺服器自動接續下一回合，直到需要玩家決定、觸發轉場、或達 `AUTO_ADVANCE_MAX`。消滅手動「繼續」。
 6. **進/結算副本**由結構化輸出的 `mode_transition`（`enter_dungeon`/`settle_dungeon`）驅動。進入副本是**半強制**的：依 `setting.md`，系統倒數到/強制傳送時，模型自己回 `enter_dungeon`。進入時建 run log、首次生成 `secrets.md`、設 `now.md` 副本欄；結算時提煉 run→wiki、清 `now.md` 副本欄回主空間。**死亡也走結算**（新手保護等後果由結算依 `setting.md` 規則處理），全程不切 git branch、commit 當前分支。
 7. **世界重置/建立**走引擎內建入口：`POST /api/world/init`（建立新世界，前端 `WorldSetupWizard`）、`/api/world/end`（封存目前世界，前端 `EndWorldModal`）、`/api/world/protagonist`（死亡後換代或結束世界，前端 `DeathChoiceModal`）。`endWorld` 會清空 `worldDir` 再重建，避免殘留；舊 `world/` 移到 `archives/<timestamp>/` 只讀保存。
@@ -28,7 +28,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 world/
   setting.md              # 玩家可見：主神表面規則、世界基調、當前篇章、新手保護條款——敘事必須嚴格遵守
   gm-notes.md              # 劇透文件：主神真實動機、世界真相、暗線，僅供保持一致，不可提前揭露
-  journal.md              # 主空間 raw 層：append-only、帶時間戳的原始時間線（與副本 runs/*.md 對稱）
+  journal.md              # 主空間 raw 層：append-only、帶時間戳的原始時間線（與副本 log.md 對稱）
   now.md                  # 提煉頁：覆寫式「當前局勢」快照，resume 入口；讀這份接劇情，不讀 journal.md
   characters/
     index.md               # 輕量角色索引（先讀這個，不要一次讀全部角色檔案）
@@ -38,7 +38,7 @@ world/
     <dungeon-id>/
       wiki.md               # 該副本已揭露的累積知識（地圖/機關/規則），多次進入間延續
       secrets.md            # 劇透文件：該副本真正的機關原理/NPC真實動機，首次進入時生成一次
-      runs/<run-id>.md       # 單次進入的原始 log，append-only（不再對應 branch/PR）
+      log.md                 # 此副本所有進入的流水帳，append-only（對稱 journal.md）
 archives/
   <timestamp>/world/...      # 重置前的整份世界快照，只讀
   skills/2026-06-19/...       # 已封存的舊遊玩類 skills（歷史參考，不再使用）
@@ -76,9 +76,9 @@ app/                           # 網頁引擎（Node.js + TypeScript，唯一遊
 ## 關鍵約定
 
 - **狀態文件用 Markdown，不用 JSON**：故事和角色關係像 wiki 持續生長，結構化欄位會限制敘事彈性。維持人類可讀、分段清晰，方便增量編輯而非整篇重寫。
-- **`index.md` 類文件是為了省 context**：角色一多就不能每次全讀，先讀索引，需要細節再讀對應檔案。`dungeons/<id>/wiki.md` 同理優先於 `runs/*.md` 全文。
-- **`wiki.md`（提煉知識）與 `runs/*.md`（原始記錄）分離**：`runs/*.md` 是不可篡改的流水帳（靠 git 歷史天然防竄改），`wiki.md`/角色檔案才是下次真正會讀的「canonical truth」。結算把 run log **提煉**進 wiki，而不是整段複製。
-- **raw log 用檔案 append，不用 commit message 當 log，不用 sqlite**：原始記錄逐回合 append 到 `runs/*.md`／`journal.md`，commit message 只寫摘要。
+- **`index.md` 類文件是為了省 context**：角色一多就不能每次全讀，先讀索引，需要細節再讀對應檔案。`dungeons/<id>/wiki.md` 同理優先於 `log.md` 全文。
+- **`wiki.md`（提煉知識）與 `log.md`（原始記錄）分離**：`log.md` 是不可篡改的流水帳（靠 git 歷史天然防竄改），`wiki.md`/角色檔案才是下次真正會讀的「canonical truth」。結算把 run log **提煉**進 wiki，而不是整段複製。
+- **raw log 用檔案 append，不用 commit message 當 log，不用 sqlite**：原始記錄逐回合 append 到 `dungeons/<id>/log.md`／`journal.md`，commit message 只寫摘要。
 - **回合即時落地**：狀態變動在發生的同一回合就寫入 canonical 檔並自動 commit（不留延遲結帳點）。一致性靠「敘事前讀 index 鎖定事實」。
 - **機率事件必須真隨機**：技能命中、暴擊、隨機事件等一律由引擎伺服器端（`engine/roll.ts`，crypto d100）預擲骰並寫進 log，模型只能依序取用回報的骰值敘事。禁止模型自行「演」機率結果或先編故事再湊數字。
 - **死亡也要結算**：新手保護機制是靠結算按 `world/setting.md` 規則處理（扣分、清狀態等），而不是靠丟棄/不落地來迴避後果。
