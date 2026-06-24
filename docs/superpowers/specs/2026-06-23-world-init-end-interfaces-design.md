@@ -194,9 +194,9 @@ export function buildProtagonistPrompt(seed: ProtagonistSeed): string
 
 ### header 操作列：封存世界
 
-「封存世界」是**操作行為**而非遊戲資訊，因此不放進顯示遊戲狀態的側邊欄/`StatusDrawer`（那裡只鏡像狀態與 NPC 面板），改放在 header 下方一排獨立的**操作列**（`.action-bar`，所有視窗寬度皆顯示，不像 `.header-actions` 在桌面被 `display:none`——否則桌面玩家無法觸及）。操作列目前只放「封存故事 / 結束世界」一個按鈕（**不**包含換主角按鈕——換主角不對外開放），未來可擴充其他特殊操作。
+「封存世界」是**操作行為**而非遊戲資訊，因此不放進顯示遊戲狀態的側邊欄/`StatusDrawer`（那裡只鏡像狀態與 NPC 面板），改放在 header 右側的操作群（`.header-actions`，所有視窗寬度皆顯示——桌面只隱藏其中「開面板」鈕，封存鈕保留；否則桌面玩家無法觸及）。封存鈕以 danger 色的 icon 按鈕呈現（`aria-label`/`title`＝「結束並封存世界」），**不**包含換主角按鈕（換主角不對外開放）。
 
-1. 點擊 → 二次確認 modal（`EndWorldModal`），比照死亡抉擇 modal 的 end-world：只用「取消 / 確定封存」兩個按鈕確認，**不需要打字輸入「封存」**。後端 `/api/world/end` 仍要求 `confirmText === "封存"` 作為防裸 API 誤觸的閘，由前端按「確定封存」時程式帶入該字串。
+1. 點擊 → 置中二次確認對話框（`EndWorldModal`，置中 `.modal-card`，非靠右抽屜；按鈕用長方形 `.btn`，非圓形 send 鈕），比照死亡抉擇 modal 的 end-world：只用「取消 / 確定封存」兩個按鈕確認，**不需要打字輸入「封存」**。後端 `/api/world/end` 仍要求 `confirmText === "封存"` 作為防裸 API 誤觸的閘，由前端按「確定封存」時程式帶入該字串。
 2. 呼叫 `POST /api/world/end`。
 3. 成功後整頁狀態切回「未初始化」，等同重新打一次 `/api/world/status` 並渲染 `WorldSetupWizard`。
 

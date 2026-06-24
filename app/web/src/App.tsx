@@ -183,26 +183,26 @@ export function App() {
             </span>
           )}
           <div className="header-actions">
+            {/* 開面板：桌面已有常駐側邊欄，僅行動裝置顯示（CSS 在桌面隱藏此顆） */}
             <button
-              className="icon-btn"
+              className="icon-btn header-actions__panel"
               aria-label="開啟角色／系統面板"
               onClick={() => setShowStatus(true)}
             >
               <IconUser />
             </button>
+            {/* 封存世界＝操作行為，放 header 右側（所有視窗皆顯示），不混進遊戲資訊面板 */}
+            <button
+              className="icon-btn icon-btn--danger"
+              aria-label="結束並封存世界"
+              title="結束並封存世界"
+              disabled={busy || protagonistDied}
+              onClick={() => setShowEndWorld(true)}
+            >
+              <IconArchive />
+            </button>
           </div>
         </header>
-
-        {/* 操作列：放「操作行為」（非遊戲資訊），與側邊欄的狀態面板分離；桌面/行動皆顯示 */}
-        <nav className="action-bar" aria-label="特殊操作">
-          <button
-            className="action-chip action-chip--danger"
-            disabled={busy || protagonistDied}
-            onClick={() => setShowEndWorld(true)}
-          >
-            封存故事 / 結束世界
-          </button>
-        </nav>
 
         <div className="board">
           <main className="story-col">
@@ -373,6 +373,16 @@ function IconUser() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <circle cx="12" cy="8" r="4" />
       <path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" />
+    </svg>
+  );
+}
+
+function IconArchive() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M10 12h4" />
     </svg>
   );
 }

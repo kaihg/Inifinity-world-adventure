@@ -109,52 +109,11 @@ button {
   min-width: 0;
 }
 
-/* 操作列：放「操作行為」（封存世界等），與遊戲資訊側邊欄分離；所有視窗寬度皆顯示 */
-.action-bar {
+/* header 右側操作群：開面板（行動）＋ 封存世界（操作行為），所有視窗皆顯示 */
+.header-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-bottom: 1.25rem;
-}
-
-.action-chip {
-  display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.45rem 0.95rem;
-  font-size: 0.86rem;
-  cursor: pointer;
-  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
-  min-height: 2.25rem;
-}
-
-.action-chip:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.action-chip:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.action-chip--danger {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
-}
-
-.action-chip--danger:hover:not(:disabled) {
-  border-color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-}
-
-.modal-actions {
-  display: flex;
-  gap: 0.6rem;
-  margin-top: 0.75rem;
+  gap: 0.5rem;
 }
 
 .brand-mark {
@@ -247,6 +206,25 @@ button {
   transform: scale(0.94);
 }
 
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  transform: none;
+}
+
+.icon-btn--danger {
+  color: #f4a8a4;
+}
+
+.icon-btn--danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.icon-btn--danger:disabled {
+  border-color: var(--border-strong);
+}
+
 /* ---------- board / grid ---------- */
 
 .board {
@@ -262,7 +240,8 @@ button {
     gap: 1.75rem;
   }
 
-  .header-actions {
+  /* 桌面已有常駐側邊欄，只藏「開面板」鈕；封存鈕仍留在 header */
+  .header-actions__panel {
     display: none;
   }
 }
@@ -619,6 +598,110 @@ button {
 .drawer-header h2 {
   margin: 0;
   font-size: 1rem;
+}
+
+/* ---------- centered modal dialog ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 7, 9, 0.62);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  z-index: 40;
+}
+
+.modal-card {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  width: min(420px, 100%);
+  padding: 1.5rem;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  animation: pop-in 0.18s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-card {
+    animation: none;
+  }
+}
+
+.modal-title {
+  margin: 0 0 0.6rem;
+  font-size: 1.05rem;
+}
+
+.modal-body {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1.5rem;
+}
+
+/* ---------- rectangular buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0 1.15rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn--ghost {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  border-color: var(--text-muted);
+}
+
+.btn--danger {
+  background: var(--danger);
+  color: #2a0c0b;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: #f6857f;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .sidebar--desktop {
