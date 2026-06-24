@@ -202,12 +202,18 @@ describe("GET /api/world/status", () => {
 describe("POST /api/world/init", () => {
   let world: string;
   beforeEach(async () => {
-    world = await mkdtemp(path.join(tmpdir(), "iwa-init-"));
+    // 建 repoRoot/world/ 結構（initWorld 需要 repoRoot/templates/）
+    const repoRoot = await mkdtemp(path.join(tmpdir(), "iwa-init-repo-"));
+    world = path.join(repoRoot, "world");
     await mkdir(path.join(world, "characters"), { recursive: true });
+    // 建全域骨架（最小版，供 getTemplate fallback）
+    await mkdir(path.join(repoRoot, "templates"), { recursive: true });
+    await writeFile(path.join(repoRoot, "templates", "setting.md"), "# 世界設定（World Setting）\n\n## 主控系統\n<!-- 填入 -->\n", "utf8");
+    await writeFile(path.join(repoRoot, "templates", "protagonist.md"), "# 主角檔案\n\n## 基本資訊\n<!-- 填入 -->\n", "utf8");
     // 未初始化：不寫 setting.md
   });
   afterEach(async () => {
-    await rm(world, { recursive: true, force: true });
+    await rm(path.dirname(world), { recursive: true, force: true });
   });
 
   it("未初始化時成功生成世界，回 GameState，setting.md 變成正常內容", async () => {
