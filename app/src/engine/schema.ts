@@ -75,12 +75,20 @@ const LoreEntityRefSchema = z.object({
 
 export type LoreEntityRef = z.infer<typeof LoreEntityRefSchema>;
 
+const AnnouncedDungeonSchema = z.object({
+  id: z.string(),
+  display_name: z.string(),
+});
+
+export type AnnouncedDungeon = z.infer<typeof AnnouncedDungeonSchema>;
+
 const LoreStateChangesSchema = z
   .object({
     touched_entities: z.array(LoreEntityRefSchema).optional(),
     dungeon_wiki_excerpt: z.string().optional(),
     protagonist_points_delta: z.number().optional(),
     protagonist_changed: z.boolean().default(false),
+    announced_dungeon: AnnouncedDungeonSchema.optional(),
   })
   .default({});
 

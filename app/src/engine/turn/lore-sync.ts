@@ -7,7 +7,7 @@ import {
   parseProtagonist,
   rewriteNpcFile,
 } from "../context.js";
-import { loadDungeonLore } from "../dungeon.js";
+import { loadDungeonLore, registerAnnouncedDungeon } from "../dungeon.js";
 import type { Logger } from "../../logger.js";
 import { listLoreIds, loreDir, rewriteLoreWiki } from "../lore.js";
 import { parseCharacterIndex } from "../context.js";
@@ -203,7 +203,14 @@ export async function runLoreSync(
       if (touched.length > 0) await reindexTouchedFiles(deps.recall, deps.worldDir, touched, log);
     }
 
-    if (results.length > 0 || protagonistTouched) {
+    // 副本公告登記：敘事中首次出現系統公告的副本代碼時寫入 dungeons-index.md
+    const announcedDungeon = changes.announced_dungeon;
+    if (announcedDungeon?.id) {
+      await registerAnnouncedDungeon(deps.worldDir, announcedDungeon.id, announcedDungeon.display_name);
+      log.info({ id: announcedDungeon.id, displayName: announcedDungeon.display_name }, "副本公告登記");
+    }
+
+    if (results.length > 0 || protagonistTouched || announcedDungeon?.id) {
       const committed = await deps.commit("補完關聯文件（主角/NPC/道具/場景/技能）");
       log.info({ committed }, "回合結束（Layer 3 reactive-lore-sync）");
     } else {

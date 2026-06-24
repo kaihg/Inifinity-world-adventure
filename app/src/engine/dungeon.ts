@@ -1,4 +1,4 @@
-import { writeFile, appendFile, mkdir, readdir } from "node:fs/promises";
+import { writeFile, appendFile, mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 import { loadLore, ensureSecrets, listLoreIds } from "./lore.js";
@@ -119,10 +119,72 @@ export async function loadDungeonLore(
   return loadLore(worldDir, "dungeons", dungeonId, logger);
 }
 
-/** 列舉 world/dungeons/ 下所有副本子目錄名（id）；dungeons/ 不存在回 []。重用通用 listLoreIds。 */
+/**
+ * 列舉所有副本 id：已進入的子目錄 + dungeons-index.md 中的公告副本，去重合併。
+ * Layer 2 用此列表判斷「重返既有副本」vs「全新副本」，避免把 U-001 造成 new_dungeon。
+ */
 export async function listDungeonIds(
   worldDir: string,
   logger: Logger = defaultLogger,
 ): Promise<string[]> {
-  return listLoreIds(worldDir, "dungeons", logger);
+  const [entered, announced] = await Promise.all([
+    listLoreIds(worldDir, "dungeons", logger),
+    listAnnouncedDungeonIds(worldDir),
+  ]);
+  const merged = new Set([...entered, ...announced]);
+  return [...merged];
+}
+
+const DUNGEONS_INDEX_PATH = (worldDir: string) =>
+  path.join(worldDir, "dungeons-index.md");
+
+const DUNGEONS_INDEX_RE = /^\|\s*([^\s|]+)\s*\|\s*(.+?)\s*\|/;
+
+/**
+ * 讀 world/dungeons-index.md，回傳系統已公告但尚未進入的副本 id 列表。
+ * 格式：每列 `| <id> | <顯示名稱> |`；檔案不存在回 []。
+ */
+export async function listAnnouncedDungeonIds(worldDir: string): Promise<string[]> {
+  let raw: string;
+  try {
+    raw = await readFile(DUNGEONS_INDEX_PATH(worldDir), "utf8");
+  } catch {
+    return [];
+  }
+  const ids: string[] = [];
+  for (const line of raw.split("\n")) {
+    const m = line.match(DUNGEONS_INDEX_RE);
+    if (m && m[1] !== "id" && !/^-+$/.test(m[1])) ids.push(m[1].trim());
+  }
+  return ids;
+}
+
+/**
+ * 若 dungeons-index.md 尚未記錄該 id，新增一列。
+ * 已進入（建立目錄）的副本無需登記，呼叫端負責判斷。
+ */
+export async function registerAnnouncedDungeon(
+  worldDir: string,
+  id: string,
+  displayName: string,
+): Promise<void> {
+  const file = DUNGEONS_INDEX_PATH(worldDir);
+  let existing: string[] = [];
+  try {
+    const raw = await readFile(file, "utf8");
+    existing = raw
+      .split("\n")
+      .map((l) => l.match(DUNGEONS_INDEX_RE)?.[1]?.trim() ?? "")
+      .filter(Boolean);
+  } catch {
+    // 檔案不存在，初始化 header
+    await writeFile(
+      file,
+      "# 副本公告登記（Dungeons Index）\n\n> 系統已公告但尚未進入的副本。進入後由引擎移除。\n\n| id | 顯示名稱 |\n|----|----------|\n",
+      "utf8",
+    );
+  }
+  if (!existing.includes(id)) {
+    await appendFile(file, `| ${id} | ${displayName} |\n`, "utf8");
+  }
 }

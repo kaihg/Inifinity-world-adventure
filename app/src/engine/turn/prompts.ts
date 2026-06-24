@@ -38,7 +38,9 @@ const FAST_CONTROL_FORMAT_BLOCK = [
   "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
   "- awaiting_user_input: boolean —— 敘事屬純環境/系統旁白/NPC 自行動作、玩家不需做決定時設 false；需要玩家選擇才設 true。",
   "- suggested_actions: string[]",
-  "- commit_summary: string （一句摘要）",
+  "- commit_summary: string —— 兩句以內的**事實描述**：第一句寫主角或 NPC 做了什麼具體行動或發生了什麼具體事件；第二句（可省）寫直接結果或影響。" +
+  "禁止用詩化/氛圍語句（例如「緊繃如弓弦」「撕開現實邊界」），禁止以「等待」「靜候」「保持」開頭，禁止只寫狀態（「沈奕保持警戒」≠ 事件）。" +
+  "格式範例：「沈奕向葉晴詢問暗號詞進度，葉晴確認目前仍未定案。」或「沈奕跟蹤可疑男子至走廊轉角，目擊對方敲開隱藏通道。」",
 ].join("\n");
 
 const LORE_SYNC_FORMAT_BLOCK = [
@@ -55,6 +57,8 @@ const LORE_SYNC_FORMAT_BLOCK = [
   "  - dungeon_wiki_excerpt：劇情中對**當前副本本身**新揭露的知識片段（地圖/機關/規則），不在副本中則省略。",
   "  - protagonist_points_delta：本回合主角積分的增減量（敘事明確發生才填，沒有就省略或 0）。",
   "  - protagonist_changed：本回合敘事是否涉及主角屬性/技能/物品/buff 的變化（有就 true，純積分變動或無變化則省略/false）。",
+  "  - announced_dungeon：敘事中若有系統**首次公告**尚未進入的新副本（如系統面板顯示「副本 U-001 即將開啟」），填入 {id, display_name}，id 用小寫 kebab-case（如 u-001）；" +
+  "已進入過的副本或尚未公告的副本省略此欄。",
   "（本回合若沒有任何相關異動，對應欄位省略即可，不要硬湊內容）",
 ].join("\n");
 
@@ -215,7 +219,8 @@ export function buildFastControlMessages(params: BuildControlParams): ChatMessag
     inDungeon
       ? "- 副本達主線目標/主角死亡/撤退離開時，mode_transition 設為 settle_dungeon。"
       : "- 敘事中若系統強制開啟/傳送進副本，mode_transition 設為 enter_dungeon，並填 transition_dungeon_id：" +
-        "優先比對下方『現有副本 id』判斷是否重返既有副本；若是全新副本才生成新的 kebab-case 短 slug。",
+        "**必須先比對下方『現有副本 id』**，找到完全匹配或明顯對應的（如 u-001 對應敘事中的 U-001）就直接使用該 id；" +
+        "確定是全新副本、現有列表裡完全找不到對應才生成新的 kebab-case 短 slug。",
     "",
     FAST_CONTROL_FORMAT_BLOCK,
     "",
