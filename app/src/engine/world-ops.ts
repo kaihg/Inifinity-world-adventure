@@ -10,6 +10,7 @@ import {
   UNINITIALIZED_SETTING_PLACEHOLDER,
   UNINITIALIZED_GM_NOTES_PLACEHOLDER,
 } from "./world-status.js";
+import { getTemplate } from "./template-loader.js";
 
 /** 把一次性 streamChat 收斂成完整字串（世界級生成都是非串流場景） */
 export async function generateText(client: LlmClient, messages: ChatMessage[]): Promise<string> {
@@ -49,27 +50,31 @@ function initialNow(today: string): NowState {
  */
 export async function initWorld(opts: {
   worldDir: string;
+  repoRoot: string;
   client: LlmClient;
   input: WorldInitInput;
   today: string;
   logger: Logger;
 }): Promise<void> {
-  const { worldDir, client, input, today } = opts;
+  const { worldDir, repoRoot, client, input, today } = opts;
   const pref = input.preferences ?? {};
 
-  // 1) setting.md（玩家可見）
+  // 1) 讀骨架
+  const settingScaffold = await getTemplate("setting", worldDir, repoRoot);
+
+  // 2) setting.md（玩家可見）— 骨架貼進 prompt
   const settingMd = await generateText(client, [
     {
       role: "system",
       content:
-        "你是「無限恐怖」世界的設定設計師。依玩家偏好生成玩家可見的世界設定 setting.md（繁體中文）。" +
-        "必須包含：主控系統表面樣貌、世界基調、副本機制、新手保護規則、主空間規則、當前篇章。" +
-        "只輸出 markdown 正文，開頭是 `# 世界設定（World Setting）`。",
+        "你是「無限恐怖」世界的設定設計師。依玩家偏好，照以下骨架結構填入此世界的具體規則（繁體中文）。" +
+        "段落標題（## 開頭）不可改動，每段自由發揮，但必須在本世界全程一致。" +
+        "只輸出 markdown 正文，開頭是 `# 世界設定（World Setting）`。\n\n" +
+        "骨架如下：\n\n" + settingScaffold,
     },
     {
       role: "user",
       content: [
-        // 主神「表面性格」只進玩家可見的 setting.md；內在真實動機由 gm-notes 另行生成（不讀此偏好）
         `難度：${pref.difficulty?.trim() || UNSPEC}`,
         `主神表面性格：${pref.godPersona?.trim() || UNSPEC}`,
         `新手保護規則草案：${pref.protectionRule?.trim() || UNSPEC}`,
@@ -77,7 +82,7 @@ export async function initWorld(opts: {
     },
   ]);
 
-  // 2) gm-notes.md（隱藏真相）——只讀 setting.md 結果，不讀玩家原始偏好逐字稿
+  // 3) gm-notes.md — 不變
   const gmNotesMd = await generateText(client, [
     {
       role: "system",
@@ -89,23 +94,62 @@ export async function initWorld(opts: {
     { role: "user", content: `玩家可見設定如下：\n\n${settingMd}` },
   ]);
 
-  // 3) protagonist.md
+  // 4) protagonist.md — 讀骨架
+  const protagonistScaffold = await getTemplate("protagonist", worldDir, repoRoot);
   const protagonistMd = await generateText(client, [
     {
       role: "system",
       content:
-        "你是「無限恐怖」世界的角色設計師。生成主角檔案 protagonist.md（繁體中文）：" +
-        "基本資訊、初始積分（一般為 0）、初始屬性、技能（通常無）、物品欄、Buff/Debuff、新手保護備註。" +
-        "只輸出 markdown 正文，開頭是 `# 主角檔案`。",
+        "你是「無限恐怖」世界的角色設計師。照以下骨架結構，填入主角初始資料（繁體中文）。" +
+        "段落標題不可改動。只輸出 markdown 正文，開頭是 `# 主角檔案`。\n\n" +
+        "骨架如下：\n\n" + protagonistScaffold,
     },
     { role: "user", content: buildProtagonistPrompt(input.protagonistSeed ?? {}) },
   ]);
 
-  // 4) 全部寫入（最後才一次性落地，避免半初始化）
+  // 5) 世界特定 templates（item/skill/dungeon）— 依 setting 生成
+  const [itemTemplateMd, skillTemplateMd, dungeonTemplateMd] = await Promise.all([
+    generateText(client, [
+      {
+        role: "system",
+        content:
+          "依以下世界設定，生成本世界的道具骨架（繁體中文）。" +
+          "複製全域骨架結構，但在「## 品質等級」段加上本世界的品質系統定義（例如：本世界品質分 [普通/精良/史詩/傳說] 四級）。" +
+          "骨架段落標題不可改，只輸出 markdown，開頭是 `# 道具：{{道具名稱}}`。",
+      },
+      { role: "user", content: `世界設定：\n\n${settingMd}` },
+    ]),
+    generateText(client, [
+      {
+        role: "system",
+        content:
+          "依以下世界設定，生成本世界的技能骨架（繁體中文）。" +
+          "複製全域骨架結構，但在「## 等級 / 類型」段加上本世界的技能系統定義。" +
+          "骨架段落標題不可改，只輸出 markdown，開頭是 `# 技能：{{技能名稱}}`。",
+      },
+      { role: "user", content: `世界設定：\n\n${settingMd}` },
+    ]),
+    generateText(client, [
+      {
+        role: "system",
+        content:
+          "依以下世界設定，生成本世界的副本骨架（繁體中文）。" +
+          "複製全域骨架結構，但在「## 難度」段加上本世界的難度等級定義。" +
+          "骨架段落標題不可改，只輸出 markdown，開頭是 `# 副本：{{副本 ID}}`。",
+      },
+      { role: "user", content: `世界設定：\n\n${settingMd}` },
+    ]),
+  ]);
+
+  // 6) 全部寫入（最後才一次性落地，避免半初始化）
   await mkdir(path.join(worldDir, "characters"), { recursive: true });
+  await mkdir(path.join(worldDir, "templates"), { recursive: true });
   await writeFile(path.join(worldDir, "setting.md"), `${settingMd}\n`, "utf8");
   await writeFile(path.join(worldDir, "gm-notes.md"), `${gmNotesMd}\n`, "utf8");
   await writeFile(path.join(worldDir, "characters", "protagonist.md"), `${protagonistMd}\n`, "utf8");
+  await writeFile(path.join(worldDir, "templates", "item.md"), `${itemTemplateMd}\n`, "utf8");
+  await writeFile(path.join(worldDir, "templates", "skill.md"), `${skillTemplateMd}\n`, "utf8");
+  await writeFile(path.join(worldDir, "templates", "dungeon.md"), `${dungeonTemplateMd}\n`, "utf8");
   await writeFile(
     path.join(worldDir, "characters", "index.md"),
     [
@@ -125,7 +169,6 @@ export async function initWorld(opts: {
   );
   await writeFile(path.join(worldDir, "now.md"), serializeNow(initialNow(today)), "utf8");
 
-  // 清空 dungeons/（若有殘留）
   const dungeonsDir = path.join(worldDir, "dungeons");
   await rm(dungeonsDir, { recursive: true, force: true }).catch(() => {});
   await mkdir(dungeonsDir, { recursive: true });
@@ -158,8 +201,9 @@ export async function resetWorldToPlaceholder(worldDir: string, today: string): 
     "utf8",
   );
   await writeFile(path.join(worldDir, "now.md"), serializeNow(initialNow(today)), "utf8");
-  // worldDir 已整個清空，這裡只需建回空的 dungeons/
+  // worldDir 已整個清空，這裡只需建回空的 dungeons/ 與 templates/
   await mkdir(path.join(worldDir, "dungeons"), { recursive: true });
+  await mkdir(path.join(worldDir, "templates"), { recursive: true });
 }
 
 /**

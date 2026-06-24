@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resetWorldToPlaceholder, endWorld } from "./world-ops.js";
+import { resetWorldToPlaceholder, endWorld, initWorld } from "./world-ops.js";
 import { isWorldInitialized } from "./world-status.js";
 import { createLogger } from "../logger.js";
 import type { LlmClient, ChatMessage } from "../llm/client.js";
@@ -120,5 +120,46 @@ describe("endWorld", () => {
     const remaining = await listFiles(worldDir);
     expect(remaining).toEqual(PLACEHOLDER_FILES);
     expect(await isWorldInitialized(worldDir)).toBe(false);
+  });
+});
+
+describe("initWorld 骨架注入", () => {
+  let repoRoot: string;
+  let worldDir: string;
+
+  beforeEach(async () => {
+    repoRoot = await mkdtemp(path.join(tmpdir(), "iwa-init-"));
+    worldDir = path.join(repoRoot, "world");
+    await mkdir(worldDir, { recursive: true });
+    // 建全域骨架（最小版）
+    await mkdir(path.join(repoRoot, "templates"), { recursive: true });
+    await writeFile(
+      path.join(repoRoot, "templates", "setting.md"),
+      "# 世界設定（World Setting）\n\n## 主控系統\n<!-- 填入 -->\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(repoRoot, "templates", "protagonist.md"),
+      "# 主角檔案\n\n## 基本資訊\n<!-- 填入 -->\n",
+      "utf8",
+    );
+  });
+
+  afterEach(async () => {
+    await rm(repoRoot, { recursive: true, force: true });
+  });
+
+  it("init 後 world/templates/ 含三份世界特定骨架", async () => {
+    await initWorld({
+      worldDir,
+      repoRoot,
+      client: fakeClient,
+      input: {},
+      today: "2026-06-24",
+      logger: createLogger(),
+    });
+
+    const tplFiles = await readdir(path.join(worldDir, "templates"));
+    expect(tplFiles.sort()).toEqual(["dungeon.md", "item.md", "skill.md"]);
   });
 });

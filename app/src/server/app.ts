@@ -177,6 +177,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     try {
       await initWorld({
         worldDir: config.worldDir,
+        repoRoot,
         client: makeClient(opLogger),
         input: body,
         today: todayISO(),
