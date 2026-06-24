@@ -131,8 +131,14 @@ export async function initWorld(opts: {
   await mkdir(dungeonsDir, { recursive: true });
 }
 
-/** 把 world/ 重置回「尚未初始化」佔位狀態（覆寫式） */
+/**
+ * 把 world/ 重置回「尚未初始化」佔位狀態。
+ * 先整個清空 worldDir 再重建佔位——不是逐檔覆寫白名單，否則遊玩過程動態長出的
+ * 檔案（NPC 檔、locations/、items/、journal_summary.md…）會殘留進新世界。
+ * 呼叫端（endWorld）必須在此之前已完成封存複製。
+ */
 export async function resetWorldToPlaceholder(worldDir: string, today: string): Promise<void> {
+  await rm(worldDir, { recursive: true, force: true });
   await mkdir(path.join(worldDir, "characters"), { recursive: true });
   await writeFile(path.join(worldDir, "setting.md"), UNINITIALIZED_SETTING_PLACEHOLDER, "utf8");
   await writeFile(path.join(worldDir, "gm-notes.md"), UNINITIALIZED_GM_NOTES_PLACEHOLDER, "utf8");
@@ -152,9 +158,8 @@ export async function resetWorldToPlaceholder(worldDir: string, today: string): 
     "utf8",
   );
   await writeFile(path.join(worldDir, "now.md"), serializeNow(initialNow(today)), "utf8");
-  const dungeonsDir = path.join(worldDir, "dungeons");
-  await rm(dungeonsDir, { recursive: true, force: true }).catch(() => {});
-  await mkdir(dungeonsDir, { recursive: true });
+  // worldDir 已整個清空，這裡只需建回空的 dungeons/
+  await mkdir(path.join(worldDir, "dungeons"), { recursive: true });
 }
 
 /**

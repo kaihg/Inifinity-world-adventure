@@ -14,7 +14,6 @@ import {
   applyIndexStatusUpdates,
   loadState,
 } from "./context.js";
-import { loadConfig } from "../config.js";
 
 const SAMPLE_NOW = `# 當前局勢（Now）
 
@@ -274,10 +273,34 @@ describe("addCharacterIndexRow", () => {
   });
 });
 
-describe("loadState（讀實際 world/）", () => {
+describe("loadState（fixture worldDir）", () => {
+  // 用 temp fixture，不讀線上 ./world：封存重置後線上 world 會變佔位狀態，依賴它會讓測試隨遊玩狀態起伏
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "iwa-context-loadstate-"));
+    await mkdir(path.join(dir, "characters"), { recursive: true });
+    await writeFile(
+      path.join(dir, "characters", "protagonist.md"),
+      "- 姓名：沈奕\n- 當前積分：0\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(dir, "now.md"),
+      "- 當前篇章：第一章\n- 進行中的副本：無\n- 最後更新：[2026-06-19] 測試\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(dir, "journal.md"),
+      "## [2026-06-19] 回合\n\n玩家行動：等待\n骰池：[1]\n\n主空間敘事內容。\n",
+      "utf8",
+    );
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("回傳 now/protagonist/mode，欄位非空", async () => {
-    const worldDir = loadConfig({}).worldDir;
-    const state = await loadState(worldDir);
+    const state = await loadState(dir);
     expect(state.now.chapter).not.toBe("");
     expect(state.protagonist.name).toBe("沈奕");
     expect(["main-space", "dungeon"]).toContain(state.mode);

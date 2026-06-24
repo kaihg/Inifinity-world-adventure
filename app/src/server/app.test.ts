@@ -16,8 +16,34 @@ function fakeClient(deltas: string[]): LlmClient {
 }
 
 describe("buildServer", () => {
+  // 用隔離的 temp 世界，不讀線上 ./world（否則封存重置後線上 world 變佔位狀態會害這些測試掛）
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-buildserver-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    await writeFile(
+      path.join(world, "setting.md"),
+      "# 世界設定（World Setting）\n\n真實世界。\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 進行中的副本：無\n- 最後更新：[2026-06-18] 測試\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(world, "characters", "protagonist.md"),
+      "- 姓名：沈奕\n- 當前積分：0\n",
+      "utf8",
+    );
+    await writeFile(path.join(world, "characters", "index.md"), "| ID | 姓名 |\n", "utf8");
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
   it("GET /api/health 回 200 與 {ok:true}", async () => {
-    const server = buildServer(loadConfig({}));
+    const server = buildServer(loadConfig({ WORLD_DIR: world }));
     const res = await server.inject({ method: "GET", url: "/api/health" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true });
@@ -25,7 +51,7 @@ describe("buildServer", () => {
   });
 
   it("GET /api/state 回傳當前局勢、主角摘要與模式", async () => {
-    const server = buildServer(loadConfig({}));
+    const server = buildServer(loadConfig({ WORLD_DIR: world }));
     const res = await server.inject({ method: "GET", url: "/api/state" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -36,7 +62,7 @@ describe("buildServer", () => {
   });
 
   it("GET / 回傳 HTML 頁面", async () => {
-    const server = buildServer(loadConfig({}));
+    const server = buildServer(loadConfig({ WORLD_DIR: world }));
     const res = await server.inject({ method: "GET", url: "/" });
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("text/html");
@@ -45,7 +71,7 @@ describe("buildServer", () => {
   });
 
   it("GET /api/state 含 protagonistDetail 與 npcs", async () => {
-    const server = buildServer(loadConfig({}));
+    const server = buildServer(loadConfig({ WORLD_DIR: world }));
     const res = await server.inject({ method: "GET", url: "/api/state" });
     const body = res.json();
     expect(body.protagonistDetail).toBeDefined();
