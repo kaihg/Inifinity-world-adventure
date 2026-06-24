@@ -189,7 +189,7 @@ describe("buildLoreSyncMessages（Layer 3）", () => {
       narrative: "沈奕找葉晴討論。", dicePool: [1],
       existingNpcIds: ["yeqing", "linsiyu"],
       existingItemIds: ["rusty-pipe"],
-      existingLocationIds: ["info-room"],
+      existingSceneIds: ["info-room"],
       existingSkillIds: [],
     });
     expect(msgs[0].content).toContain("現有實體 id");

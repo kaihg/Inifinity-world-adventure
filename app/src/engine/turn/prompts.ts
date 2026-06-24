@@ -191,7 +191,7 @@ export interface BuildControlParams {
   /** 現有實體 id 列表（Layer 3 lore-sync 對齊用：讓模型續用既有 id、不為同一實體發明新 id、不換 category） */
   existingNpcIds?: string[];
   existingItemIds?: string[];
-  existingLocationIds?: string[];
+  existingSceneIds?: string[];
   existingSkillIds?: string[];
   /** 副本模式才填 */
   dungeonId?: string;
@@ -293,7 +293,7 @@ function existingEntityIdsBlock(params: BuildControlParams): string {
     "## 現有實體 id（若敘事中的實體已在下列，務必沿用既有 id，不要為同一實體發明新 id；同一實體不可更換 category）",
     `- 現有 NPC：${fmt(params.existingNpcIds)}`,
     `- 現有道具：${fmt(params.existingItemIds)}`,
-    `- 現有場景：${fmt(params.existingLocationIds)}`,
+    `- 現有場景：${fmt(params.existingSceneIds)}`,
     `- 現有技能：${fmt(params.existingSkillIds)}`,
   ].join("\n");
 }
