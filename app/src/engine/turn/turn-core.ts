@@ -5,6 +5,7 @@ import {
   applyPointsDelta,
   applyProtagonistUpdates,
   loadState,
+  parseNow,
   type GameState,
 } from "../context.js";
 import { applyNowChanges, bumpNowUpdated, serializeNow } from "../now.js";
@@ -172,6 +173,19 @@ export async function* runTurnCore(
     "回合結束（Layer 2）",
   );
 
+  // 主角永久死亡：寫 sentinel、覆寫 now 下一步欄、強制暫停（不依賴模型自己回報 awaiting）
+  const protagonistDied = control?.protagonist_permanent_death === true;
+  if (protagonistDied) {
+    await writeFile(path.join(deps.worldDir, ".pending-death"), new Date().toISOString(), "utf8");
+    const nowMd2 = await readFile(nowPath, "utf8");
+    const now2 = applyNowChanges(
+      parseNow(nowMd2),
+      { nextStep: "等待抉擇：保留世界換主角 / 結束世界" },
+      { date: today, summary },
+    );
+    await writeFile(nowPath, serializeNow(now2), "utf8");
+  }
+
   // done 前讀一次當前狀態快照，內嵌進事件供前端面板即時更新。
   // 此刻 now.md / 主角檔已落地；Layer 3（NPC/wiki）尚未開始，故 NPC 可能仍是上一回合值（見 spec）。
   // loadState 失敗不可讓回合崩潰：省略 state、warn、回合照常結束。
@@ -186,11 +200,12 @@ export async function* runTurnCore(
     type: "done",
     narrative,
     committed,
-    awaitingUserInput: control?.awaiting_user_input ?? true,
+    awaitingUserInput: protagonistDied ? true : (control?.awaiting_user_input ?? true),
     suggestedActions,
     modeTransition: control?.mode_transition ?? null,
     transitionDungeonId: control?.transition_dungeon_id || undefined,
     transitionDungeonGoal: control?.transition_dungeon_goal || undefined,
+    protagonistDied,
     state: stateSnapshot,
   };
 

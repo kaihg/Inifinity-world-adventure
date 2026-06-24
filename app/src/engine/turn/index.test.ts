@@ -1272,3 +1272,70 @@ describe("nudgeBlock / pacingBlock 整合", () => {
     expect(capturedSystem).not.toContain("## 節奏建議");
   });
 });
+
+describe("主角永久死亡（protagonist_permanent_death）", () => {
+  it("control 標記永久死亡時：寫 .pending-death、覆寫 nextStep、強制 awaiting=true、done 帶 protagonistDied", async () => {
+    const ctrl = JSON.stringify({
+      state_changes: {},
+      rolls: [],
+      mode_transition: "settle_dungeon",
+      awaiting_user_input: false, // 模型給 false，引擎必須覆寫成 true
+      protagonist_permanent_death: true,
+      suggested_actions: ["再來一次"],
+      commit_summary: "主角戰死",
+    });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient(["沈奕倒下了，這次沒有豁免額度。"]),
+        controlClient: fakeClient([ctrl]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "拚死一搏",
+    )) {
+      events.push(ev);
+    }
+
+    const done: any = events.at(-1);
+    expect(done.type).toBe("done");
+    expect(done.protagonistDied).toBe(true);
+    expect(done.awaitingUserInput).toBe(true); // 即使模型回 false 也被覆寫
+
+    const pending = await readFile(path.join(world, ".pending-death"), "utf8");
+    expect(pending.trim().length).toBeGreaterThan(0);
+
+    const now = await readFile(path.join(world, "now.md"), "utf8");
+    expect(now).toContain("等待抉擇：保留世界換主角 / 結束世界");
+  });
+
+  it("一般回合（無永久死亡）：不寫 .pending-death、done.protagonistDied 為 false", async () => {
+    const ctrl = JSON.stringify({
+      state_changes: {},
+      rolls: [],
+      mode_transition: null,
+      awaiting_user_input: true,
+      suggested_actions: [],
+      commit_summary: "平安無事",
+    });
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient(["風平浪靜。"]),
+        controlClient: fakeClient([ctrl]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "休息",
+    )) {
+      events.push(ev);
+    }
+    const done: any = events.at(-1);
+    expect(done.protagonistDied).toBe(false);
+    await expect(readFile(path.join(world, ".pending-death"), "utf8")).rejects.toThrow();
+  });
+});

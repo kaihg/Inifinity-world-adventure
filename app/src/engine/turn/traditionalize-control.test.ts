@@ -8,6 +8,7 @@ function baseControl(overrides: Partial<FastControl> = {}): FastControl {
     rolls: [],
     mode_transition: null,
     awaiting_user_input: true,
+    protagonist_permanent_death: false,
     suggested_actions: [],
     commit_summary: "回合摘要",
     ...overrides,

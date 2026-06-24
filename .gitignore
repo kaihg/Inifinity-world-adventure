@@ -7,3 +7,4 @@ app/.recall-index/
 app/.llm-usage.log
 .codegraph/
 app/.server.log
+world/.pending-death

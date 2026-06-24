@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildServer } from "./app.js";
 import { loadConfig } from "../config.js";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
+import { isWorldInitialized } from "../engine/world-status.js";
 
 function fakeClient(deltas: string[]): LlmClient {
   return {
@@ -141,6 +142,244 @@ describe("POST /api/turn（SSE）", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain('"type":"done"');
+    await server.close();
+  });
+});
+
+describe("GET /api/world/status", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-status-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("setting.md 不存在 → initialized:false", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }));
+    const res = await server.inject({ method: "GET", url: "/api/world/status" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ initialized: false });
+    await server.close();
+  });
+
+  it("setting.md 有正常內容 → initialized:true", async () => {
+    await writeFile(path.join(world, "setting.md"), "# 世界設定\n\n真實世界。\n", "utf8");
+    const server = buildServer(loadConfig({ WORLD_DIR: world }));
+    const res = await server.inject({ method: "GET", url: "/api/world/status" });
+    expect(res.json()).toEqual({ initialized: true });
+    await server.close();
+  });
+});
+
+describe("POST /api/world/init", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-init-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    // 未初始化：不寫 setting.md
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("未初始化時成功生成世界，回 GameState，setting.md 變成正常內容", async () => {
+    const commits: string[] = [];
+    // init 內部依序呼叫 client 三次：setting / gm-notes / protagonist
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["# 世界設定\n\n冷酷系統。\n"]),
+      commit: async (m) => { commits.push(m); return true; },
+    });
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/world/init",
+      payload: { preferences: {}, protagonistSeed: {} },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.now).toBeDefined();
+    expect(await isWorldInitialized(world)).toBe(true);
+    expect(commits).toHaveLength(1);
+    await server.close();
+  });
+
+  it("已初始化時回 409，不動檔案", async () => {
+    await writeFile(path.join(world, "setting.md"), "# 已存在世界\n\n內容。\n", "utf8");
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["不該被呼叫"]),
+    });
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/world/init",
+      payload: { preferences: {}, protagonistSeed: {} },
+    });
+    expect(res.statusCode).toBe(409);
+    await server.close();
+  });
+
+  it("LLM 失敗時回 500、不 commit、不留半套世界檔案", async () => {
+    const commits: string[] = [];
+    const throwingClient: LlmClient = {
+      async *streamChat() { throw new Error("LLM 連線失敗"); },
+    };
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: throwingClient,
+      commit: async (m) => { commits.push(m); return true; },
+    });
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/world/init",
+      payload: { preferences: {}, protagonistSeed: {} },
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({ error: expect.any(String) });
+    expect(await isWorldInitialized(world)).toBe(false);
+    expect(commits).toHaveLength(0);
+    await server.close();
+  });
+});
+
+describe("POST /api/world/end", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-end-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    await writeFile(path.join(world, "setting.md"), "# 世界設定\n\n真實世界。\n", "utf8");
+    await writeFile(path.join(world, "gm-notes.md"), "# 隱藏真相\n\n秘密。\n", "utf8");
+    await writeFile(path.join(world, "now.md"), "- 當前篇章：終章\n- 進行中的副本：無\n- 最後更新：[2026-06-23] x\n", "utf8");
+    await writeFile(path.join(world, "journal.md"), "# 日誌\n\n劇情。\n", "utf8");
+    await writeFile(path.join(world, "characters", "protagonist.md"), "- 姓名：沈奕\n- 當前積分：0\n", "utf8");
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("confirmText 不符 → 400，不動世界", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), { client: fakeClient(["摘要"]) });
+    const res = await server.inject({
+      method: "POST", url: "/api/world/end", payload: { confirmText: "刪除" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(await isWorldInitialized(world)).toBe(true);
+    await server.close();
+  });
+
+  it("confirmText 為「封存」→ 封存並重置 setting.md 回佔位狀態", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["這是故事的終章摘要。"]),
+      commit: async () => true,
+    });
+    const res = await server.inject({
+      method: "POST", url: "/api/world/end", payload: { confirmText: "封存" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().archivedTo).toMatch(/^archives\//);
+    expect(await isWorldInitialized(world)).toBe(false);
+    await server.close();
+  });
+
+  it("world/.pending-death 存在時 → 409（先走死亡抉擇）", async () => {
+    await writeFile(path.join(world, ".pending-death"), new Date().toISOString(), "utf8");
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), { client: fakeClient(["摘要"]) });
+    const res = await server.inject({
+      method: "POST", url: "/api/world/end", payload: { confirmText: "封存" },
+    });
+    expect(res.statusCode).toBe(409);
+    await server.close();
+  });
+});
+
+describe("POST /api/world/protagonist", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-prot-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    await writeFile(path.join(world, "setting.md"), "# 世界設定\n\n真實世界。\n", "utf8");
+    await writeFile(path.join(world, "gm-notes.md"), "# 隱藏真相\n\n秘密。\n", "utf8");
+    await writeFile(path.join(world, "now.md"), "- 當前篇章：終章\n- 進行中的副本：無\n- 最後更新：[2026-06-23] x\n", "utf8");
+    await writeFile(path.join(world, "journal.md"), "# 日誌\n\n舊主角劇情。\n", "utf8");
+    await writeFile(path.join(world, "characters", "protagonist.md"), "- 姓名：沈奕\n- 當前積分：0\n", "utf8");
+    await writeFile(path.join(world, "characters", "index.md"), "| ID | 姓名 |\n| protagonist | 沈奕 |\n", "utf8");
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("無 .pending-death → 409", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), { client: fakeClient(["x"]) });
+    const res = await server.inject({
+      method: "POST", url: "/api/world/protagonist",
+      payload: { choice: "keep-world", protagonistSeed: {} },
+    });
+    expect(res.statusCode).toBe(409);
+    await server.close();
+  });
+
+  it("keep-world：封存舊主角檔（含 now.md）、生成新主角、刪 .pending-death、保留 setting/gm-notes", async () => {
+    await writeFile(path.join(world, ".pending-death"), new Date().toISOString(), "utf8");
+    const settingBefore = await readFile(path.join(world, "setting.md"), "utf8");
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["# 主角檔案\n- 姓名：新主角\n- 當前積分：0\n"]),
+      commit: async () => true,
+    });
+    const res = await server.inject({
+      method: "POST", url: "/api/world/protagonist",
+      payload: { choice: "keep-world", protagonistSeed: { name: "新主角" } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().now).toBeDefined();
+    // setting/gm-notes 不動
+    expect(await readFile(path.join(world, "setting.md"), "utf8")).toBe(settingBefore);
+    // .pending-death 已刪
+    await expect(readFile(path.join(world, ".pending-death"), "utf8")).rejects.toThrow();
+    await server.close();
+  });
+
+  it("end-world：等同封存（免 confirmText），切回未初始化，刪 .pending-death", async () => {
+    await writeFile(path.join(world, ".pending-death"), new Date().toISOString(), "utf8");
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["終章摘要。"]),
+      commit: async () => true,
+    });
+    const res = await server.inject({
+      method: "POST", url: "/api/world/protagonist", payload: { choice: "end-world" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().archivedTo).toMatch(/^archives\//);
+    expect(await isWorldInitialized(world)).toBe(false);
+    await expect(readFile(path.join(world, ".pending-death"), "utf8")).rejects.toThrow();
+    await server.close();
+  });
+});
+
+describe("POST /api/turn 在 .pending-death 存在時擋下", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-turn-block-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    await writeFile(path.join(world, "setting.md"), "# 設定\n", "utf8");
+    await writeFile(path.join(world, "now.md"), "- 當前篇章：第一章\n- 進行中的副本：無\n- 最後更新：[2026-06-18] 舊\n", "utf8");
+    await writeFile(path.join(world, "characters", "protagonist.md"), "- 姓名：沈奕\n- 當前積分：0\n", "utf8");
+    await writeFile(path.join(world, ".pending-death"), new Date().toISOString(), "utf8");
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("回 error event，不呼叫 client.streamChat", async () => {
+    let called = false;
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: { async *streamChat() { called = true; yield "x"; } },
+      commit: async () => true,
+    });
+    const res = await server.inject({
+      method: "POST", url: "/api/turn", payload: { input: "行動" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('"type":"error"');
+    expect(res.body).toContain("主角已死亡");
+    expect(called).toBe(false);
     await server.close();
   });
 });
