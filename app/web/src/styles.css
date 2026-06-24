@@ -109,6 +109,54 @@ button {
   min-width: 0;
 }
 
+/* 操作列：放「操作行為」（封存世界等），與遊戲資訊側邊欄分離；所有視窗寬度皆顯示 */
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+}
+
+.action-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+  min-height: 2.25rem;
+}
+
+.action-chip:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.action-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.action-chip--danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.action-chip--danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
 .brand-mark {
   display: grid;
   place-items: center;

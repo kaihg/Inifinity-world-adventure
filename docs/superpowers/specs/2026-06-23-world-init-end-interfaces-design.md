@@ -192,11 +192,11 @@ export function buildProtagonistPrompt(seed: ProtagonistSeed): string
 
 單一表單（無草稿預覽步驟）：基調參考、恐怖強度、主神表面性格、新手保護規則、主角姓名/出身/自由描述 → 送出 `POST /api/world/init` → loading 狀態（提示文案可比照現有 `COMPUTING_HINT` 的風格）→ 成功後呼叫傳入的 `onDone(state)`，由 `App.tsx` 切回主畫面並用回傳的 `GameState` 初始化。
 
-### `StatusDrawer` 危險區域
+### header 操作列：封存世界
 
-只新增「封存故事 / 結束世界」一個按鈕（**不**包含換主角按鈕——換主角不對外開放）：
+「封存世界」是**操作行為**而非遊戲資訊，因此不放進顯示遊戲狀態的側邊欄/`StatusDrawer`（那裡只鏡像狀態與 NPC 面板），改放在 header 下方一排獨立的**操作列**（`.action-bar`，所有視窗寬度皆顯示，不像 `.header-actions` 在桌面被 `display:none`——否則桌面玩家無法觸及）。操作列目前只放「封存故事 / 結束世界」一個按鈕（**不**包含換主角按鈕——換主角不對外開放），未來可擴充其他特殊操作。
 
-1. 點擊 → 二次確認 modal，要求輸入「封存」兩字才能啟用送出按鈕。
+1. 點擊 → 二次確認 modal（`EndWorldModal`），比照死亡抉擇 modal 的 end-world：只用「取消 / 確定封存」兩個按鈕確認，**不需要打字輸入「封存」**。後端 `/api/world/end` 仍要求 `confirmText === "封存"` 作為防裸 API 誤觸的閘，由前端按「確定封存」時程式帶入該字串。
 2. 呼叫 `POST /api/world/end`。
 3. 成功後整頁狀態切回「未初始化」，等同重新打一次 `/api/world/status` 並渲染 `WorldSetupWizard`。
 

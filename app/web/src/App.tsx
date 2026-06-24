@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { fetchState, fetchVersion, streamTurn, fetchWorldStatus, endWorld, type AppVersion, type GameState } from "./api";
 import { WorldSetupWizard } from "./WorldSetupWizard";
 import { DeathChoiceModal } from "./DeathChoiceModal";
+import { EndWorldModal } from "./EndWorldModal";
 
 const COMPUTING_HINT = "🌌 主控系統正在運算中…（自架模型首字推論可能需數十秒，請稍候）";
 
@@ -12,6 +13,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
   const [showStatus, setShowStatus] = useState(false);
+  const [showEndWorld, setShowEndWorld] = useState(false);
   const [version, setVersion] = useState<AppVersion | null>(null);
   const [worldInitialized, setWorldInitialized] = useState<boolean | null>(null);
   const [protagonistDied, setProtagonistDied] = useState(false);
@@ -191,6 +193,17 @@ export function App() {
           </div>
         </header>
 
+        {/* 操作列：放「操作行為」（非遊戲資訊），與側邊欄的狀態面板分離；桌面/行動皆顯示 */}
+        <nav className="action-bar" aria-label="特殊操作">
+          <button
+            className="action-chip action-chip--danger"
+            disabled={busy || protagonistDied}
+            onClick={() => setShowEndWorld(true)}
+          >
+            封存故事 / 結束世界
+          </button>
+        </nav>
+
         <div className="board">
           <main className="story-col">
             <section className="story-card">
@@ -245,12 +258,14 @@ export function App() {
       </div>
 
       {showStatus && state && (
-        <StatusDrawer
-          state={state}
-          onClose={() => setShowStatus(false)}
-          dangerDisabled={busy || protagonistDied}
-          onEndWorld={async () => {
-            try { await endWorld("封存"); setShowStatus(false); setWorldInitialized(false); }
+        <StatusDrawer state={state} onClose={() => setShowStatus(false)} />
+      )}
+      {showEndWorld && (
+        <EndWorldModal
+          onClose={() => setShowEndWorld(false)}
+          onConfirm={async () => {
+            // 後端 /api/world/end 仍需 confirmText === "封存"，由前端程式帶入（使用者不必打字）
+            try { await endWorld("封存"); setWorldInitialized(false); }
             catch (e) { setStory((s) => s + `\n[錯誤] ${(e as Error).message}\n`); }
           }}
         />
@@ -274,16 +289,9 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StatusDrawer({
-  state, onClose, onEndWorld, dangerDisabled,
-}: {
-  state: GameState;
-  onClose: () => void;
-  onEndWorld: () => void;
-  dangerDisabled: boolean;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const [confirmText, setConfirmText] = useState("");
+function StatusDrawer({ state, onClose }: { state: GameState; onClose: () => void }) {
+  // 抽屜純粹鏡像側邊欄的「遊戲資訊」（狀態/NPC），不放操作行為；
+  // 「封存世界」這類操作改由 header 操作列觸發。
   return (
     <div className="drawer-backdrop" onClick={onClose}>
       <aside className="drawer" onClick={(e) => e.stopPropagation()}>
@@ -293,25 +301,6 @@ function StatusDrawer({
         </div>
         <StatusPanel state={state} />
         <NpcPanel state={state} />
-        <section className="panel">
-          <div className="panel-head"><h2>危險區域</h2></div>
-          {!confirming ? (
-            <button className="chip" disabled={dangerDisabled} onClick={() => setConfirming(true)}>
-              封存故事 / 結束世界
-            </button>
-          ) : (
-            <>
-              <p>輸入「封存」以確認結束並封存目前世界：</p>
-              <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} />
-              <button className="send-btn" disabled={confirmText !== "封存"} onClick={async () => {
-                // onEndWorld 內部自行 catch 不 rethrow（成功會 unmount 本 drawer）；
-                // 用 finally 確保封存失敗時也把確認框收回，不停在可立即再送的狀態
-                try { await onEndWorld(); }
-                finally { setConfirming(false); setConfirmText(""); }
-              }}>確定封存</button>
-            </>
-          )}
-        </section>
       </aside>
     </div>
   );
