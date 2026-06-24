@@ -100,15 +100,18 @@ export async function runLoreSync(
       listLoreIds(deps.worldDir, "skills", log),
     ]);
     const indexMdForIds = await readBestEffort(path.join(deps.worldDir, "characters", "index.md"));
+    const npcEntries = parseCharacterIndex(indexMdForIds);
+    const npcNameToId = new Map(npcEntries.map((n) => [n.name.trim().toLowerCase(), n.id]));
     const entities = reconcileEntityCategories(
       sanitized,
       {
-        npc: new Set(parseCharacterIndex(indexMdForIds).map((n) => n.id)),
+        npc: new Set(npcEntries.map((n) => n.id)),
         item: new Set(itemIds),
         location: new Set(locationIds),
         skill: new Set(skillIds),
       },
       log,
+      npcNameToId,
     );
 
     // F：把「主角在不在副本」情境傳給知識庫維護者，避免把安全區事件誤寫成副本內

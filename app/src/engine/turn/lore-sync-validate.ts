@@ -68,6 +68,8 @@ export function sanitizeTouchedEntities(entities: LoreEntityRef[], log: Logger):
  * 把通過校驗的實體與「既有檔案實際 category」對齊：
  * 既有檔案是 canonical truth，弱模型若把既有 NPC 誤標成 item（反之亦然），以既有為準並 warn。
  * existingByCategory：各 category 既有 id 集合（由呼叫端就地讀磁碟組出）。
+ * npcNameToId：既有 NPC name（正規化小寫）→ canonical id，用來攔截「name 相同但 id 拼法不同」
+ *   的重複實體（如模型給 ye_qing 而既有是 yeqing）。只對 category=npc 且 id 全新時生效。
  *
  * 同一 id 可能同時存在於多個 category 目錄（歷史污染留下的殘檔）。此時：
  * - 模型給的 category 本身就是既有歸屬之一 → 視為相符，原樣保留（不可武斷改成別的）。
@@ -78,6 +80,7 @@ export function reconcileEntityCategories(
   entities: LoreEntityRef[],
   existingByCategory: Record<LoreEntityRef["category"], ReadonlySet<string>>,
   log: Logger,
+  npcNameToId?: ReadonlyMap<string, string>,
 ): LoreEntityRef[] {
   const categoriesById = new Map<string, Set<LoreEntityRef["category"]>>();
   for (const category of Object.keys(existingByCategory) as Array<LoreEntityRef["category"]>) {
@@ -90,8 +93,19 @@ export function reconcileEntityCategories(
 
   return entities.map((e) => {
     const actual = categoriesById.get(e.id);
-    // 全新實體，或模型給的 category 已是既有歸屬之一 → 原樣保留
-    if (!actual || actual.has(e.category)) return e;
+    // 全新實體 → 先做 NPC name 比對，攔截「name 相同但 id 拼法不同」的重複實體
+    if (!actual) {
+      if (e.category === "npc" && npcNameToId) {
+        const canonicalId = npcNameToId.get(e.name.trim().toLowerCase());
+        if (canonicalId && canonicalId !== e.id) {
+          log.warn({ entity: e, canonicalId }, "NPC name 與既有實體相符，改用既有 id 避免重複建檔");
+          return { ...e, id: canonicalId };
+        }
+      }
+      return e;
+    }
+    // 模型給的 category 已是既有歸屬之一 → 原樣保留
+    if (actual.has(e.category)) return e;
     // 單一既有歸屬 → 以既有為準（訂正模型的誤標）
     if (actual.size === 1) {
       const [only] = actual;
