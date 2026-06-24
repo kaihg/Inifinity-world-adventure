@@ -20,6 +20,36 @@ describe("parseFastControlOutput（Layer 2：only now/protagonist/rolls/mode_tra
     expect(control.mode_transition).toBeNull();
   });
 
+  it("把字串 \"null\" 強制轉成真 null（7B 偶發把 mode_transition / transition_* 吐成字串 \"null\"）", () => {
+    const control = parseFastControlOutput(
+      JSON.stringify({
+        mode_transition: "null",
+        transition_dungeon_id: "null",
+        transition_dungeon_goal: "none",
+        awaiting_user_input: false,
+        commit_summary: "三人等待倒數",
+      }),
+    );
+    expect(control.mode_transition).toBeNull();
+    expect(control.transition_dungeon_id).toBeNull();
+    expect(control.transition_dungeon_goal).toBeNull();
+  });
+
+  it("合法的 enter_dungeon / 真實 slug 不被誤轉", () => {
+    const control = parseFastControlOutput(
+      JSON.stringify({
+        mode_transition: "enter_dungeon",
+        transition_dungeon_id: "broken-city",
+        transition_dungeon_goal: "摧毀核心塔",
+        awaiting_user_input: false,
+        commit_summary: "進入副本",
+      }),
+    );
+    expect(control.mode_transition).toBe("enter_dungeon");
+    expect(control.transition_dungeon_id).toBe("broken-city");
+    expect(control.transition_dungeon_goal).toBe("摧毀核心塔");
+  });
+
   it("容忍 JSON 前後有雜訊文字（抓第一個 { 到最後一個 }）", () => {
     const control = parseFastControlOutput(
       '這是控制區塊：\n{"awaiting_user_input":false,"commit_summary":"x"}\n以上。',
