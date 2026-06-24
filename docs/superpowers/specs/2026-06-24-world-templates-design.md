@@ -29,9 +29,21 @@
    「請依以下骨架結構填入此世界的具體規則，段落標題不可改動，
      每段自由發揮內容，但必須在本世界全程一致」
 3. LLM 輸出 → world/setting.md（已填值，段落齊全）
+4. 另外生成 world/templates/item.md、skill.md、dungeon.md
+   （各含本世界品質/等級系統定義，作為後續生成道具/技能/副本的世界特定骨架）
 ```
 
-`protagonist.md`、`dungeon.md` 同理。場景不在 init 時批量生成，劇情推進時按需生成。
+`protagonist.md`、`npc.md`、`scene.md` 無世界特定版本，直接用全域骨架。
+
+### Template 查找邏輯（Fallback）
+
+```
+getTemplate(type) →
+  world/templates/<type>.md 存在？用它
+  否則退到 templates/<type>.md
+```
+
+引擎生成任何新物件（道具、技能、副本、場景、NPC）時統一走此查找，無需在程式碼裡維護分類清單。
 
 ---
 
@@ -41,15 +53,21 @@
 templates/
   setting.md        # 世界設定骨架
   protagonist.md    # 主角檔案骨架
-  dungeon.md        # 副本/地城骨架
+  dungeon.md        # 副本/地城骨架（難度等級由世界定義）
   scene.md          # 場景骨架（輕量）
   npc.md            # NPC 檔案骨架
+  item.md           # 道具骨架（品質欄位由世界定義）
+  skill.md          # 技能骨架（等級/類型由世界定義）
 
 world/
   setting.md        # 填值後的世界規則（此世界唯一）
   gm-notes.md       # 隱藏真相（不受 template 約束，GM 自由生成）
   journal.md        # 主空間流水帳（append-only）
   now.md            # 當前快照（引擎每回合覆寫）
+  templates/        # init 時生成的世界特定骨架（覆蓋全域 templates/）
+    item.md         # 本世界的道具骨架（含品質系統定義）
+    skill.md        # 本世界的技能骨架（含等級/類型定義）
+    dungeon.md      # 本世界的副本骨架（含難度等級定義）
   characters/
     index.md
     protagonist.md  # 填值後的主角檔案
@@ -60,23 +78,24 @@ world/
     <id>/
       wiki.md
       secrets.md
+      log.md        # 此副本所有進入的流水帳（append-only，對稱 journal.md）
       scenes/
         <scene-id>.md   # 副本場景（填值後，副本結束一起封存）
-      runs/
-        <run-id>.md
 ```
 
 ---
 
 ## 各 Template 用途（待詳細設計）
 
-| 檔案 | 用途 | 生成時機 | 對應 Task |
-|------|------|----------|-----------|
-| `templates/setting.md` | 世界規則骨架（道具系統、副本分級、主神規則等） | initWorld | #8 |
-| `templates/protagonist.md` | 主角檔案骨架（屬性、物品、buff 等） | initWorld / replaceProtagonist | #9 |
-| `templates/dungeon.md` | 副本骨架（難度、主題、機關等） | 首次進入副本時 | #10 |
-| `templates/scene.md` | 場景骨架（外觀、氛圍、已知資訊） | 劇情按需生成 | #11 |
-| `templates/npc.md` | NPC 骨架（外觀、性格、動機、關係） | 劇情按需生成 | #12 |
+| 檔案 | 用途 | 生成時機 | 世界特定版本 | 對應 Task |
+|------|------|----------|-------------|-----------|
+| `templates/setting.md` | 世界規則骨架 | initWorld | 否 | #8 |
+| `templates/protagonist.md` | 主角檔案骨架 | initWorld / replaceProtagonist | 否 | #9 |
+| `templates/dungeon.md` | 副本骨架（難度等級） | 首次進入副本時 | 是（world/templates/dungeon.md） | #10 |
+| `templates/scene.md` | 場景骨架（外觀、氛圍、已知資訊） | 劇情按需生成 | 否 | #11 |
+| `templates/npc.md` | NPC 骨架（外觀、性格、動機、關係） | 劇情按需生成 | 否 | #12 |
+| `templates/item.md` | 道具骨架（品質系統） | 劇情按需生成 | 是（world/templates/item.md） | #13 |
+| `templates/skill.md` | 技能骨架（等級/類型系統） | 劇情按需生成 | 是（world/templates/skill.md） | #14 |
 
 ---
 
@@ -92,6 +111,16 @@ world/
 
 ---
 
+## 副本 log 結構（已討論）
+
+`world/dungeons/<id>/runs/<run-id>.md` 多檔結構廢除，改為單一 `log.md`（append-only），對稱主空間的 `journal.md`：
+
+- 每次進入副本在 `log.md` 加一個時間戳分隔段，不新建檔案
+- `wiki.md` 仍是跨次進入的提煉知識（canonical truth）
+- `runs/` 目錄不再建立
+
+---
+
 ## 尚未設計（各 Template 細節）
 
-各 template 的具體骨架內容、以及引擎需要的對應修改，分別在 Task #8–#12 中逐一討論。
+各 template 的具體骨架內容、以及引擎需要的對應修改，分別在 Task #8–#14 中逐一討論。
