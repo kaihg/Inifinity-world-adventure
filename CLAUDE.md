@@ -16,11 +16,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 1. **世界狀態**存在 `world/`，是當前 lifetime 的唯一真相來源（canonical truth）。引擎與任何維護對話都讀寫這同一份。
 2. **resume 讀 `world/now.md`**（覆寫式「當前局勢」快照），不讀 `journal.md`。引擎每回合用**狀態載入器**決定論地固定載入 `now.md` + `setting.md` + `characters/index.md`，消除「讀多少」的落差。
-3. **回合**：引擎組 prompt → 串流 LLM → 解析結構化輸出（`===STATE===` sentinel 後接 JSON 控制區塊）→ 決定論落地三層（raw append、提煉 canonical、覆寫 `now.md`）→ 每回合自動 commit `world/`。機率判定由**伺服器端真隨機**預擲骰池並寫進 log。
+3. **回合（三層管線）**：引擎組 prompt → Layer 1 主腦串流純敘事（不含任何控制 sentinel）→ 敘事結束後發 Layer 2（fast-control）獨立 call 抽取「done event 前必須就位」的最小狀態子集（now/主角/骰子回報/`mode_transition`/建議動作）→ npc/item/location/skill/wiki 等可延後欄位交給 Layer 3（reactive-lore-sync），不卡玩家可見的 done event → 決定論落地三層（raw append、提煉 canonical、覆寫 `now.md`）→ 每回合自動 commit `world/`。任一層結構抽取失敗時安全降級：保留敘事、暫停等玩家、發 warning。機率判定由**伺服器端真隨機**預擲骰池並寫進 log。
 4. **模式（不是 branch）**：`now.md`「進行中的副本」欄決定主空間 vs 副本回合。raw 層主空間記到 `world/journal.md`、副本記到 `dungeons/<id>/runs/<run-id>.md`。
 5. **自動推進**：結構化輸出的 `awaiting_user_input=false`（純環境/系統旁白/NPC 自行動作）時，伺服器自動接續下一回合，直到需要玩家決定、觸發轉場、或達 `AUTO_ADVANCE_MAX`。消滅手動「繼續」。
 6. **進/結算副本**由結構化輸出的 `mode_transition`（`enter_dungeon`/`settle_dungeon`）驅動。進入副本是**半強制**的：依 `setting.md`，系統倒數到/強制傳送時，模型自己回 `enter_dungeon`。進入時建 run log、首次生成 `secrets.md`、設 `now.md` 副本欄；結算時提煉 run→wiki、清 `now.md` 副本欄回主空間。**死亡也走結算**（新手保護等後果由結算依 `setting.md` 規則處理），全程不切 git branch、commit 當前分支。
-7. **世界重置**目前沒有引擎入口（舊 `init-world` 已封存）；如需重開，手動把 `world/` 封存到 `archives/<timestamp>/` 再重建。
+7. **世界重置/建立**走引擎內建入口：`POST /api/world/init`（建立新世界，前端 `WorldSetupWizard`）、`/api/world/end`（封存目前世界，前端 `EndWorldModal`）、`/api/world/protagonist`（死亡後換代或結束世界，前端 `DeathChoiceModal`）。`endWorld` 會清空 `worldDir` 再重建，避免殘留；舊 `world/` 移到 `archives/<timestamp>/` 只讀保存。
 
 ## 目錄結構
 
@@ -44,14 +44,16 @@ archives/
   skills/2026-06-19/...       # 已封存的舊遊玩類 skills（歷史參考，不再使用）
 app/                           # 網頁引擎（Node.js + TypeScript，唯一遊玩路徑）
   src/
-    config.ts                  # LLM 後端等設定（OPENAI_BASE_URL/MODEL/HOST/DEBUG/RECALL_*…），可指自架，僅由後端 .env 控制
+    config.ts                  # LLM 後端等設定（OPENAI_BASE_URL/MODEL/HOST/DEBUG_MODE/RECALL_*…），可指自架，僅由後端 .env 控制
     llm/client.ts              # OpenAI 相容串流 client（介面化、可換端點）
-    engine/                    # context（載入）、turn（回合/自動推進/模式路由，含每回合語意索引重建）、dungeon（副本，非 branch）、schema、roll、stream-split、journal、now
+    engine/                    # context（載入）、now、journal、journal-summary、dungeon（副本，非 branch）、world-ops（init/end/換代）、world-status、lore、npc-status-summary、character-pre-pass、protagonist-seed、archive、schema、roll
+      turn/                      # 回合三層管線（Layer 1 主腦串流／Layer 2 fast-control／Layer 3 reactive-lore-sync）、自動推進、模式路由、語意索引重建、pacing/nudge
+      text/                      # 繁體化等文字後處理
     recall/                    # 語意檢索（本地嵌入 + vectra 向量索引）：每回合以玩家輸入檢索相關片段注入 prompt，唯讀不影響落地；只負責「讀」，「寫」仍走 engine 的結構化輸出 pipeline
     git/commit.ts              # 每回合自動 commit world/
-    server/                    # Fastify：/api/state、/api/turn(SSE)、靜態前端
+    server/                    # Fastify：/api/state、/api/turn(SSE)、/api/world/init|end|protagonist、靜態前端
   .recall-index/                # 語意索引快取（derived cache，RECALL_ENABLED=true 時建立，不進 git，可隨時刪除重建）
-  web/                         # 前端（Vite + React）：狀態/NPC 面板、串流劇情、建議動作
+  web/                         # 前端（Vite + React）：狀態/NPC 面板、串流劇情、建議動作、WorldSetupWizard（建立新世界）、EndWorldModal（封存世界）、DeathChoiceModal（死亡換代/結束）
   vite.config.ts               # 前端 build/dev（dev 跑 5174 proxy /api 到後端 5173）
   .env.example                 # 設定範本
 .github/workflows/
@@ -68,7 +70,7 @@ app/                           # 網頁引擎（Node.js + TypeScript，唯一遊
 
 - **TDD（Vitest）**。本機跑：`cd app && npm install && cp .env.example .env`（填端點/model）`&& npm run dev`（同時起後端 5173 與 Vite 5174，開 http://localhost:5174 遊玩）。`npm run build` 後 `npm start` 由後端服務 React build。
 - **設定化後端**：LLM 端點/金鑰/模型一律走 `app/.env`（`OPENAI_BASE_URL`/`OPENAI_API_KEY`/`MODEL`），部署者可指自架（vLLM/Ollama/LM Studio）；前端不提供、也不應提供修改後端打哪個端點的介面，避免「金鑰留後端」與「前端能改後端要打的 URL」這兩個前提互相矛盾。
-- **結構化輸出為核心契約**：要求模型能穩定產出 `===STATE===` + JSON；解析失敗時引擎安全降級（保留敘事、暫停等玩家、發 warning），不維護弱模型純文字抽取路徑。
+- **結構化輸出為核心契約**：要求模型能穩定產出 JSON 控制區塊（Layer 2 fast-control / Layer 3 reactive-lore-sync 各自獨立 call，敘事串流本身不含任何 sentinel）；解析失敗時引擎安全降級（保留敘事、暫停等玩家、發 warning），不維護弱模型純文字抽取路徑。
 - 進度與計畫見 `docs/superpowers/plans/2026-06-19-web-app-implementation.md`（Phase 0–7）。
 
 ## 關鍵約定

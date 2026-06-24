@@ -27,7 +27,7 @@ OPENAI_API_KEY=sk-...                        # 自架且不需金鑰時填任意
 MODEL=gpt-4o                                 # 使用的模型名稱
 ```
 
-主敘事 LLM 負責每回合的故事推進、世界狀態更新、副本結算。建議使用能穩定輸出 `===STATE===` + JSON 結構的模型。
+主敘事 LLM 負責每回合的故事推進、世界狀態更新、副本結算：先串流純敘事（Layer 1），再各發一次獨立 call 抽取結構化狀態（Layer 2 fast-control：now/主角/骰值/轉場/建議動作；Layer 3 lore-sync：npc/item/location/skill/wiki，延後落地不卡玩家）。建議使用能穩定輸出 JSON 結構的模型。
 
 ### 角色意圖 LLM（選填）
 
