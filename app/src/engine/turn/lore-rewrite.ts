@@ -205,7 +205,7 @@ export async function callProtagonistRewrite(
 
 export interface LoreRewriteResult {
   id: string;
-  category: "npc" | "item" | "location" | "skill" | "dungeon";
+  category: "npc" | "item" | "scene" | "skill" | "dungeon";
   title: string;
   content: string;
 }
