@@ -250,6 +250,52 @@ describe("POST /api/world/init", () => {
     await server.close();
   });
 
+  it("有設定 LORE_MODEL 時，世界初始化改用 lore 的 model（不沿用主 client）：lore 生成的內容應落地", async () => {
+    const throwingMainClient: LlmClient = {
+      async *streamChat() {
+        throw new Error("不該呼叫主 client：初始化應改用 lore 的 model");
+      },
+    };
+    const server = buildServer(
+      loadConfig({
+        WORLD_DIR: world,
+        LORE_OPENAI_BASE_URL: "http://lore-endpoint/v1",
+        LORE_MODEL: "lore-model",
+      }),
+      {
+        client: throwingMainClient,
+        initClient: fakeClient(["# 世界設定\n\n用 lore model 生成。\n"]),
+        commit: async () => true,
+      },
+    );
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/world/init",
+      payload: { preferences: {}, protagonistSeed: {} },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await isWorldInitialized(world)).toBe(true);
+    const setting = await readFile(path.join(world, "setting.md"), "utf8");
+    expect(setting).toContain("用 lore model 生成");
+    await server.close();
+  });
+
+  it("沒設定 LORE_MODEL 時，世界初始化退回主 client", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["# 世界設定\n\n主 client 生成。\n"]),
+      commit: async () => true,
+    });
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/world/init",
+      payload: { preferences: {}, protagonistSeed: {} },
+    });
+    expect(res.statusCode).toBe(200);
+    const setting = await readFile(path.join(world, "setting.md"), "utf8");
+    expect(setting).toContain("主 client 生成");
+    await server.close();
+  });
+
   it("LLM 失敗時回 500、不 commit、不留半套世界檔案", async () => {
     const commits: string[] = [];
     const throwingClient: LlmClient = {

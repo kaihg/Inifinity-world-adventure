@@ -31,6 +31,8 @@ export interface ServerDeps {
   controlClient?: LlmClient;
   loreClient?: LlmClient;
   pacingClient?: LlmClient;
+  /** 世界初始化用的 client（選填）；未提供時退回 config.lore 的 model/端點（與 lore 抽取共用同一顆，初始化是結構化長文生成，定性相近），缺 config.lore 才退回主 client */
+  initClient?: LlmClient;
   commit?: (message: string) => Promise<boolean>;
   logger?: Logger;
   recall?: RecallIndex;
@@ -105,6 +107,26 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         )
       : undefined);
 
+  // 世界初始化：沿用 lore 的 model/端點（兩者都是結構化長文生成，定性相近），
+  // 但不套用 lore 的 maxTokens 上限（lore 抽取輸出短，初始化要生成完整文件，會被截斷）。
+  // 缺 config.lore 時才退回主 client（與其他層級一致的退回鏈）。
+  const initClient: LlmClient =
+    deps.initClient ??
+    (config.lore
+      ? createOpenAiClient(
+          {
+            ...config,
+            openai: {
+              baseUrl: config.lore.baseUrl,
+              apiKey: config.openai.apiKey,
+              model: config.lore.model,
+            },
+          },
+          logger,
+          { label: "init" },
+        )
+      : makeClient(logger));
+
   const pacingClient: LlmClient | undefined =
     deps.pacingClient ??
     (config.pacing
@@ -178,7 +200,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       await initWorld({
         worldDir: config.worldDir,
         repoRoot,
-        client: makeClient(opLogger),
+        client: initClient,
         input: body,
         today: todayISO(),
         logger: opLogger,

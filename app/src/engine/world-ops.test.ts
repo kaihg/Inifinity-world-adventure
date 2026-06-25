@@ -7,6 +7,22 @@ import { isWorldInitialized } from "./world-status.js";
 import { createLogger } from "../logger.js";
 import type { LlmClient, ChatMessage } from "../llm/client.js";
 
+/** 建立一個可手動控制何時 resolve 的 promise，供「卡住的 fake client」測試使用 */
+function createDeferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+/** 輪詢直到條件成立或逾時；用於驗證非同步呼叫是否「真的」並行啟動，避免固定 setTimeout 造成時序抖動 */
+async function waitUntil(cond: () => boolean, timeoutMs = 500): Promise<void> {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > timeoutMs) throw new Error(`waitUntil 逾時（${timeoutMs}ms）`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 /** 遞迴列出 worldDir 底下所有檔案的相對路徑（不含目錄本身） */
 async function listFiles(dir: string, base = dir): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -147,6 +163,41 @@ describe("initWorld 骨架注入", () => {
 
   afterEach(async () => {
     await rm(repoRoot, { recursive: true, force: true });
+  });
+
+  it("setting 與 protagonist 生成平行跑，不互相等待（兩者無資料依賴）", async () => {
+    const started: string[] = [];
+    const settingDeferred = createDeferred<void>();
+    const protagonistDeferred = createDeferred<void>();
+    const client: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("設定設計師")) {
+          started.push("setting");
+          await settingDeferred.promise;
+          yield "# 世界設定\n\n冷酷系統。\n";
+          return;
+        }
+        if (system.includes("角色設計師")) {
+          started.push("protagonist");
+          await protagonistDeferred.promise;
+          yield "# 主角檔案\n\n沈奕。\n";
+          return;
+        }
+        // gm-notes / item/skill/dungeon 骨架：不卡住，直接回應
+        yield "# 內容\n";
+      },
+    };
+
+    const initPromise = initWorld({ worldDir, repoRoot, client, input: {}, today: "2026-06-24", logger: createLogger() });
+    // 若兩者真的平行起跑，不需等任一方 resolve 就能同時觀察到兩個呼叫都已啟動；
+    // 序列版會卡在第一個呼叫（settingDeferred 不會被 resolve），等到逾時才失敗。
+    await waitUntil(() => started.length >= 2);
+    expect(started.sort()).toEqual(["protagonist", "setting"]);
+
+    settingDeferred.resolve();
+    protagonistDeferred.resolve();
+    await initPromise;
   });
 
   it("init 後 world/templates/ 含三份世界特定骨架", async () => {

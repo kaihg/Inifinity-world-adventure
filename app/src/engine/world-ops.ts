@@ -59,30 +59,45 @@ export async function initWorld(opts: {
   const { worldDir, repoRoot, client, input, today } = opts;
   const pref = input.preferences ?? {};
 
-  // 1) 讀骨架
-  const settingScaffold = await getTemplate("setting", worldDir, repoRoot);
-
-  // 2) setting.md（玩家可見）— 骨架貼進 prompt
-  const settingMd = await generateText(client, [
-    {
-      role: "system",
-      content:
-        "你是「無限恐怖」世界的設定設計師。依玩家偏好，照以下骨架結構填入此世界的具體規則（繁體中文）。" +
-        "段落標題（## 開頭）不可改動，每段自由發揮，但必須在本世界全程一致。" +
-        "只輸出 markdown 正文，開頭是 `# 世界設定（World Setting）`。\n\n" +
-        "骨架如下：\n\n" + settingScaffold,
-    },
-    {
-      role: "user",
-      content: [
-        `難度：${pref.difficulty?.trim() || UNSPEC}`,
-        `主神表面性格：${pref.godPersona?.trim() || UNSPEC}`,
-        `新手保護規則草案：${pref.protectionRule?.trim() || UNSPEC}`,
-      ].join("\n"),
-    },
+  // 1) 讀骨架（setting/protagonist 互不依賴，平行讀）
+  const [settingScaffold, protagonistScaffold] = await Promise.all([
+    getTemplate("setting", worldDir, repoRoot),
+    getTemplate("protagonist", worldDir, repoRoot),
   ]);
 
-  // 3) gm-notes.md — 不變
+  // 2) setting.md（玩家可見）與 4) protagonist.md：彼此無資料依賴，平行生成省一輪等待。
+  const [settingMd, protagonistMd] = await Promise.all([
+    generateText(client, [
+      {
+        role: "system",
+        content:
+          "你是「無限恐怖」世界的設定設計師。依玩家偏好，照以下骨架結構填入此世界的具體規則（繁體中文）。" +
+          "段落標題（## 開頭）不可改動，每段自由發揮，但必須在本世界全程一致。" +
+          "只輸出 markdown 正文，開頭是 `# 世界設定（World Setting）`。\n\n" +
+          "骨架如下：\n\n" + settingScaffold,
+      },
+      {
+        role: "user",
+        content: [
+          `難度：${pref.difficulty?.trim() || UNSPEC}`,
+          `主神表面性格：${pref.godPersona?.trim() || UNSPEC}`,
+          `新手保護規則草案：${pref.protectionRule?.trim() || UNSPEC}`,
+        ].join("\n"),
+      },
+    ]),
+    generateText(client, [
+      {
+        role: "system",
+        content:
+          "你是「無限恐怖」世界的角色設計師。照以下骨架結構，填入主角初始資料（繁體中文）。" +
+          "段落標題不可改動。只輸出 markdown 正文，開頭是 `# 主角檔案`。\n\n" +
+          "骨架如下：\n\n" + protagonistScaffold,
+      },
+      { role: "user", content: buildProtagonistPrompt(input.protagonistSeed ?? {}) },
+    ]),
+  ]);
+
+  // 3) gm-notes.md — 依賴 settingMd，必須等 setting 生成完才能跑
   const gmNotesMd = await generateText(client, [
     {
       role: "system",
@@ -92,19 +107,6 @@ export async function initWorld(opts: {
         "只輸出 markdown 正文，開頭是 `# 世界隱藏真相（GM Notes）`。",
     },
     { role: "user", content: `玩家可見設定如下：\n\n${settingMd}` },
-  ]);
-
-  // 4) protagonist.md — 讀骨架
-  const protagonistScaffold = await getTemplate("protagonist", worldDir, repoRoot);
-  const protagonistMd = await generateText(client, [
-    {
-      role: "system",
-      content:
-        "你是「無限恐怖」世界的角色設計師。照以下骨架結構，填入主角初始資料（繁體中文）。" +
-        "段落標題不可改動。只輸出 markdown 正文，開頭是 `# 主角檔案`。\n\n" +
-        "骨架如下：\n\n" + protagonistScaffold,
-    },
-    { role: "user", content: buildProtagonistPrompt(input.protagonistSeed ?? {}) },
   ]);
 
   // 5) 世界特定 templates（item/skill/dungeon）— 依 setting 生成
