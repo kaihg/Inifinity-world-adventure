@@ -162,14 +162,14 @@ describe("buildLoreSyncMessages（Layer 3）", () => {
     expect(msgs[0].content).toContain("protagonist_changed");
   });
 
-  it("Layer 3 含 id 直譯規則與反例（根因 Bug 2）", () => {
+  it("Layer 3 含中文 id 規則與路徑字元禁止說明（根因 Bug 2）", () => {
     const msgs = buildLoreSyncMessages({
       settingText: "設定", state: sampleState, input: "辨識震動",
       narrative: "沈奕練成辨識震動。", dicePool: [1],
     });
-    expect(msgs[0].content).toContain("直譯");
-    expect(msgs[0].content).toContain("identify_vibration");
+    expect(msgs[0].content).toContain("中文顯示名稱");
     expect(msgs[0].content).toContain("system_monitor"); // 作為反例出現
+    expect(msgs[0].content).toContain("路徑字元"); // 路徑穿越防護說明
   });
 
   it("副本：system 帶 wiki 與 dungeonId，不外洩 secrets", () => {

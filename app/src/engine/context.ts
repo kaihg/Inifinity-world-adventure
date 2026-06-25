@@ -3,6 +3,7 @@ import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 import { parseLastTurnRecord, type LastTurnRecord } from "./journal.js";
 import { parseActiveDungeon } from "./dungeon.js";
+import { toTraditional } from "./text/traditionalize.js";
 
 /** world/now.md 的七個固定欄位（對應回合收束協議的覆寫頁） */
 export interface NowState {
@@ -163,8 +164,16 @@ export function applyPointsDelta(md: string, delta: number): string {
 }
 
 
-/** 防止路徑穿越：NPC id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
-export const NPC_ID_RE = /^[\w.-]+$/;
+/**
+ * 防止路徑穿越：NPC id 不可含路徑分隔符、null byte 或 ".."。
+ * 允許中文顯示名稱（Unicode）；不可含 /、\、:、?、*、<、>、| 等危險字元。
+ */
+export const NPC_ID_RE = /^[^/\\:?*<>|"\x00]+$/;
+
+/** 防止 ".." 路徑穿越 */
+function isPathSafe(id: string): boolean {
+  return NPC_ID_RE.test(id) && !id.includes("..");
+}
 
 /**
  * 把模型重寫後的完整內容整檔覆寫進 characters/<id>.md（新 NPC 時等同建檔）。
@@ -176,7 +185,8 @@ export async function rewriteNpcFile(
   content: string,
   logger: Logger = defaultLogger,
 ): Promise<void> {
-  if (!NPC_ID_RE.test(id)) {
+  const safeId = toTraditional(id.trim());
+  if (!isPathSafe(safeId) || safeId === "") {
     logger.warn({ id }, "touched_entities 含不合法 NPC id，略過");
     return;
   }
@@ -195,7 +205,7 @@ export async function rewriteNpcFile(
     }
   }
   const safe = lines.slice(0, cutAt).join("\n");
-  const file = path.join(worldDir, "characters", `${id}.md`);
+  const file = path.join(worldDir, "characters", `${safeId}.md`);
   await writeFile(file, `${safe.trim()}\n`, "utf8");
 }
 

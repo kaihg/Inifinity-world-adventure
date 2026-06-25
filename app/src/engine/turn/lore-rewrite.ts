@@ -9,8 +9,8 @@ import { readBestEffort } from "./shared.js";
 import { toTraditional } from "../text/traditionalize.js";
 import type { TurnDeps } from "./types.js";
 
-/** 防止路徑穿越：道具/場景/技能/副本 id 只允許英數字、連字號、底線、點（不含路徑分隔符） */
-export const ITEM_ID_RE = /^[\w.-]+$/;
+/** 防止路徑穿越：id 不可含 /、\、..、null byte 等危險字元；允許中文顯示名稱 */
+export const ITEM_ID_RE = /^[^/\\:?*<>|"\x00]+$/;
 
 /** 隱藏設定生成者，依分類套用對應的世界觀角色稱呼（道具/場景/技能設計者措辭不同） */
 export const ENTITY_SECRETS_DESIGNER_ROLE: Record<"item" | "scene" | "skill", string> = {
@@ -225,11 +225,13 @@ export async function rewriteLoreEntity(
   const rewriteClient = deps.loreClient ?? deps.controlClient ?? deps.client;
 
   if (entity.category === "npc") {
-    if (!NPC_ID_RE.test(entity.id)) {
+    // 落地前繁體化 id（用作檔名）
+    const safeNpcId = toTraditional(entity.id.trim());
+    if (!NPC_ID_RE.test(safeNpcId) || safeNpcId.includes("..") || safeNpcId === "") {
       log.warn({ entity }, "touched_entities 含不合法 NPC id，略過");
       return null;
     }
-    const filePath = path.join(deps.worldDir, "characters", `${entity.id}.md`);
+    const filePath = path.join(deps.worldDir, "characters", `${safeNpcId}.md`);
     const existing = await readBestEffort(filePath);
     const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, `NPC 角色檔案（${entity.name}）`, existing, "npc", log, context);
     if (!content) return null;
@@ -242,24 +244,26 @@ export async function rewriteLoreEntity(
     const h1Match = trimmed.match(/^#\s+(.+)(?:\n|$)/);
     const title = h1Match?.[1].trim() || entity.name;
     const normalized = h1Match ? trimmed : `# ${title}\n\n${trimmed}`;
-    return { id: entity.id, category: "npc", title, content: normalized };
+    return { id: safeNpcId, category: "npc", title, content: normalized };
   }
 
-  if (!ITEM_ID_RE.test(entity.id)) {
+  // 落地前繁體化 id（用作目錄名）
+  const safeId = toTraditional(entity.id.trim());
+  if (!ITEM_ID_RE.test(safeId) || safeId.includes("..") || safeId === "") {
     log.warn({ entity }, "touched_entities 含不合法 id，略過");
     return null;
   }
   const category = ENTITY_CATEGORY_TO_LORE[entity.category];
-  const existing = await loadLore(deps.worldDir, category, entity.id, log);
+  const existing = await loadLore(deps.worldDir, category, safeId, log);
   if (!existing.secrets) {
     // secrets 是玩家永不見、只生成一次的暗線文件，用小模型（loreClient→controlClient→client）即可，
     // 不必占用主敘事大模型；A 校驗 gate 修好後此處呼叫量本就大降。
     const secretsClient = deps.loreClient ?? deps.controlClient ?? deps.client;
     const secretsText = await generateEntitySecrets(secretsClient, settingText, entity.name, entity.category, log);
-    await ensureSecrets(deps.worldDir, category, entity.id, secretsText, `隱藏設定（${entity.name}）`, log);
+    await ensureSecrets(deps.worldDir, category, safeId, secretsText, `隱藏設定（${entity.name}）`, log);
   }
   const title = `${ENTITY_CATEGORY_TITLE[entity.category]}（${entity.name}）`;
   const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing.wiki, entity.category, log, context);
   if (!content) return null;
-  return { id: entity.id, category: entity.category, title, content };
+  return { id: safeId, category: entity.category, title, content };
 }

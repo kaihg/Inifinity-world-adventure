@@ -56,16 +56,17 @@ export async function enterDungeon(
   params: EnterDungeonParams,
   logger: Logger = defaultLogger,
 ): Promise<ActiveDungeon> {
-  const dir = dungeonDir(worldDir, params.dungeonId);
+  const safeDungeonId = toTraditional(params.dungeonId.trim());
+  const dir = dungeonDir(worldDir, safeDungeonId);
   await mkdir(dir, { recursive: true });
 
   const runNumber = (await countLogRuns(dir)) + 1;
   const runId = `run-${runNumber}`;
-  logger.info({ dungeonId: params.dungeonId, runId }, "進入副本");
+  logger.info({ dungeonId: safeDungeonId, runId }, "進入副本");
 
   const logFile = path.join(dir, "log.md");
   const header = [
-    `# 副本 ${params.dungeonId} · ${runId}（${params.today}）`,
+    `# 副本 ${safeDungeonId} · ${runId}（${params.today}）`,
     "",
     `- 進入時角色狀態：${toTraditional(params.protagonistSummary)}`,
     `- 本次目標：${toTraditional(params.goal)}`,
@@ -76,9 +77,9 @@ export async function enterDungeon(
 
   await writeFile(logFile, header, "utf8");
 
-  await ensureSecrets(worldDir, "dungeons", params.dungeonId, params.secretsText, `副本隱藏真相（${params.dungeonId}）`, logger);
+  await ensureSecrets(worldDir, "dungeons", safeDungeonId, params.secretsText, `副本隱藏真相（${safeDungeonId}）`, logger);
 
-  return { dungeonId: params.dungeonId, runId };
+  return { dungeonId: safeDungeonId, runId };
 }
 
 /**

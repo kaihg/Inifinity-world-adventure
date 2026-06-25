@@ -49,16 +49,16 @@ const LORE_SYNC_FORMAT_BLOCK = [
   "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
   "- state_changes: { touched_entities?: [{id, category, name, excerpt}], dungeon_wiki_excerpt?: string, protagonist_points_delta?: number, protagonist_changed?: boolean }",
   "  - touched_entities：本回合敘事中明確登場、或知識被進一步揭露/訂正的 NPC、道具、場景、技能。",
-  "    category 只能是 npc/item/scene/skill 其中之一；id 用小寫英數 slug，單字以底線分隔（snake_case）；",
-  "    **id 必須是 name 的英文直譯**，例如「辨識震動」→ identify_vibration、「碰撞警報裝置」→ collision_alarm_device；" +
-    "不可用系統視角的功能描述詞（如 system_monitor、handler、manager、detector）取代實體本身的名字；不可用中文、空白或純標點；name 用顯示名稱；",
+  "    category 只能是 npc/item/scene/skill 其中之一；id 直接用中文顯示名稱（建議）或英文 slug；",
+  "    **id 必須對應實體本身的名字**（例如「關公」「碰撞警報裝置」），不可用系統視角功能詞（system_monitor、handler）取代；" +
+    "id 不可含 /、\\、.. 等路徑字元；name 用顯示名稱；",
   "    excerpt 是本回合敘事中跟這個實體有關的原文片段（之後會有另一步驟拿這段片段去跟現有檔案比較、",
   "    決定怎麼更新，你不需要自己組好最終的完整內容，只要把相關原文片段填進來）。",
   "  - dungeon_wiki_excerpt：劇情中對**當前副本本身**新揭露的知識片段（地圖/機關/規則），不在副本中則省略。",
   "  - protagonist_points_delta：本回合主角積分的增減量（敘事明確發生才填，沒有就省略或 0）。",
   "  - protagonist_changed：本回合敘事是否涉及主角屬性/技能/物品/buff 的變化（有就 true，純積分變動或無變化則省略/false）。",
-  "  - announced_dungeon：敘事中若有系統**首次公告**尚未進入的新副本（如系統面板顯示「副本 U-001 即將開啟」），填入 {id, display_name}，id 用小寫 kebab-case（如 u-001）；" +
-  "已進入過的副本或尚未公告的副本省略此欄。",
+  "  - announced_dungeon：敘事中若有系統**首次公告**尚未進入的新副本（如系統面板顯示「副本即將開啟」），填入 {id, display_name}，" +
+  "id 直接用副本顯示名稱（如「魔獸世界」）；已進入過的副本或尚未公告的副本省略此欄。",
   "（本回合若沒有任何相關異動，對應欄位省略即可，不要硬湊內容）",
 ].join("\n");
 
