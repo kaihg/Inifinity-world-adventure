@@ -159,6 +159,11 @@ describe("initWorld 骨架注入", () => {
       "# 主角檔案\n\n## 基本資訊\n<!-- 填入 -->\n",
       "utf8",
     );
+    await writeFile(
+      path.join(repoRoot, "templates", "opening.md"),
+      "# 開場敘事\n\n## 必須涵蓋\n<!-- 填入 -->\n",
+      "utf8",
+    );
   });
 
   afterEach(async () => {
@@ -198,6 +203,38 @@ describe("initWorld 骨架注入", () => {
     settingDeferred.resolve();
     protagonistDeferred.resolve();
     await initPromise;
+  });
+
+  it("journal.md 第一筆記錄是依 setting+protagonist 生成的開場敘事，不是制式文字", async () => {
+    const client: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("設定設計師")) {
+          yield "# 世界設定\n\n冷酷系統。\n";
+          return;
+        }
+        if (system.includes("角色設計師")) {
+          yield "# 主角檔案\n\n沈奕，前消防員。\n";
+          return;
+        }
+        if (system.includes("開場敘事")) {
+          // user content 帶 settingMd/protagonistMd，藉此驗證兩者都已生成完成才呼叫
+          const user = messages.find((m) => m.role === "user")?.content ?? "";
+          expect(user).toContain("冷酷系統");
+          expect(user).toContain("前消防員");
+          yield "沈奕原本是個消防員，加班後的疲憊夜裡，世界忽然崩解成白光，將他拖入了陌生的空間。";
+          return;
+        }
+        // gm-notes / item/skill/dungeon 骨架：不卡住，直接回應
+        yield "# 內容\n";
+      },
+    };
+
+    await initWorld({ worldDir, repoRoot, client, input: {}, today: "2026-06-25", logger: createLogger() });
+
+    const journal = await readFile(path.join(worldDir, "journal.md"), "utf8");
+    expect(journal).toContain("沈奕原本是個消防員");
+    expect(journal).not.toContain("新世界建立，主角剛被系統選中。");
   });
 
   it("init 後 world/templates/ 含三份世界特定骨架", async () => {
