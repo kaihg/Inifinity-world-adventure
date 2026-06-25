@@ -164,6 +164,21 @@ describe("initWorld 骨架注入", () => {
       "# 開場敘事\n\n## 必須涵蓋\n<!-- 填入 -->\n",
       "utf8",
     );
+    await writeFile(
+      path.join(repoRoot, "templates", "item.md"),
+      "# 道具：{{道具名稱}}\n\n## 品質等級\n<!-- 填入 -->\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(repoRoot, "templates", "skill.md"),
+      "# 技能：{{技能名稱}}\n\n## 等級 / 類型\n<!-- 填入 -->\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(repoRoot, "templates", "dungeon.md"),
+      "# 副本：{{副本名稱}}\n\n## 難度\n<!-- 填入 -->\n",
+      "utf8",
+    );
   });
 
   afterEach(async () => {

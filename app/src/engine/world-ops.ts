@@ -60,10 +60,13 @@ export async function initWorld(opts: {
   const pref = input.preferences ?? {};
 
   // 1) 讀骨架（平行讀，無資料依賴）
-  const [settingScaffold, characterScaffold, openingScaffold] = await Promise.all([
+  const [settingScaffold, characterScaffold, openingScaffold, itemScaffold, skillScaffold, dungeonScaffold] = await Promise.all([
     getTemplate("setting", worldDir, repoRoot),
     getTemplate("character", worldDir, repoRoot),
     getTemplate("opening", worldDir, repoRoot),
+    getTemplate("item", worldDir, repoRoot),
+    getTemplate("skill", worldDir, repoRoot),
+    getTemplate("dungeon", worldDir, repoRoot),
   ]);
 
   // 2) setting.md（玩家可見）：先串行生成，後續文件都依賴它
@@ -133,10 +136,12 @@ export async function initWorld(opts: {
       {
         role: "system",
         content:
-          "依以下世界設定，生成本世界的道具骨架（繁體中文）。這是空白 template，不是真實道具檔案。" +
-          "只在「## 品質等級」段填入本世界的品質系統定義（例如：本世界品質分 [普通/精良/史詩/傳說] 四級）；" +
-          "**其他所有段落一律保留 `<!-- 填入 -->` 佔位符，不填任何實際內容**。" +
-          "骨架段落標題不可改，只輸出 markdown，開頭是 `# 道具：{{道具名稱}}`。",
+          "依以下世界設定，生成本世界的道具骨架（繁體中文）。這是空白 template，不是真實道具檔案。\n\n" +
+          "規則：\n" +
+          "- 只在「## 品質等級」段填入本世界的品質系統定義（列出各等級名稱與說明）\n" +
+          "- 其他所有段落一律照抄全域骨架的 `<!-- ... -->` 佔位符，不填任何實際內容\n" +
+          "- 骨架段落標題不可改動，只輸出 markdown，開頭是 `# 道具：{{道具名稱}}`\n\n" +
+          "全域骨架（照此結構，只改品質等級段）：\n\n" + itemScaffold,
       },
       { role: "user", content: `世界設定：\n\n${settingMd}` },
     ]),
@@ -144,10 +149,12 @@ export async function initWorld(opts: {
       {
         role: "system",
         content:
-          "依以下世界設定，生成本世界的技能骨架（繁體中文）。這是空白 template，不是真實技能檔案。" +
-          "只在「## 等級 / 類型」段填入本世界的技能系統定義；" +
-          "**其他所有段落一律保留 `<!-- 填入 -->` 佔位符，不填任何實際內容**。" +
-          "骨架段落標題不可改，只輸出 markdown，開頭是 `# 技能：{{技能名稱}}`。",
+          "依以下世界設定，生成本世界的技能骨架（繁體中文）。這是空白 template，不是真實技能檔案。\n\n" +
+          "規則：\n" +
+          "- 只在「## 等級 / 類型」段填入本世界的技能系統定義（列出各等級與類型說明）\n" +
+          "- 其他所有段落一律照抄全域骨架的 `<!-- ... -->` 佔位符，不填任何實際內容\n" +
+          "- 骨架段落標題不可改動，只輸出 markdown，開頭是 `# 技能：{{技能名稱}}`\n\n" +
+          "全域骨架（照此結構，只改等級/類型段）：\n\n" + skillScaffold,
       },
       { role: "user", content: `世界設定：\n\n${settingMd}` },
     ]),
@@ -155,10 +162,12 @@ export async function initWorld(opts: {
       {
         role: "system",
         content:
-          "依以下世界設定，生成本世界的副本骨架（繁體中文）。這是空白 template，不是真實副本檔案。" +
-          "只在「## 難度」段填入本世界的難度等級定義（列出各等級名稱與說明）；" +
-          "**其他所有段落一律保留 `<!-- 填入 -->` 佔位符，不填任何實際內容**。" +
-          "骨架段落標題不可改，只輸出 markdown，開頭是 `# 副本：{{副本名稱}}`。",
+          "依以下世界設定，生成本世界的副本骨架（繁體中文）。這是空白 template，不是真實副本檔案。\n\n" +
+          "規則：\n" +
+          "- 只在「## 難度」段填入本世界的難度等級定義（列出各等級名稱與說明）\n" +
+          "- 其他所有段落一律照抄全域骨架的 `<!-- ... -->` 佔位符，不填任何實際內容\n" +
+          "- 骨架段落標題不可改動，只輸出 markdown，開頭是 `# 副本：{{副本名稱}}`\n\n" +
+          "全域骨架（照此結構，只改難度段）：\n\n" + dungeonScaffold,
       },
       { role: "user", content: `世界設定：\n\n${settingMd}` },
     ]),
