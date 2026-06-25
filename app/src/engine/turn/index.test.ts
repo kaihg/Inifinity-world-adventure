@@ -978,7 +978,8 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
 
     const secrets = await readFile(path.join(world, "dungeons", "U-TEST", "secrets.md"), "utf8");
     expect(secrets).toContain("潮汐淹沒");
-    const logFile = await readFile(path.join(world, "dungeons", "U-TEST", "log.md"), "utf8");
+    // 結算後 log.md 已 rename 成 log-run-1.md
+    const logFile = await readFile(path.join(world, "dungeons", "U-TEST", "log-run-1.md"), "utf8");
     expect(logFile).toContain("run-1");
     const wiki = await readFile(path.join(world, "dungeons", "U-TEST", "wiki.md"), "utf8");
     expect(wiki).toContain("出口在東側");

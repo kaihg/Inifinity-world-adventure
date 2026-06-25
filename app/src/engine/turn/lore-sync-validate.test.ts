@@ -28,13 +28,27 @@ describe("sanitizeTouchedEntities", () => {
     expect(warnCalls.length).toBe(3);
   });
 
-  it("無英數字的垃圾 id（純標點、純符號、空白、CJK、含空白）剔除", () => {
+  it("含路徑穿越字元的 id 剔除（/、\\、..）", () => {
     const { log } = fakeLogger();
     const out = sanitizeTouchedEntities(
-      [ent({ id: "！！" }), ent({ id: ".." }), ent({ id: "--" }), ent({ id: "__" }), ent({ id: "  " }), ent({ id: "系統" }), ent({ id: "a b" })],
+      [ent({ id: "evil/../path" }), ent({ id: "foo/bar" }), ent({ id: "back\\slash" }), ent({ id: "  " })],
       log,
     );
     expect(out).toHaveLength(0);
+  });
+
+  it("中文 id 通過驗證（直接用顯示名稱）", () => {
+    const { log } = fakeLogger();
+    const out = sanitizeTouchedEntities(
+      [
+        ent({ id: "關公", category: "npc", name: "關公" }),
+        ent({ id: "碰撞警報裝置", category: "item", name: "碰撞警報裝置" }),
+        ent({ id: "魔獸世界", category: "scene", name: "魔獸世界" }),
+      ],
+      log,
+    );
+    expect(out).toHaveLength(3);
+    expect(out.map((e) => e.id)).toEqual(["關公", "碰撞警報裝置", "魔獸世界"]);
   });
 
   it("底線 snake_case id 保留（複用 repo id 慣例，不再拒絕底線）", () => {

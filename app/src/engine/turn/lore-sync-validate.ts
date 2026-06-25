@@ -21,18 +21,16 @@ const ID_BLACKLIST: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * 合法 id 形狀：直接複用 repo 既有的 id 慣例 ITEM_ID_RE（= NPC_ID_RE = /^[\w.-]+$/，
- * 英數＋底線＋連字號＋點），避免本 gate 自立更嚴格的方言而把模型合法的 snake_case id
- * （如 water_bottle、collision_alarm_device）誤殺、導致實體永遠不落地。
- * 額外要求至少含一個英數字，擋掉 ITEM_ID_RE 仍會放行的純標點 id（".."、"--"、"__"）。
- * 注意：呼叫端比對前已 toLowerCase，故大小寫差異不影響。
+ * 含至少一個非空白字元：中文字、英文字母、數字都算。
+ * 擋掉純空白 id（ITEM_ID_RE 放寬為允許 Unicode 後，純空白仍需擋住）。
+ * 注意：呼叫端比對前已 trim()，此處主要防範空字串；中文字視為合法。
  */
-const HAS_ALNUM_RE = /[a-z0-9]/;
+const HAS_CONTENT_RE = /\S/;
 
 /**
  * 對弱模型抽出的 touched_entities 做決定論校驗（落地前的護欄，先於任何 LLM 重寫呼叫）：
  * 1) id 黑名單（system/none/…）→ 剔除
- * 2) id 不符 repo id 慣例（ITEM_ID_RE）或無英數字 → 剔除（正規化為小寫後比對）
+ * 2) id 含路徑穿越字元（/、\、..）或無任何非空白字元 → 剔除（正規化為小寫後比對）
  * 3) 同回合同 id 跨 category → 保留首見、剔除後者
  * 任一剔除都 log.warn（與 rewriteNpcFile/rewriteLoreEntity 既有「warn + 略過該筆」風格一致），絕不拋錯。
  * 這同時抑制了「假 entity 暴增 LLM 重寫呼叫」造成的 lore 階段過慢（根因 G 的呼叫量來源）。
@@ -48,8 +46,8 @@ export function sanitizeTouchedEntities(entities: LoreEntityRef[], log: Logger):
       log.warn({ entity: e }, "touched_entities id 在黑名單（語意空洞），略過");
       continue;
     }
-    if (!ITEM_ID_RE.test(id) || !HAS_ALNUM_RE.test(id)) {
-      log.warn({ entity: e }, "touched_entities id 非合法 slug，略過");
+    if (!ITEM_ID_RE.test(id) || !HAS_CONTENT_RE.test(id)) {
+      log.warn({ entity: e }, "touched_entities id 含不合法路徑字元，略過");
       continue;
     }
     const prev = seenCategoryById.get(id);

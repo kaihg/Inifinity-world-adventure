@@ -1,4 +1,4 @@
-import { writeFile, appendFile, mkdir, readFile } from "node:fs/promises";
+import { writeFile, appendFile, mkdir, readFile, readdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 import { loadLore, ensureSecrets, listLoreIds } from "./lore.js";
@@ -22,11 +22,15 @@ export function formatActiveDungeon(d: ActiveDungeon): string {
   return `${d.dungeonId} + ${d.runId}`;
 }
 
-/** 從 log.md 內容推下一個 run 序號（## run-1…run-N 的最大值 +1） */
-export function nextRunNumber(logContent: string): number {
-  const matches = [...logContent.matchAll(/^## run-(\d+)/gm)];
-  const nums = matches.map((m) => Number(m[1]));
-  return nums.length > 0 ? Math.max(...nums) + 1 : 1;
+/** 計算 dungeons/<id>/ 底下現有的 log-run-*.md 數量，決定下一個 run 序號 */
+async function countLogRuns(dir: string): Promise<number> {
+  let files: string[] = [];
+  try {
+    files = await readdir(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
+  }
+  return files.filter((f) => /^log-run-\d+\.md$/.test(f)).length;
 }
 
 function dungeonDir(worldDir: string, dungeonId: string): string {
@@ -52,24 +56,17 @@ export async function enterDungeon(
   params: EnterDungeonParams,
   logger: Logger = defaultLogger,
 ): Promise<ActiveDungeon> {
-  const dir = dungeonDir(worldDir, params.dungeonId);
+  const safeDungeonId = toTraditional(params.dungeonId.trim());
+  const dir = dungeonDir(worldDir, safeDungeonId);
   await mkdir(dir, { recursive: true });
 
-  const logFile = path.join(dir, "log.md");
-  let existing = "";
-  try {
-    existing = await readFile(logFile, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
-  }
-
-  const runNumber = nextRunNumber(existing);
+  const runNumber = (await countLogRuns(dir)) + 1;
   const runId = `run-${runNumber}`;
-  logger.info({ dungeonId: params.dungeonId, runId }, "進入副本");
+  logger.info({ dungeonId: safeDungeonId, runId }, "進入副本");
 
-  // 動態值（角色摘要、目標）可能含 LLM 產出的簡體，落地前繁體化；模板字串本身已是繁體不需轉
+  const logFile = path.join(dir, "log.md");
   const header = [
-    `## ${runId}（${params.today}）`,
+    `# 副本 ${safeDungeonId} · ${runId}（${params.today}）`,
     "",
     `- 進入時角色狀態：${toTraditional(params.protagonistSummary)}`,
     `- 本次目標：${toTraditional(params.goal)}`,
@@ -78,20 +75,33 @@ export async function enterDungeon(
     "",
   ].join("\n");
 
-  if (!existing.trim()) {
-    // 首次進入，建立檔案含 h1 標題
-    await writeFile(
-      logFile,
-      `# 副本 ${params.dungeonId} · Log\n\n${header}`,
-      "utf8",
-    );
-  } else {
-    await appendFile(logFile, `\n${header}`);
+  await writeFile(logFile, header, "utf8");
+
+  await ensureSecrets(worldDir, "dungeons", safeDungeonId, params.secretsText, `副本隱藏真相（${safeDungeonId}）`, logger);
+
+  return { dungeonId: safeDungeonId, runId };
+}
+
+/**
+ * 結算後把當次 log.md rename 成 log-run-N.md（N = 現有 log-run-*.md 數量 + 1）。
+ * log.md 不存在時靜默略過（防禦：副本進入前結算或重複結算）。
+ */
+export async function renameLogAfterSettle(
+  worldDir: string,
+  dungeonId: string,
+  logger: Logger = defaultLogger,
+): Promise<void> {
+  const dir = dungeonDir(worldDir, dungeonId);
+  const logFile = path.join(dir, "log.md");
+  const n = (await countLogRuns(dir)) + 1;
+  const dest = path.join(dir, `log-run-${n}.md`);
+  try {
+    await rename(logFile, dest);
+    logger.info({ dungeonId, dest }, "副本 log.md rename 完成");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return;
+    throw err;
   }
-
-  await ensureSecrets(worldDir, "dungeons", params.dungeonId, params.secretsText, `副本隱藏真相（${params.dungeonId}）`, logger);
-
-  return { dungeonId: params.dungeonId, runId };
 }
 
 export interface RunEntry {

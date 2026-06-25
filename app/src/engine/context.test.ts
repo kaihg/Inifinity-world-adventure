@@ -227,6 +227,18 @@ describe("rewriteNpcFile", () => {
     const escaped = await readFile(path.join(dir, "escape.md"), "utf8").catch(() => null);
     expect(escaped).toBeNull();
   });
+
+  it("中文 id 通過驗證並建立對應角色檔", async () => {
+    await rewriteNpcFile(dir, "關公", "# 關公\n\n義薄雲天的武聖。");
+    const md = await readFile(path.join(dir, "characters", "關公.md"), "utf8");
+    expect(md).toContain("義薄雲天");
+  });
+
+  it("含 .. 的 id 被擋住（路徑穿越防護）", async () => {
+    await rewriteNpcFile(dir, "..dangerous", "嘗試路徑穿越");
+    const file = await readFile(path.join(dir, "characters", "..dangerous.md"), "utf8").catch(() => null);
+    expect(file).toBeNull();
+  });
 });
 
 describe("addCharacterIndexRow", () => {
