@@ -85,9 +85,6 @@ export function App() {
           case "delta":
             setStory((s) => s + ev.text);
             break;
-          case "auto-advance":
-            setStory((s) => s + "\n\n—— 系統自動推進 ——\n\n");
-            break;
           case "transition":
             setStory(
               (s) =>

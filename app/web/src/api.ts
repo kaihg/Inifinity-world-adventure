@@ -59,7 +59,6 @@ export type TurnEvent =
   | { type: "ping" }
   | { type: "delta"; text: string }
   | { type: "warning"; message: string }
-  | { type: "auto-advance"; index: number }
   | { type: "transition"; to: "dungeon" | "main-space"; dungeonId?: string }
   | { type: "error"; message: string }
   | {

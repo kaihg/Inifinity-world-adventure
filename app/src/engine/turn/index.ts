@@ -239,9 +239,7 @@ export async function* runTurnLoop(
       });
       await deps.commit(`進入副本 ${active.dungeonId} ${active.runId}`);
       yield { type: "transition", to: "dungeon", dungeonId: active.dungeonId };
-      if (i === maxAuto) break;
-      yield { type: "auto-advance", index: i + 1 };
-      continue;
+      break;
     }
 
     // 結算副本：清空進行中副本欄，回主空間，交還玩家
@@ -269,9 +267,9 @@ export async function* runTurnLoop(
       break;
     }
 
-    // 自動推進：不送本回合 done，繼續下一回合
+    // 自動推進被移除，不再繼續循環
     for (const ev of buffered) yield ev;
-    log.debug({ index: i + 1 }, "自動推進到下一回合");
-    yield { type: "auto-advance", index: i + 1 };
+    yield done;
+    break;
   }
 }

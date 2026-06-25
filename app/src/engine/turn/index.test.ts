@@ -647,10 +647,9 @@ describe("runTurnLoop — 自動推進", () => {
       events.push(ev);
     }
     const dones = events.filter((e) => e.type === "done") as any[];
-    // 中間自動推進回合的 done 不 yield，只有最終需要玩家的 done 才送
+    // 自動推進移除後，awaiting_user_input=false 時也立即停止並送出 done
     expect(dones).toHaveLength(1);
-    expect(dones[0].awaitingUserInput).toBe(true);
-    expect(events.some((e) => e.type === "auto-advance")).toBe(true);
+    expect(dones[0].awaitingUserInput).toBe(false);
   });
 
   it("達 maxAuto 上限即停（即使一直 false）", async () => {
