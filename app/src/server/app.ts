@@ -107,9 +107,9 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         )
       : undefined);
 
-  // 世界初始化：沿用 lore 的 model/端點（兩者都是結構化長文生成，定性相近），
-  // 但不套用 lore 的 maxTokens 上限（lore 抽取輸出短，初始化要生成完整文件，會被截斷）。
-  // 缺 config.lore 時才退回主 client（與其他層級一致的退回鏈）。
+  // 世界初始化：沿用 lore 的 model/端點（結構化長文生成，定性相近）；
+  // 若 lore 端點不可用或 context 不足，退回主 client。
+  // 初始化需要生成多份完整文件，務必確保 initClient 端點的 max_model_len 夠大（建議 ≥ 16k）。
   const initClient: LlmClient =
     deps.initClient ??
     (config.lore
@@ -123,7 +123,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
             },
           },
           logger,
-          { label: "init" },
+          { label: "init", maxTokens: 16384 },
         )
       : makeClient(logger));
 
