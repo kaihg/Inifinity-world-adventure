@@ -170,6 +170,41 @@ describe("POST /api/turn（SSE）", () => {
     expect(res.body).toContain('"type":"done"');
     await server.close();
   });
+
+  it("一回合（含自動推進）仍在執行時，第二個 /api/turn 請求回 409，不會並發寫 world/", async () => {
+    let releaseFirst: () => void = () => {};
+    const blockingClient: LlmClient = {
+      async *streamChat() {
+        yield "前半段，";
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+        yield "後半段。";
+      },
+    };
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: blockingClient,
+      controlClient: fakeClient([
+        JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "看看四周",
+        }),
+      ]),
+      commit: async () => true,
+    });
+
+    const firstReq = server.inject({ method: "POST", url: "/api/turn", payload: { input: "我四處看看" } });
+    // 讓第一個請求先進入 hijack/streamChat，確保鎖已被設置
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const secondRes = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "再四處看看" } });
+    expect(secondRes.statusCode).toBe(409);
+
+    releaseFirst();
+    const firstRes = await firstReq;
+    expect(firstRes.statusCode).toBe(200);
+    await server.close();
+  });
 });
 
 describe("GET /api/world/status", () => {

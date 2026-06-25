@@ -82,6 +82,10 @@ export async function streamTurn(input: string, onEvent: (ev: TurnEvent) => void
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ input }),
   });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { error?: string });
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
   if (!res.body) throw new Error("無回應串流");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

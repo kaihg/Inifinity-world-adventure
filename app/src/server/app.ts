@@ -86,7 +86,9 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
             },
           },
           logger,
-          { label: "control" },
+          // Layer 2 fast-control 輸出的 JSON 偶爾在欄位較長（如 commit_summary）時被預設 max_tokens
+          // （部分後端如 diffusiongemma 預設僅 256）截斷導致解析失敗，顯式調高避免截斷。
+          { label: "control", maxTokens: 2048 },
         )
       : undefined);
 
@@ -147,6 +149,10 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
   // 本服務只跑單一主角、單一世界的一條故事線（見 CLAUDE.md），所以整個 server 共用一個
   // pendingLoreSync handle 即可：保證任一回合的 Layer 3 在下一回合（不論哪個請求觸發）開始前落地完。
   const pendingLoreSync: PendingLoreSync = { promise: null };
+
+  // 單一回合鎖：自動推進可能讓一次 /api/turn 跑很久，此時若玩家重整網頁再送出新行動，
+  // 會有兩個 runTurnLoop 並行寫 world/ 並各自 commit，互相覆寫/搶鎖。同一時間只允許一個回合在跑。
+  let turnInProgress = false;
 
   // 啟動時建立一次（建構本身零 I/O，模型/索引延遲初始化）；未啟用時不建立，避免不必要的模型下載
   const recall: RecallIndex | undefined =
@@ -296,6 +302,11 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       return;
     }
 
+    if (turnInProgress) {
+      return reply.code(409).send({ error: "上一回合（含自動推進）仍在執行中，請稍候再試" });
+    }
+    turnInProgress = true;
+
     reply.hijack();
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
@@ -337,6 +348,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       turnLogger.error({ err, durationMs: Date.now() - startedAt }, "/api/turn 失敗");
       reply.raw.write(`data: ${JSON.stringify({ type: "error", message })}\n\n`);
     } finally {
+      turnInProgress = false;
       reply.raw.end();
     }
   });
