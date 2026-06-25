@@ -51,6 +51,7 @@ export function createOpenAiClient(
 
       let chunkCount = 0;
       let outChars = 0;
+      let firstTokenMs: number | undefined;
       let usage: OpenAI.CompletionUsage | undefined;
       try {
         const stream = await openai.chat.completions.create({
@@ -63,6 +64,7 @@ export function createOpenAiClient(
         for await (const chunk of stream) {
           const delta = chunk.choices[0]?.delta?.content;
           if (delta) {
+            if (firstTokenMs === undefined) firstTokenMs = Date.now() - startedAt;
             chunkCount += 1;
             outChars += delta.length;
             yield delta;
@@ -71,7 +73,7 @@ export function createOpenAiClient(
         }
         const durationMs = Date.now() - startedAt;
         logger.debug(
-          { model: config.openai.model, durationMs, chunkCount, outChars, usage },
+          { model: config.openai.model, durationMs, firstTokenMs, chunkCount, outChars, usage },
           "llm 串流完成",
         );
         await appendUsageLog(
@@ -82,6 +84,7 @@ export function createOpenAiClient(
             model: config.openai.model,
             baseUrl: config.openai.baseUrl,
             durationMs,
+            firstTokenMs,
             promptTokens: usage?.prompt_tokens,
             completionTokens: usage?.completion_tokens,
             totalTokens: usage?.total_tokens,

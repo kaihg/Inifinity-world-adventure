@@ -9,6 +9,8 @@ export interface UsageLogEntry {
   model: string;
   baseUrl: string;
   durationMs: number;
+  /** 從發出請求到收到第一個 token 的毫秒數（TTFT）*/
+  firstTokenMs?: number;
   /** 後端未回傳 usage（例如某些自架端點不支援）時缺省 */
   promptTokens?: number;
   completionTokens?: number;
