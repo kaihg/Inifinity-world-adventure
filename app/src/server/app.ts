@@ -206,7 +206,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         logger: opLogger,
       });
       await makeCommit(opLogger)("重置世界、生成新設定");
-      await clearRecallIndex(config.recall);
+      await clearRecallIndex(config.recall.indexDir);
       return loadState(config.worldDir, opLogger);
     } catch (err) {
       opLogger.error({ err }, "world-init failed");
@@ -232,7 +232,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         logger: opLogger,
       });
       await makeCommit(opLogger)("封存世界");
-      await clearRecallIndex(config.recall);
+      await clearRecallIndex(config.recall.indexDir);
       return { archivedTo };
     } catch (err) {
       opLogger.error({ err }, "world-end failed");
@@ -257,7 +257,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         });
         await makeCommit(opLogger)("封存世界");
         await rm(pendingPath, { force: true });
-        await clearRecallIndex(config.recall);
+        await clearRecallIndex(config.recall.indexDir);
         return { archivedTo };
       }
 
@@ -268,7 +268,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       });
       await makeCommit(opLogger)("主角換代");
       await rm(pendingPath, { force: true });
-      await clearRecallIndex(config.recall);
+      await clearRecallIndex(config.recall.indexDir);
       return loadState(config.worldDir, opLogger);
     } catch (err) {
       opLogger.error({ err }, "world-protagonist failed");
