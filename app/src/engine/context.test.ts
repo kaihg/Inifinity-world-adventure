@@ -97,6 +97,24 @@ describe("parseProtagonist", () => {
     expect(p.name).toBe("沈奕");
     expect(p.points).toBe("12");
   });
+
+  it("相容實際生產格式：無破折號姓名 + ## 積分 區塊純數字", () => {
+    const md = `# 主角檔案：沈奕
+
+## 基本資訊
+姓名：沈奕
+年齡：28歲
+
+## 積分
+0
+
+## 屬性
+力量 13
+`;
+    const p = parseProtagonist(md);
+    expect(p.name).toBe("沈奕");
+    expect(p.points).toBe("0");
+  });
 });
 
 describe("parseProtagonistDetail", () => {
@@ -153,6 +171,12 @@ describe("applyPointsDelta", () => {
   });
   it("delta 為 0 時原樣返回", () => {
     expect(applyPointsDelta("- 當前積分：5\n", 0)).toBe("- 當前積分：5\n");
+  });
+
+  it("相容實際生產格式：## 積分 區塊純數字", () => {
+    const md = `## 基本資訊\n姓名：沈奕\n\n## 積分\n5\n\n## 屬性\n力量 13\n`;
+    expect(applyPointsDelta(md, 3)).toContain("## 積分\n8");
+    expect(applyPointsDelta(md, -2)).toContain("## 積分\n3");
   });
 });
 

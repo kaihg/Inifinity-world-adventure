@@ -154,13 +154,18 @@ export function parseCharacterIndex(md: string): NpcEntry[] {
   return npcs;
 }
 
-/** 對 protagonist.md 的「當前積分」套用增減量（結算/回合積分變動用） */
+/**
+ * 對 protagonist.md 的「當前積分」套用增減量（結算/回合積分變動用）。
+ * 相容兩種格式：舊版條列 `- 當前積分：N`，與實際生產用的 `## 積分` 區塊（區塊內第一個數字即積分）。
+ */
 export function applyPointsDelta(md: string, delta: number): string {
   if (!delta) return md;
-  return md.replace(
-    /^(-\s*當前積分：)\s*(-?\d+)/m,
-    (_m, prefix: string, n: string) => `${prefix}${Number(n) + delta}`,
-  );
+  const dashFormat = /^(-\s*當前積分：)\s*(-?\d+)/m;
+  if (dashFormat.test(md)) {
+    return md.replace(dashFormat, (_m, prefix: string, n: string) => `${prefix}${Number(n) + delta}`);
+  }
+  const sectionFormat = /(##\s*積分\s*\n+)(-?\d+)/;
+  return md.replace(sectionFormat, (_m, prefix: string, n: string) => `${prefix}${Number(n) + delta}`);
 }
 
 
@@ -249,10 +254,15 @@ export function applyIndexStatusUpdates(md: string, updates: Record<string, stri
     .join("\n");
 }
 
-/** 從 protagonist.md 擷取輕量摘要（姓名、當前積分） */
+/**
+ * 從 protagonist.md 擷取輕量摘要（姓名、當前積分）。
+ * 姓名相容有無前導破折號（`- 姓名：` 或 `姓名：`）；
+ * 積分先試舊版 `- 當前積分：` 條列格式，找不到則退回實際生產用的 `## 積分` 區塊（取區塊內第一個數字）。
+ */
 export function parseProtagonist(md: string): ProtagonistSummary {
-  const name = md.match(/^-\s*姓名：(.*)$/m)?.[1].trim() ?? "";
-  const points = md.match(/^-\s*當前積分：(.*)$/m)?.[1].trim() ?? "";
+  const name = md.match(/^-?\s*姓名：(.*)$/m)?.[1].trim() ?? "";
+  const dashPoints = md.match(/^-\s*當前積分：(.*)$/m)?.[1].trim();
+  const points = dashPoints ?? extractSection(md, "積分").match(/-?\d+/)?.[0] ?? "";
   return { name, points };
 }
 
