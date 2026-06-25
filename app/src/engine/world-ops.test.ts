@@ -252,17 +252,4 @@ describe("initWorld 骨架注入", () => {
     expect(journal).not.toContain("新世界建立，主角剛被系統選中。");
   });
 
-  it("init 後 world/templates/ 含三份世界特定骨架", async () => {
-    await initWorld({
-      worldDir,
-      repoRoot,
-      client: fakeClient,
-      input: {},
-      today: "2026-06-24",
-      logger: createLogger(),
-    });
-
-    const tplFiles = await readdir(path.join(worldDir, "templates"));
-    expect(tplFiles.sort()).toEqual(["dungeon.md", "item.md", "skill.md"]);
-  });
 });

@@ -60,13 +60,10 @@ export async function initWorld(opts: {
   const pref = input.preferences ?? {};
 
   // 1) 讀骨架（平行讀，無資料依賴）
-  const [settingScaffold, characterScaffold, openingScaffold, itemScaffold, skillScaffold, dungeonScaffold] = await Promise.all([
+  const [settingScaffold, characterScaffold, openingScaffold] = await Promise.all([
     getTemplate("setting", worldDir, repoRoot),
     getTemplate("character", worldDir, repoRoot),
     getTemplate("opening", worldDir, repoRoot),
-    getTemplate("item", worldDir, repoRoot),
-    getTemplate("skill", worldDir, repoRoot),
-    getTemplate("dungeon", worldDir, repoRoot),
   ]);
 
   // 2) setting.md（玩家可見）：先串行生成，後續文件都依賴它
@@ -130,58 +127,11 @@ export async function initWorld(opts: {
     ]),
   ]);
 
-  // 5) 世界特定 templates（item/skill/dungeon）— 依 setting 生成
-  const [itemTemplateMd, skillTemplateMd, dungeonTemplateMd] = await Promise.all([
-    generateText(client, [
-      {
-        role: "system",
-        content:
-          "依以下世界設定，生成本世界的道具骨架（繁體中文）。這是空白 template，不是真實道具檔案。\n\n" +
-          "規則：\n" +
-          "- 只在「## 品質等級」段填入本世界的品質系統定義（列出各等級名稱與說明）\n" +
-          "- 其他所有段落一律照抄全域骨架的 `<!-- ... -->` 佔位符，不填任何實際內容\n" +
-          "- 骨架段落標題不可改動，只輸出 markdown，開頭是 `# 道具：{{道具名稱}}`\n\n" +
-          "全域骨架（照此結構，只改品質等級段）：\n\n" + itemScaffold,
-      },
-      { role: "user", content: `世界設定：\n\n${settingMd}` },
-    ]),
-    generateText(client, [
-      {
-        role: "system",
-        content:
-          "依以下世界設定，生成本世界的技能骨架（繁體中文）。這是空白 template，不是真實技能檔案。\n\n" +
-          "規則：\n" +
-          "- 只在「## 等級 / 類型」段填入本世界的技能系統定義（列出各等級與類型說明）\n" +
-          "- 其他所有段落一律照抄全域骨架的 `<!-- ... -->` 佔位符，不填任何實際內容\n" +
-          "- 骨架段落標題不可改動，只輸出 markdown，開頭是 `# 技能：{{技能名稱}}`\n\n" +
-          "全域骨架（照此結構，只改等級/類型段）：\n\n" + skillScaffold,
-      },
-      { role: "user", content: `世界設定：\n\n${settingMd}` },
-    ]),
-    generateText(client, [
-      {
-        role: "system",
-        content:
-          "依以下世界設定，生成本世界的副本骨架（繁體中文）。這是空白 template，不是真實副本檔案。\n\n" +
-          "規則：\n" +
-          "- 只在「## 難度」段填入本世界的難度等級定義（列出各等級名稱與說明）\n" +
-          "- 其他所有段落一律照抄全域骨架的 `<!-- ... -->` 佔位符，不填任何實際內容\n" +
-          "- 骨架段落標題不可改動，只輸出 markdown，開頭是 `# 副本：{{副本名稱}}`\n\n" +
-          "全域骨架（照此結構，只改難度段）：\n\n" + dungeonScaffold,
-      },
-      { role: "user", content: `世界設定：\n\n${settingMd}` },
-    ]),
-  ]);
-
-  // 6) 全部寫入（最後才一次性落地，避免半初始化）
+  // 5) 全部寫入（最後才一次性落地，避免半初始化）
   await mkdir(path.join(worldDir, "characters"), { recursive: true });
-  await mkdir(path.join(worldDir, "templates"), { recursive: true });
   await writeFile(path.join(worldDir, "setting.md"), `${settingMd}\n`, "utf8");
   await writeFile(path.join(worldDir, "gm-notes.md"), `${gmNotesMd}\n`, "utf8");
   await writeFile(path.join(worldDir, "characters", "protagonist.md"), `${protagonistMd}\n`, "utf8");
-  await writeFile(path.join(worldDir, "templates", "item.md"), `${itemTemplateMd}\n`, "utf8");
-  await writeFile(path.join(worldDir, "templates", "skill.md"), `${skillTemplateMd}\n`, "utf8");
-  await writeFile(path.join(worldDir, "templates", "dungeon.md"), `${dungeonTemplateMd}\n`, "utf8");
   await writeFile(
     path.join(worldDir, "characters", "index.md"),
     "# 角色索引（Character Index）\n\n| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |\n|----|------|------|----------|--------------|\n",
@@ -226,9 +176,7 @@ export async function resetWorldToPlaceholder(worldDir: string, today: string): 
     "utf8",
   );
   await writeFile(path.join(worldDir, "now.md"), serializeNow(initialNow(today)), "utf8");
-  // worldDir 已整個清空，這裡只需建回空的 dungeons/ 與 templates/
   await mkdir(path.join(worldDir, "dungeons"), { recursive: true });
-  await mkdir(path.join(worldDir, "templates"), { recursive: true });
 }
 
 /**
