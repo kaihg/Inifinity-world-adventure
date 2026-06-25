@@ -19,6 +19,8 @@ export interface TurnDeps {
   characterClient?: LlmClient;
   /** 結構控制抽取 LLM（副大腦）；未提供時退回 deps.client */
   controlClient?: LlmClient;
+  /** Layer 2 fast-control 解析失敗時的最多重試次數（不含原始呼叫），預設 2（共 3 次嘗試） */
+  controlMaxRetries?: number;
   /** Layer 3 reactive-lore-sync 用的 LLM；未提供時依序退回 controlClient、client */
   loreClient?: LlmClient;
   /** 長期節奏審閱（劇本大師）用的 LLM（選填）；未提供時依序退回 controlClient、主 client */

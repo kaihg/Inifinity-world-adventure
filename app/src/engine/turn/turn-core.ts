@@ -77,21 +77,34 @@ export async function* runTurnCore(
   // 注意：玩家已看到的串流 delta 不重送，只保證落地內容為繁體。
   narrative = toTraditional(narrative.trim());
 
-  // 2) Layer 2：讀完整敘事抽最小狀態子集；失敗則降級（敘事已落地、暫停等玩家）
+  // 2) Layer 2：讀完整敘事抽最小狀態子集；失敗則重試（小模型偶發吐出非結構化輸出，
+  // 重新取樣常能拿到合法 JSON），重試次數耗盡才真正降級（敘事已落地、暫停等玩家）。
   const controlClient = deps.controlClient ?? deps.client;
+  const maxAttempts = (deps.controlMaxRetries ?? 2) + 1;
   let control: FastControl | null = null;
   let raw = "";
-  try {
-    for await (const delta of controlClient.streamChat(plan.buildFastControl(narrative))) {
-      raw += delta;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    raw = "";
+    try {
+      for await (const delta of controlClient.streamChat(plan.buildFastControl(narrative))) {
+        raw += delta;
+      }
+      // 落地進 now.md / protagonist.md / commit / journal_summary 前繁體化（slug 類欄位不轉）
+      control = traditionalizeFastControl(parseFastControlOutput(raw));
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        log.warn({ err, raw, attempt }, "Layer 2 fast-control 解析失敗，準備重試");
+      }
     }
-    // 落地進 now.md / protagonist.md / commit / journal_summary 前繁體化（slug 類欄位不轉）
-    control = traditionalizeFastControl(parseFastControlOutput(raw));
-  } catch (err) {
-    log.error({ err, raw }, "Layer 2 fast-control 結構抽取失敗，本回合僅保留敘事並暫停");
+  }
+  if (!control) {
+    log.error({ err: lastErr, raw }, "Layer 2 fast-control 結構抽取失敗（已重試），本回合僅保留敘事並暫停");
     yield {
       type: "warning",
-      message: `Layer 2 結構抽取失敗，本回合僅保留敘事並暫停：${(err as Error).message}`,
+      message: `Layer 2 結構抽取失敗，本回合僅保留敘事並暫停：${(lastErr as Error).message}`,
     };
   }
 

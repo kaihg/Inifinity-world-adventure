@@ -57,10 +57,12 @@ export const FastControlSchema = z.object({
   ),
   transition_dungeon_id: nullishStringCoerce(z.string().nullable().optional()),
   transition_dungeon_goal: nullishStringCoerce(z.string().nullable().optional()),
-  awaiting_user_input: z.boolean(),
+  // 安全預設 true（暫停等玩家）：缺值不該讓整包 JSON 解析失敗、連帶丟失 mode_transition 等其他正確欄位。
+  awaiting_user_input: z.boolean().optional().default(true),
   protagonist_permanent_death: z.boolean().default(false),
   suggested_actions: z.array(z.string()).default([]),
-  commit_summary: z.string().min(1),
+  // 缺值預設空字串：呼叫端（turn-core.ts）已有 `control?.commit_summary || deriveSummary(narrative)` 兜底。
+  commit_summary: z.string().optional().default(""),
 });
 
 export type FastControl = z.infer<typeof FastControlSchema>;

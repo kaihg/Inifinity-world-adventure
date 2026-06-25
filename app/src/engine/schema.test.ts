@@ -82,8 +82,14 @@ describe("parseFastControlOutput（Layer 2：only now/protagonist/rolls/mode_tra
     expect(() => parseFastControlOutput("{not json}")).toThrow();
   });
 
-  it("缺必要欄位 awaiting_user_input 時拋錯", () => {
-    expect(() => parseFastControlOutput('{"commit_summary":"x"}')).toThrow();
+  it("缺 awaiting_user_input 時不拋錯，預設 true（安全預設：暫停等玩家），避免單一欄位害整包解析失敗", () => {
+    const control = parseFastControlOutput('{"commit_summary":"x"}');
+    expect(control.awaiting_user_input).toBe(true);
+  });
+
+  it("缺 commit_summary 時不拋錯，預設空字串（呼叫端 deriveSummary(narrative) 兜底），避免單一欄位害整包解析失敗", () => {
+    const control = parseFastControlOutput('{"awaiting_user_input":false}');
+    expect(control.commit_summary).toBe("");
   });
 
   it("Layer 2 不再接受 protagonist_updates（已移至 Layer 3）", () => {

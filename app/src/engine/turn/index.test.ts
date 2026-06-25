@@ -555,6 +555,75 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     const done: any = events.at(-1);
     expect(done.awaitingUserInput).toBe(true);
   });
+
+  it("副大腦前幾次輸出壞掉，重試後成功：不發 warning、正確採用重試後的結構化結果", async () => {
+    let callCount = 0;
+    const controlClient: LlmClient = {
+      async *streamChat() {
+        callCount++;
+        if (callCount < 3) {
+          yield "前兩次都是壞掉的輸出，沒有 JSON";
+        } else {
+          yield JSON.stringify({
+            state_changes: { now: { scene: "資訊室" } },
+            rolls: [], mode_transition: null,
+            awaiting_user_input: false, suggested_actions: ["繼續前進"],
+            commit_summary: "重試後終於解析成功",
+          });
+        }
+      },
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient(["敘事正常。"]),
+        controlClient,
+        loreClient: fakeClient([JSON.stringify({ state_changes: {} })]), // 與 Layer 2 分開，避免混入呼叫次數
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+      },
+      "做點事",
+    )) {
+      events.push(ev);
+    }
+    expect(callCount).toBe(3); // 前兩次失敗 + 第三次成功，未超過預設重試上限
+    expect(events.some((e) => e.type === "warning")).toBe(false);
+    const done: any = events.at(-1);
+    expect(done.awaitingUserInput).toBe(false);
+    expect(done.suggestedActions).toEqual(["繼續前進"]);
+  });
+
+  it("副大腦一直壞掉，重試次數可由 controlMaxRetries 設定上限，耗盡後才降級", async () => {
+    let callCount = 0;
+    const controlClient: LlmClient = {
+      async *streamChat() {
+        callCount++;
+        yield "永遠都是壞掉的輸出";
+      },
+    };
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(
+      {
+        client: fakeClient(["敘事正常。"]),
+        controlClient,
+        loreClient: fakeClient([JSON.stringify({ state_changes: {} })]), // 與 Layer 2 分開，避免混入呼叫次數
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [1],
+        controlMaxRetries: 1, // 最多重試 1 次，共 2 次嘗試
+      },
+      "做點事",
+    )) {
+      events.push(ev);
+    }
+    expect(callCount).toBe(2); // 1 次原始呼叫 + 1 次重試，耗盡後降級
+    expect(events.some((e) => e.type === "warning")).toBe(true);
+    const done: any = events.at(-1);
+    expect(done.awaitingUserInput).toBe(true);
+  });
 });
 
 describe("runTurnLoop — 自動推進", () => {
