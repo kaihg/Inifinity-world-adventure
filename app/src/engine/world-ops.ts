@@ -62,7 +62,7 @@ export async function initWorld(opts: {
   // 1) 讀骨架（setting/protagonist/opening 互不依賴，平行讀）
   const [settingScaffold, protagonistScaffold, openingScaffold] = await Promise.all([
     getTemplate("setting", worldDir, repoRoot),
-    getTemplate("protagonist", worldDir, repoRoot),
+    getTemplate("character", worldDir, repoRoot),
     getTemplate("opening", worldDir, repoRoot),
   ]);
 

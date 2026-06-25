@@ -155,8 +155,8 @@ describe("initWorld 骨架注入", () => {
       "utf8",
     );
     await writeFile(
-      path.join(repoRoot, "templates", "protagonist.md"),
-      "# 主角檔案\n\n## 基本資訊\n<!-- 填入 -->\n",
+      path.join(repoRoot, "templates", "character.md"),
+      "# 角色檔案：{{姓名}}\n\n## 基本資訊\n<!-- 填入 -->\n",
       "utf8",
     );
     await writeFile(
@@ -173,7 +173,7 @@ describe("initWorld 骨架注入", () => {
   it("setting 與 protagonist 生成平行跑，不互相等待（兩者無資料依賴）", async () => {
     const started: string[] = [];
     const settingDeferred = createDeferred<void>();
-    const protagonistDeferred = createDeferred<void>();
+    const characterDeferred = createDeferred<void>();
     const client: LlmClient = {
       async *streamChat(messages: ChatMessage[]) {
         const system = messages.find((m) => m.role === "system")?.content ?? "";
@@ -184,8 +184,8 @@ describe("initWorld 骨架注入", () => {
           return;
         }
         if (system.includes("角色設計師")) {
-          started.push("protagonist");
-          await protagonistDeferred.promise;
+          started.push("character");
+          await characterDeferred.promise;
           yield "# 主角檔案\n\n沈奕。\n";
           return;
         }
@@ -198,10 +198,10 @@ describe("initWorld 骨架注入", () => {
     // 若兩者真的平行起跑，不需等任一方 resolve 就能同時觀察到兩個呼叫都已啟動；
     // 序列版會卡在第一個呼叫（settingDeferred 不會被 resolve），等到逾時才失敗。
     await waitUntil(() => started.length >= 2);
-    expect(started.sort()).toEqual(["protagonist", "setting"]);
+    expect(started.sort()).toEqual(["character", "setting"]);
 
     settingDeferred.resolve();
-    protagonistDeferred.resolve();
+    characterDeferred.resolve();
     await initPromise;
   });
 
