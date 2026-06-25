@@ -139,7 +139,7 @@ export function parseProtagonistDetail(md: string): ProtagonistDetail {
   };
 }
 
-/** 解析 characters/index.md 的角色表格，排除 protagonist，供 NPC 面板用 */
+/** 解析 characters/index.md 的角色表格（純 NPC，不含主角），供 NPC 面板用 */
 export function parseCharacterIndex(md: string): NpcEntry[] {
   const npcs: NpcEntry[] = [];
   for (const line of md.split("\n")) {
@@ -148,7 +148,7 @@ export function parseCharacterIndex(md: string): NpcEntry[] {
     const cells = m[1].split("|").map((c) => c.trim());
     if (cells.length < 4) continue;
     const [id, name, role, status] = cells;
-    if (id === "ID" || /^-+$/.test(id) || id === "" || id === "protagonist") continue;
+    if (id === "ID" || /^-+$/.test(id) || id === "") continue;
     npcs.push({ id, name, role, status });
   }
   return npcs;

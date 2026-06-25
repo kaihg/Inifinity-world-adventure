@@ -168,14 +168,7 @@ export async function initWorld(opts: {
   await writeFile(path.join(worldDir, "templates", "dungeon.md"), `${dungeonTemplateMd}\n`, "utf8");
   await writeFile(
     path.join(worldDir, "characters", "index.md"),
-    [
-      "# 角色索引（Character Index）",
-      "",
-      "| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |",
-      "|----|------|------|----------|--------------|",
-      "| protagonist | 主角 | 主角 | 新世界開局 | - |",
-      "",
-    ].join("\n"),
+    "# 角色索引（Character Index）\n\n| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |\n|----|------|------|----------|--------------|\n",
     "utf8",
   );
   await writeFile(
@@ -330,14 +323,7 @@ export async function replaceProtagonist(opts: {
   await writeFile(path.join(worldDir, "characters", "protagonist.md"), `${protagonistMd}\n`, "utf8");
   await writeFile(
     path.join(worldDir, "characters", "index.md"),
-    [
-      "# 角色索引（Character Index）",
-      "",
-      "| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |",
-      "|----|------|------|----------|--------------|",
-      "| protagonist | 新主角 | 主角 | 接替前任，新開局 | - |",
-      "",
-    ].join("\n"),
+    "# 角色索引（Character Index）\n\n| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |\n|----|------|------|----------|--------------|\n",
     "utf8",
   );
   await writeFile(

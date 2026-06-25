@@ -134,17 +134,15 @@ describe("parseCharacterIndex", () => {
   const md = `# 角色索引
 | ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |
 |----|------|------|----------|--------------|
-| protagonist | 沈奕 | 主角 | 安全區 | - |
 | yeqing | 葉晴 | NPC / 潛在隊友 | 結盟 | - |
 | linsiyu | 林思雨 | NPC | 跟隨 | - |
 
 ## 鎖定事實
 `;
-  it("解析表格、排除 protagonist", () => {
+  it("解析 NPC 表格（index.md 不含主角）", () => {
     const npcs = parseCharacterIndex(md);
     expect(npcs).toHaveLength(2);
     expect(npcs[0]).toEqual({ id: "yeqing", name: "葉晴", role: "NPC / 潛在隊友", status: "結盟" });
-    expect(npcs.map((n) => n.id)).not.toContain("protagonist");
   });
 });
 
