@@ -170,38 +170,38 @@ describe("initWorld 骨架注入", () => {
     await rm(repoRoot, { recursive: true, force: true });
   });
 
-  it("setting 與 protagonist 生成平行跑，不互相等待（兩者無資料依賴）", async () => {
-    const started: string[] = [];
+  it("setting 先完成後，protagonist 才開始生成（character 需要 settingMd 定義屬性系統）", async () => {
+    const order: string[] = [];
     const settingDeferred = createDeferred<void>();
-    const characterDeferred = createDeferred<void>();
     const client: LlmClient = {
       async *streamChat(messages: ChatMessage[]) {
         const system = messages.find((m) => m.role === "system")?.content ?? "";
         if (system.includes("設定設計師")) {
-          started.push("setting");
+          order.push("setting-start");
           await settingDeferred.promise;
+          order.push("setting-end");
           yield "# 世界設定\n\n冷酷系統。\n";
           return;
         }
         if (system.includes("角色設計師")) {
-          started.push("character");
-          await characterDeferred.promise;
+          order.push("character-start");
           yield "# 主角檔案\n\n沈奕。\n";
           return;
         }
-        // gm-notes / item/skill/dungeon 骨架：不卡住，直接回應
         yield "# 內容\n";
       },
     };
 
     const initPromise = initWorld({ worldDir, repoRoot, client, input: {}, today: "2026-06-24", logger: createLogger() });
-    // 若兩者真的平行起跑，不需等任一方 resolve 就能同時觀察到兩個呼叫都已啟動；
-    // 序列版會卡在第一個呼叫（settingDeferred 不會被 resolve），等到逾時才失敗。
-    await waitUntil(() => started.length >= 2);
-    expect(started.sort()).toEqual(["character", "setting"]);
+    await waitUntil(() => order.includes("setting-start"));
+    // setting 尚未完成，character 不應該已啟動
+    expect(order).not.toContain("character-start");
 
     settingDeferred.resolve();
-    characterDeferred.resolve();
+    await waitUntil(() => order.includes("character-start"));
+    // setting 完成後，character 才啟動
+    expect(order.indexOf("setting-end")).toBeLessThan(order.indexOf("character-start"));
+
     await initPromise;
   });
 
