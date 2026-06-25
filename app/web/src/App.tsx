@@ -104,8 +104,11 @@ export function App() {
             if (ev.protagonistDied) {
               setProtagonistDied(true);
               setSuggested([]); // 死亡時不顯示建議行動 chips
-            } else {
+            } else if (ev.awaitingUserInput) {
               setSuggested(ev.suggestedActions ?? []);
+            } else {
+              // 自動推進中的中間回合：還會有後續回合，不要先露出看起來可點、實際被 busy 鎖死的建議 chips
+              setSuggested([]);
             }
             if (ev.state) setState(ev.state);
             break;
