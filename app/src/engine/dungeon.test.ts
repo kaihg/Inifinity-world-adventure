@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   parseActiveDungeon,
   formatActiveDungeon,
-  nextRunNumber,
   enterDungeon,
+  renameLogAfterSettle,
   appendLog,
   loadDungeonLore,
   listDungeonIds,
@@ -28,17 +28,39 @@ describe("parseActiveDungeon / formatActiveDungeon", () => {
   });
 });
 
-describe("nextRunNumber", () => {
-  it("空 log → 1", () => {
-    expect(nextRunNumber("")).toBe(1);
+describe("renameLogAfterSettle", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-settle-"));
   });
-  it("已有 run-1、run-2 → 3", () => {
-    const content = "## run-1（2026-06-24）\n\n內容\n\n## run-2（2026-06-25）\n\n內容";
-    expect(nextRunNumber(content)).toBe(3);
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
   });
-  it("有 run-1、run-4 → 5（取最大值）", () => {
-    const content = "## run-1（2026-06-24）\n\n內容\n\n## run-4（2026-06-28）\n\n內容";
-    expect(nextRunNumber(content)).toBe(5);
+
+  it("結算後 log.md rename 成 log-run-1.md", async () => {
+    await enterDungeon(world, { dungeonId: "U-001", today: "2026-06-25", protagonistSummary: "沈奕", goal: "測試", secretsText: "真相" });
+    await renameLogAfterSettle(world, "U-001");
+    const dir = path.join(world, "dungeons", "U-001");
+    const files = await readdir(dir);
+    expect(files).toContain("log-run-1.md");
+    expect(files).not.toContain("log.md");
+  });
+
+  it("第二次進入後結算 → log-run-2.md", async () => {
+    await enterDungeon(world, { dungeonId: "U-001", today: "2026-06-25", protagonistSummary: "沈奕", goal: "第一次", secretsText: "真相" });
+    await renameLogAfterSettle(world, "U-001");
+    await enterDungeon(world, { dungeonId: "U-001", today: "2026-06-26", protagonistSummary: "沈奕", goal: "第二次", secretsText: "真相" });
+    await renameLogAfterSettle(world, "U-001");
+    const dir = path.join(world, "dungeons", "U-001");
+    const files = await readdir(dir);
+    expect(files).toContain("log-run-1.md");
+    expect(files).toContain("log-run-2.md");
+    expect(files).not.toContain("log.md");
+  });
+
+  it("log.md 不存在時靜默略過", async () => {
+    await mkdir(path.join(world, "dungeons", "U-001"), { recursive: true });
+    await expect(renameLogAfterSettle(world, "U-001")).resolves.toBeUndefined();
   });
 });
 
@@ -75,8 +97,10 @@ describe("enterDungeon / appendLog / loadDungeonLore", () => {
 
   it("第二次進入同一副本 → run-2，且不覆寫既有 secrets", async () => {
     await enterDungeon(world, { dungeonId: "U-001", today: "2026-06-20", protagonistSummary: "沈奕（積分 50）", goal: "找到隱藏出口", secretsText: "原始真相" });
+    await renameLogAfterSettle(world, "U-001");  // 結算第一次
     const active = await enterDungeon(world, { dungeonId: "U-001", today: "2026-06-21", protagonistSummary: "沈奕（積分 80）", goal: "終結副本", secretsText: "新真相（不該寫入）" });
     expect(active.runId).toBe("run-2");
+    // 現在 log.md 是第二次的，log-run-1.md 是第一次的
     const log = await readFile(path.join(world, "dungeons", "U-001", "log.md"), "utf8");
     expect(log).toContain("run-2");
     const secrets = await readFile(path.join(world, "dungeons", "U-001", "secrets.md"), "utf8");

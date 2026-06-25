@@ -8,6 +8,7 @@ import {
   listDungeonIds,
   loadDungeonLore,
   parseActiveDungeon,
+  renameLogAfterSettle,
 } from "../dungeon.js";
 import { listLoreIds } from "../lore.js";
 import { appendJournal } from "../journal.js";
@@ -235,6 +236,11 @@ export async function* runTurnLoop(
       log.info({ dungeonId: state.now.activeDungeon }, "觸發 mode_transition：settle_dungeon");
       // 即將自行 commit；先等本回合的 Layer 3 落地完，避免兩個 git commit 並發搶鎖
       await deps.pendingLoreSync?.promise;
+      // 結算前把當次 log.md rename 成 log-run-N.md
+      const activeForSettle = parseActiveDungeon(state.now.activeDungeon);
+      if (activeForSettle) {
+        await renameLogAfterSettle(deps.worldDir, activeForSettle.dungeonId, log);
+      }
       await setNowActiveDungeon(deps.worldDir, "無", { date: today, summary: "副本結算，返回安全區" });
       await deps.commit("副本結算，返回安全區");
       yield { type: "transition", to: "main-space" };
