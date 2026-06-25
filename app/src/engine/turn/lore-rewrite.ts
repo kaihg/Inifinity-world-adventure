@@ -243,7 +243,16 @@ export async function rewriteLoreEntity(
     }
     const filePath = path.join(deps.worldDir, "characters", `${safeNpcId}.md`);
     const existing = await readBestEffort(filePath);
-    const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, `NPC 角色檔案（${entity.name}）`, existing, "npc", log, context);
+    let npcScaffold: string | undefined;
+    if (!existing) {
+      const repoRoot = path.dirname(deps.worldDir);
+      try {
+        npcScaffold = await getTemplate("npc", deps.worldDir, repoRoot);
+      } catch (err) {
+        log.warn({ err }, "getTemplate(npc) 失敗，略過骨架注入");
+      }
+    }
+    const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, `NPC 角色檔案（${entity.name}）`, existing, "npc", log, context, npcScaffold);
     if (!content) return null;
     // 只認「開頭第一行」的 H1（`# 姓名`）為已自帶標題，以該標題為準（重寫可能訂正/確認姓名，
     // 例如全新角色從泛稱「陌生男子」具名化成「陳先生」），內容原樣保留。
