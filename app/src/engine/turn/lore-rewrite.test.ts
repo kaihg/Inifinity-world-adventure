@@ -3,7 +3,7 @@ import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import { logger } from "../../logger.js";
 import type { Logger } from "../../logger.js";
 import { callLoreRewrite, type LoreRewriteCategory, generateEntitySecrets, rewriteLoreEntity } from "./lore-rewrite.js";
-import { mkdtemp, mkdir } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import type { TurnDeps } from "./types.js";
@@ -64,6 +64,27 @@ describe("callLoreRewrite", () => {
 
     expect(result).toBeNull();
     expect(warnCalls).toHaveLength(1);
+  });
+
+  it("全新建檔且有 scaffoldContent 時，system prompt 含骨架內容", async () => {
+    const cap = capturingClient("新版內容");
+    await callLoreRewrite(
+      cap.client, "世界設定", "片段", "標題", "",
+      "item", logger, undefined, "## 品質等級\n<!-- 填入 -->\n## 效果/說明\n<!-- 填入 -->",
+    );
+    const system = cap.messages.find((m) => m.role === "system")?.content ?? "";
+    expect(system).toContain("## 品質等級");
+    expect(system).toContain("文件骨架（段落標題固定");
+  });
+
+  it("existingContent 非空時不注入骨架，即使有 scaffoldContent", async () => {
+    const cap = capturingClient("新版內容");
+    await callLoreRewrite(
+      cap.client, "世界設定", "片段", "標題", "# 現有內容\n\n已有文件",
+      "item", logger, undefined, "## 品質等級\n<!-- 填入 -->",
+    );
+    const system = cap.messages.find((m) => m.role === "system")?.content ?? "";
+    expect(system).not.toContain("文件骨架（段落標題固定");
   });
 });
 
@@ -251,6 +272,46 @@ describe("rewriteLoreEntity — secrets 用小模型（根因 G）", () => {
 
     expect(mainCalls).toHaveLength(0); // 主敘事大模型完全不參與 lore 落地
     expect(loreCalls.length).toBeGreaterThanOrEqual(2); // secrets + wiki 都走小模型
+  });
+});
+
+describe("rewriteLoreEntity — 骨架注入（全新建檔）", () => {
+  it("全新建檔時 system prompt 含骨架內容（來自 getTemplate）", async () => {
+    const worldDir = await mkdtemp(path.join(os.tmpdir(), "world-"));
+    // 建全域骨架
+    const repoRoot = path.dirname(worldDir);
+    await mkdir(path.join(repoRoot, "templates"), { recursive: true });
+    await writeFile(
+      path.join(repoRoot, "templates", "item.md"),
+      "# 道具：{{道具名稱}}\n\n## 品質等級\n<!-- 填入 -->\n## 效果/說明\n<!-- 填入 -->",
+      "utf8",
+    );
+    await mkdir(path.join(worldDir, "items", "iron-sword"), { recursive: true });
+
+    const messages: ChatMessage[] = [];
+    const capClient: LlmClient = {
+      async *streamChat(msgs: ChatMessage[]) {
+        messages.push(...msgs);
+        yield msgs.find((m) => m.role === "system")?.content?.includes("劇透文件")
+          ? "隱藏設定"
+          : "## 品質等級\n普通\n## 效果/說明\n造成傷害";
+      },
+    };
+    const deps: TurnDeps = { client: capClient, worldDir, commit: async () => true };
+
+    await rewriteLoreEntity(
+      deps, "世界設定",
+      { id: "iron-sword", category: "item", name: "鐵劍", excerpt: "主角撿到一把鐵劍" },
+      logger,
+    );
+
+    const systemMsg = messages.find((m) => m.role === "system" && !m.content.includes("劇透文件"))?.content ?? "";
+    expect(systemMsg).toContain("文件骨架（段落標題固定");
+    expect(systemMsg).toContain("## 品質等級");
+
+    // cleanup
+    await rm(worldDir, { recursive: true, force: true });
+    await rm(path.join(repoRoot, "templates"), { recursive: true, force: true });
   });
 });
 

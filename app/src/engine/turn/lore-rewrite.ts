@@ -4,6 +4,7 @@ import type { Logger } from "../../logger.js";
 import { NPC_ID_RE } from "../context.js";
 import { ensureSecrets, loadLore, type LoreCategory } from "../lore.js";
 import type { LoreEntityRef } from "../schema.js";
+import { getTemplate } from "../template-loader.js";
 import { TRADITIONAL_CHINESE_RULE } from "./prompts.js";
 import { readBestEffort } from "./shared.js";
 import { toTraditional } from "../text/traditionalize.js";
@@ -99,6 +100,7 @@ export async function callLoreRewrite(
   category: LoreRewriteCategory,
   log: Logger,
   context?: LoreRewriteContext,
+  scaffoldContent?: string,
 ): Promise<string | null> {
   const messages: ChatMessage[] = [
     {
@@ -112,6 +114,14 @@ export async function callLoreRewrite(
         "這份文件常見的可寫面向（不是每筆都要填滿；本回合片段沒提到、也沒有合理依據可擴寫的面向不要硬湊）：",
         LORE_REWRITE_CATEGORY_OUTLINE[category],
         "",
+        // 全新建檔且有骨架時，注入骨架段落說明
+        ...(!existingContent.trim() && scaffoldContent
+          ? [
+              "文件骨架（段落標題固定，依敘事片段填入對應段落；片段未提及的段落留空）：",
+              scaffoldContent.trim(),
+              "",
+            ]
+          : []),
         "鐵則：",
         "- 只輸出文件完整新版內容本身（純文字/Markdown），不要 JSON、不要前言、不要程式碼框。",
         "- 若【現有文件全文】非空（更新既有文件）：不可遺漏現有文件中仍然成立的事實；只在片段明確提供新資訊或訂正時才改動對應部分；不可發明片段未提及的事實。",
@@ -263,7 +273,17 @@ export async function rewriteLoreEntity(
     await ensureSecrets(deps.worldDir, category, safeId, secretsText, `隱藏設定（${entity.name}）`, log);
   }
   const title = `${ENTITY_CATEGORY_TITLE[entity.category]}（${entity.name}）`;
-  const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing.wiki, entity.category, log, context);
+  // 全新建檔時注入骨架（getTemplate 失敗則 warn 並繼續，骨架是 nice-to-have）
+  let scaffoldContent: string | undefined;
+  if (!existing.wiki) {
+    const repoRoot = path.dirname(deps.worldDir);
+    try {
+      scaffoldContent = await getTemplate(entity.category, deps.worldDir, repoRoot);
+    } catch (err) {
+      log.warn({ err, category: entity.category }, "getTemplate 失敗，略過骨架注入");
+    }
+  }
+  const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing.wiki, entity.category, log, context, scaffoldContent);
   if (!content) return null;
   return { id: safeId, category: entity.category, title, content };
 }
