@@ -93,6 +93,7 @@ export function App() {
               (s) =>
                 s + `\n\n【${ev.to === "dungeon" ? `進入副本 ${ev.dungeonId ?? ""}` : "返回安全區"}】\n\n`,
             );
+            setSuggested([]); // 轉場時清空上回合的過期按鈕，防止幽靈按鈕殘留
             break;
           case "warning":
             setStory((s) => s + `\n[提示] ${ev.message}\n`);
@@ -235,7 +236,7 @@ export function App() {
               <input
                 value={input}
                 disabled={busy || protagonistDied}
-                placeholder="你的行動，例如：去資訊室找葉晴"
+                placeholder="你的行動，例如：觀察四周、對 NPC 說話、使用技能或道具…"
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && send(input)}
               />

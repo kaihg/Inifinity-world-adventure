@@ -647,9 +647,9 @@ describe("runTurnLoop — 自動推進", () => {
       events.push(ev);
     }
     const dones = events.filter((e) => e.type === "done") as any[];
-    expect(dones).toHaveLength(2);
-    expect(dones[0].awaitingUserInput).toBe(false);
-    expect(dones[1].awaitingUserInput).toBe(true);
+    // 中間自動推進回合的 done 不 yield，只有最終需要玩家的 done 才送
+    expect(dones).toHaveLength(1);
+    expect(dones[0].awaitingUserInput).toBe(true);
     expect(events.some((e) => e.type === "auto-advance")).toBe(true);
   });
 
@@ -673,8 +673,9 @@ describe("runTurnLoop — 自動推進", () => {
     )) {
       events.push(ev);
     }
+    // 達 maxAuto 上限時，送出最後一個 done（awaiting=false，但已無法繼續）
     const dones = events.filter((e) => e.type === "done");
-    expect(dones).toHaveLength(3);
+    expect(dones).toHaveLength(1);
   });
 });
 
@@ -1010,6 +1011,118 @@ describe("runTurnLoop — 進入/結算副本（不切 branch）", () => {
     const now = await readFile(path.join(world, "now.md"), "utf8");
     expect(now).toContain("- 進行中的副本：無");
   });
+
+  it("副本內 Layer 2 再次回傳 enter_dungeon：應忽略轉場，不重複建副本", async () => {
+    // 先讓 now.md 設成已在副本中
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
+    );
+    await mkdir(path.join(world, "dungeons", "U-001"), { recursive: true });
+    await writeFile(path.join(world, "dungeons", "U-001", "log.md"), "# 副本 U-001 · run-1\n");
+
+    // 副大腦在副本內誤判，再次回傳 enter_dungeon
+    const spuriousEnter = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
+      transition_dungeon_id: "U-001", transition_dungeon_goal: "重複進入",
+      awaiting_user_input: true, suggested_actions: ["繼續"], commit_summary: "副本開場",
+    });
+    const client = twoBrainClient([
+      "你站在副本的走廊裡。", // 主腦敘事
+      spuriousEnter,          // Layer 2：誤觸 enter_dungeon
+      spuriousEnter,          // Layer 3
+    ]);
+
+    const events: TurnEvent[] = [];
+    for await (const ev of runTurnLoop(
+      { client, worldDir: world, commit: async () => true, today: () => "2026-06-19" },
+      "環顧四周",
+      2,
+    )) {
+      events.push(ev);
+    }
+
+    // 不應出現任何 transition 事件（已在副本內，不應再次觸發 enter）
+    const transitions = events.filter((e) => e.type === "transition");
+    expect(transitions).toHaveLength(0);
+
+    // 不應建立新的 log-run-*.md 或重複的 secrets.md
+    const { readdir: readdirFn } = await import("node:fs/promises");
+    const files = await readdirFn(path.join(world, "dungeons", "U-001"));
+    const runLogs = files.filter((f: string) => /^log-run-\d+\.md$/.test(f));
+    expect(runLogs).toHaveLength(0); // 沒有 rename（沒有重新結算進入）
+  });
+
+  it("自動推進中間回合的 done 事件不應送給前端（只有最終等待玩家的 done 才 yield）", async () => {
+    const ctrlAuto = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: null,
+      awaiting_user_input: false, suggested_actions: ["繼續探索"], commit_summary: "自動推進",
+    });
+    const ctrlStop = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: null,
+      awaiting_user_input: true, suggested_actions: ["休息"], commit_summary: "停下",
+    });
+
+    const events: TurnEvent[] = [];
+    for await (const ev of runTurnLoop(
+      {
+        client: sequencedClient(["第一段。", "第二段。"]),
+        controlClient: sequencedClient([ctrlAuto, ctrlStop]),
+        worldDir: world,
+        commit: async () => true,
+        today: () => "2026-06-19",
+        dicePool: [10, 20, 30, 40],
+      },
+      "前進",
+      3,
+    )) {
+      events.push(ev);
+    }
+
+    const dones = events.filter((e) => e.type === "done") as any[];
+    // 只有最終需要玩家輸入的那一個 done 應該被 yield
+    expect(dones).toHaveLength(1);
+    expect(dones[0].awaitingUserInput).toBe(true);
+    expect(dones[0].suggestedActions).toEqual(["休息"]);
+  });
+
+  it("enter_dungeon 轉場前的主空間 done 不應 yield 給前端", async () => {
+    const enterCtl = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
+      transition_dungeon_id: "U-NOISY", transition_dungeon_goal: "找入口",
+      awaiting_user_input: false, suggested_actions: ["前往商店"], commit_summary: "系統開啟副本",
+    });
+    const dungeonCtl = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: null,
+      awaiting_user_input: true, suggested_actions: ["向前走"], commit_summary: "副本第一回合",
+    });
+    const client = twoBrainClient([
+      "系統警報響起。",                       // turn 0 主腦（主空間）
+      enterCtl,                               // turn 0 Layer 2 → enter_dungeon
+      enterCtl,                               // turn 0 Layer 3（no-op）
+      "這個副本真正的機關是火焰。",            // secrets 生成
+      "你踏入黑暗的走廊。",                   // turn 1 主腦（副本）
+      dungeonCtl,                             // turn 1 Layer 2
+      dungeonCtl,                             // turn 1 Layer 3
+      "# 副本 U-NOISY · 已揭露知識\n無。",   // 比較重寫
+    ]);
+
+    const events: TurnEvent[] = [];
+    for await (const ev of runTurnLoop(
+      { client, worldDir: world, commit: async () => true, today: () => "2026-06-19" },
+      "在安全區等待",
+      4,
+    )) {
+      events.push(ev);
+    }
+
+    const dones = events.filter((e) => e.type === "done") as any[];
+    // 主空間那個 done（含 suggestedActions: ["前往商店"]）不應出現
+    // 只有副本第一回合停下來等玩家的那個 done 應存在
+    expect(dones).toHaveLength(1);
+    expect(dones[0].suggestedActions).toEqual(["向前走"]);
+    expect(dones[0].awaitingUserInput).toBe(true);
+  });
 });
 
 /** 建立一個可手動控制何時 resolve 的 promise，供「卡住的 fake loreClient」測試使用 */
@@ -1175,7 +1288,7 @@ describe("done.state 降級與自動推進多回合覆蓋", () => {
     }
   });
 
-  it("自動推進多回合時，每個 done 各帶一份 state 快照", async () => {
+  it("自動推進多回合時，只有最終等待玩家的 done 帶 state 快照（中間 done 不 yield）", async () => {
     const ctrlAuto = JSON.stringify({
       state_changes: { now: { scene: "走廊" } },
       rolls: [],
@@ -1210,10 +1323,10 @@ describe("done.state 降級與自動推進多回合覆蓋", () => {
     }
 
     const dones = events.filter((e) => e.type === "done") as any[];
-    expect(dones).toHaveLength(2);
+    // 只有最後需要玩家的那個 done 才 yield（中間自動推進的 done 不送前端）
+    expect(dones).toHaveLength(1);
     expect(dones[0].state).toBeDefined();
-    expect(dones[1].state).toBeDefined();
-    expect(dones[1].state.now.scene).toBe("房間");
+    expect(dones[0].state.now.scene).toBe("房間");
   });
 });
 

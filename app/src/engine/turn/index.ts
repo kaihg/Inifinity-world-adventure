@@ -184,16 +184,27 @@ export async function* runTurnLoop(
     const state = await loadState(deps.worldDir, log);
     const gen = state.mode === "dungeon" ? runDungeonTurn(deps, currentInput) : runMainSpaceTurn(deps, currentInput);
 
+    // 先收集本回合所有事件，確定是否需要繼續後再決定要不要 yield done
+    const buffered: TurnEvent[] = [];
     let done: Extract<TurnEvent, { type: "done" }> | null = null;
     for await (const ev of gen) {
-      yield ev;
-      if (ev.type === "done") done = ev;
+      if (ev.type === "done") {
+        done = ev;
+      } else {
+        buffered.push(ev);
+      }
     }
     currentInput = AUTO_CONTINUE_INPUT;
-    if (!done) break;
+
+    // 收不到 done：送出所有 buffered 事件後停止
+    if (!done) {
+      for (const ev of buffered) yield ev;
+      break;
+    }
 
     // enter_dungeon 但副大腦沒給 transition_dungeon_id：無法建副本，不可靜默吞掉
     if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
+      for (const ev of buffered) yield ev;
       log.warn("mode_transition=enter_dungeon 但缺 transition_dungeon_id，無法進入副本，停在主空間等玩家");
       yield {
         type: "warning",
@@ -202,8 +213,10 @@ export async function* runTurnLoop(
       break;
     }
 
-    // 進入副本：生成 secrets、建 run、設 now，再自動接續第一個副本回合
-    if (done.modeTransition === "enter_dungeon" && done.transitionDungeonId) {
+    // 進入副本（只在主空間才允許觸發，防禦副本內誤判再次進入）
+    // 注意：不 yield 本回合的 done——等副本第一回合停下來才送最終 done 給前端
+    if (done.modeTransition === "enter_dungeon" && done.transitionDungeonId && state.mode !== "dungeon") {
+      for (const ev of buffered) yield ev;
       log.info({ dungeonId: done.transitionDungeonId }, "觸發 mode_transition：enter_dungeon");
       // 即將自行 commit；先等本回合的 Layer 3 落地完，避免兩個 git commit 並發搶鎖
       await deps.pendingLoreSync?.promise;
@@ -232,7 +245,9 @@ export async function* runTurnLoop(
     }
 
     // 結算副本：清空進行中副本欄，回主空間，交還玩家
+    // 注意：不 yield 本回合的 done——結算後由玩家在安全區重新啟動下一回合
     if (done.modeTransition === "settle_dungeon") {
+      for (const ev of buffered) yield ev;
       log.info({ dungeonId: state.now.activeDungeon }, "觸發 mode_transition：settle_dungeon");
       // 即將自行 commit；先等本回合的 Layer 3 落地完，避免兩個 git commit 並發搶鎖
       await deps.pendingLoreSync?.promise;
@@ -247,8 +262,15 @@ export async function* runTurnLoop(
       break;
     }
 
-    if (done.awaitingUserInput) break;
-    if (i === maxAuto) break;
+    // 需要玩家輸入或達上限：送出 buffered + done，結束迴圈
+    if (done.awaitingUserInput || i === maxAuto) {
+      for (const ev of buffered) yield ev;
+      yield done;
+      break;
+    }
+
+    // 自動推進：不送本回合 done，繼續下一回合
+    for (const ev of buffered) yield ev;
     log.debug({ index: i + 1 }, "自動推進到下一回合");
     yield { type: "auto-advance", index: i + 1 };
   }
