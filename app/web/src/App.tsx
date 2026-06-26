@@ -119,18 +119,6 @@ export function App() {
   const SESSION_TURN_ID_KEY = "iwa_turnId";
   const SESSION_OFFSET_KEY = "iwa_receivedOffset";
 
-  function saveReconnectState(turnId: string, offset: number) {
-    sessionStorage.setItem(SESSION_TURN_ID_KEY, turnId);
-    sessionStorage.setItem(SESSION_OFFSET_KEY, String(offset));
-  }
-
-  function loadReconnectState(): { turnId: string; offset: number } | null {
-    const turnId = sessionStorage.getItem(SESSION_TURN_ID_KEY);
-    const offsetStr = sessionStorage.getItem(SESSION_OFFSET_KEY);
-    if (!turnId || offsetStr === null) return null;
-    return { turnId, offset: parseInt(offsetStr, 10) };
-  }
-
   function clearReconnectState() {
     sessionStorage.removeItem(SESSION_TURN_ID_KEY);
     sessionStorage.removeItem(SESSION_OFFSET_KEY);
@@ -150,10 +138,8 @@ export function App() {
       setSuggested([]);
       const offset = 0; // 固定從 0 重播 buffer 全部事件（buffer 保留完整序列）
 
-      let receivedEventCount = offset;
       try {
         await streamTurnFromOffset(offset, (ev) => {
-          receivedEventCount++;
           switch (ev.type) {
             case "delta":
               for (const char of ev.text) {
@@ -200,6 +186,7 @@ export function App() {
           setStory((s) => s + `\n[重連失敗] ${(e as Error).message}\n`);
         }
       } finally {
+        clearReconnectState();
         setBusy(false);
       }
     } catch {
