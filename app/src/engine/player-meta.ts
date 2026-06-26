@@ -90,8 +90,15 @@ export async function readPlayerMetaCounts(
   const worldMatch = md.match(/已封存世界數：(\d+)/);
   const genMatch = md.match(/已結算主角代數：(\d+)/);
 
-  const worldHistoryCount = worldMatch ? Number(worldMatch[1]) : 0;
-  const protagonistGenerationCount = genMatch ? Number(genMatch[1]) : 0;
+  if (!worldMatch) {
+    throw new Error("player.md 格式錯誤：找不到已封存世界數");
+  }
+  if (!genMatch) {
+    throw new Error("player.md 格式錯誤：找不到已結算主角代數");
+  }
+
+  const worldHistoryCount = Number(worldMatch[1]);
+  const protagonistGenerationCount = Number(genMatch[1]);
 
   return { worldHistoryCount, protagonistGenerationCount };
 }
@@ -122,7 +129,7 @@ export async function appendPlayerMetaIndex(repoRoot: string, entry: PlayerMetaI
     `| ${entry.epitaphId} | ${entry.worldUuid} | ${entry.protagonistGeneration} | ${entry.protagonistName} | ${entry.endingType} | ${entry.createdAt} |`;
 
   const md = await readFile(playerPath(repoRoot), "utf8");
-  // 在檔案末尾追加新列（確保結尾有換行）
-  const next = md.trimEnd() + "\n" + newRow + "\n";
-  await writeFile(playerPath(repoRoot), next, "utf8");
+  // 在檔案末尾追加新列（確保結尾有換行，不修改其他空白）
+  const nextMd = md.endsWith("\n") ? md + newRow + "\n" : md + "\n" + newRow + "\n";
+  await writeFile(playerPath(repoRoot), nextMd, "utf8");
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
+import { mkdtemp, rm, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -79,6 +79,13 @@ describe("readPlayerMetaCounts", () => {
     const counts = await readPlayerMetaCounts(repoRoot);
     expect(counts.worldHistoryCount).toBe(0);
     expect(counts.protagonistGenerationCount).toBe(0);
+  });
+
+  it("readPlayerMetaCounts 格式錯誤時拋出錯誤", async () => {
+    await ensurePlayerMeta(repoRoot);
+    // overwrite with malformed content
+    await writeFile(path.join(repoRoot, "meta", "player.md"), "# 玩家檔案\n\n無計數欄位。\n", "utf8");
+    await expect(readPlayerMetaCounts(repoRoot)).rejects.toThrow("格式錯誤");
   });
 });
 
