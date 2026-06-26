@@ -576,6 +576,42 @@ describe("POST /api/turn 玩家決策記錄", () => {
   });
 });
 
+describe("POST /api/world/protagonist — 主角結算整合", () => {
+  let world: string;
+  let repoRoot: string;
+  beforeEach(async () => {
+    repoRoot = await mkdtemp(path.join(tmpdir(), "iwa-prot-settle-"));
+    world = path.join(repoRoot, "world");
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    await writeFile(path.join(world, "setting.md"), "# 世界設定\n\n真實世界。\n", "utf8");
+    await writeFile(path.join(world, "gm-notes.md"), "# 隱藏真相\n\n秘密。\n", "utf8");
+    await writeFile(path.join(world, "now.md"), "- 當前篇章：終章\n- 進行中的副本：無\n- 最後更新：[2026-06-23] x\n", "utf8");
+    await writeFile(path.join(world, "journal.md"), "# 主空間日誌（Journal）\n\n## [2026-06-23] 舊日誌\n\n舊主角的冒險。\n", "utf8");
+    await writeFile(path.join(world, "characters", "protagonist.md"), "- 姓名：沈奕\n- 當前積分：0\n", "utf8");
+    await writeFile(path.join(world, "characters", "index.md"), "| ID | 姓名 |\n| protagonist | 沈奕 |\n", "utf8");
+    await writeFile(path.join(world, ".pending-death"), new Date().toISOString(), "utf8");
+  });
+  afterEach(async () => {
+    await rm(repoRoot, { recursive: true, force: true });
+  });
+
+  it("end-world：結算主角（已結算主角代數 1）且封存世界（已封存世界數 1）", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["終章摘要。"]),
+      commit: async () => true,
+    });
+    const res = await server.inject({
+      method: "POST", url: "/api/world/protagonist", payload: { choice: "end-world" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().archivedTo).toMatch(/^archives\//);
+    const playerMd = await readFile(path.join(repoRoot, "meta", "player.md"), "utf8");
+    expect(playerMd).toContain("已結算主角代數：1");
+    expect(playerMd).toContain("已封存世界數：1");
+    await server.close();
+  });
+});
+
 describe("POST /api/turn 在 .pending-death 存在時擋下", () => {
   let world: string;
   beforeEach(async () => {

@@ -12,6 +12,8 @@ import {
 } from "./world-status.js";
 import { getTemplate } from "./template-loader.js";
 import { generateWorldUuid, injectWorldUuid, readWorldUuid } from "./world-id.js";
+import { ensurePlayerMeta, incrementPlayerCounts, readPlayerMetaCounts } from "./player-meta.js";
+import { settleProtagonist } from "./protagonist-epitaph.js";
 
 /** 把一次性 streamChat 收斂成完整字串（世界級生成都是非串流場景） */
 export async function generateText(client: LlmClient, messages: ChatMessage[]): Promise<string> {
@@ -249,6 +251,11 @@ export async function endWorld(opts: {
   const archivedTo = await archiveWorld(repoRoot, worldDir, worldUuid);
   await writeFile(path.join(repoRoot, archivedTo, "summary.md"), `# 終章摘要\n\n${summary}\n`, "utf8");
   await resetWorldToPlaceholder(worldDir, today);
+
+  // 世界封存計數 +1（主角結算由呼叫端負責，不在此處）
+  await ensurePlayerMeta(repoRoot);
+  await incrementPlayerCounts(repoRoot, { worldHistoryDelta: 1 });
+
   return archivedTo;
 }
 
@@ -269,6 +276,19 @@ export async function replaceProtagonist(opts: {
   const readSafe = async (rel: string): Promise<string> => {
     try { return await readFile(path.join(worldDir, rel), "utf8"); } catch { return ""; }
   };
+
+  // 0) 主角結算（在退場摘要/封存/換代之前先結算，確保 epitaph 快照的是死亡前狀態）
+  await ensurePlayerMeta(repoRoot);
+  const { protagonistGenerationCount } = await readPlayerMetaCounts(repoRoot);
+  await settleProtagonist({
+    repoRoot,
+    worldDir,
+    client,
+    logger,
+    today,
+    endingType: "死亡",
+    protagonistGeneration: protagonistGenerationCount + 1,
+  });
 
   // 1) 前任退場摘要（讀 journal/protagonist，不讀 gm-notes）
   let farewell: string;

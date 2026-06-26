@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resetWorldToPlaceholder, endWorld, initWorld } from "./world-ops.js";
+import { resetWorldToPlaceholder, endWorld, initWorld, replaceProtagonist } from "./world-ops.js";
 import { readWorldUuid } from "./world-id.js";
 import { isWorldInitialized } from "./world-status.js";
 import { createLogger } from "../logger.js";
@@ -288,4 +288,43 @@ describe("initWorld 骨架注入", () => {
     expect(journal).not.toContain("新世界建立，主角剛被系統選中。");
   });
 
+});
+
+describe("replaceProtagonist 主角結算整合", () => {
+  let repoRoot: string;
+  let worldDir: string;
+
+  /** 回傳任意文字的 fake LLM client（供退場摘要、新主角生成、墓誌銘評語等多次呼叫使用） */
+  const fakeMultiClient: LlmClient = {
+    async *streamChat(_messages: ChatMessage[]): AsyncIterable<string> {
+      yield "這是一段測試回應，供所有 LLM 呼叫使用。";
+    },
+  };
+
+  beforeEach(async () => {
+    repoRoot = await mkdtemp(path.join(tmpdir(), "iwa-replace-prot-"));
+    worldDir = path.join(repoRoot, "world");
+    await mkdir(path.join(worldDir, "characters"), { recursive: true });
+    await writeFile(path.join(worldDir, "setting.md"), "# 世界設定\n\n真實世界。\n", "utf8");
+    await writeFile(path.join(worldDir, "gm-notes.md"), "# 隱藏真相\n\n秘密。\n", "utf8");
+    await writeFile(path.join(worldDir, "now.md"), "- 當前篇章：終章\n- 進行中的副本：無\n- 最後更新：[2026-06-26] x\n", "utf8");
+    // 需有日誌內容，讓快照有意義
+    await writeFile(path.join(worldDir, "journal.md"), "# 主空間日誌（Journal）\n\n## [2026-06-25] 舊日誌\n\n舊主角的冒險開始了。\n", "utf8");
+    await writeFile(path.join(worldDir, "characters", "protagonist.md"), "- 姓名：沈奕\n- 當前積分：100\n", "utf8");
+    await writeFile(path.join(worldDir, "characters", "index.md"), "| ID | 姓名 |\n| protagonist | 沈奕 |\n", "utf8");
+  });
+
+  afterEach(async () => {
+    await rm(repoRoot, { recursive: true, force: true });
+  });
+
+  it("replaceProtagonist 會先做主角結算，再重置 active protagonist/journal", async () => {
+    await replaceProtagonist({
+      repoRoot, worldDir, client: fakeMultiClient, protagonistSeed: {}, today: "2026-06-26", logger: createLogger(),
+    });
+    const playerMd = await readFile(path.join(repoRoot, "meta", "player.md"), "utf8");
+    expect(playerMd).toContain("已結算主角代數：1");
+    expect(playerMd).toContain("| epi-");
+    expect(await readFile(path.join(worldDir, "journal.md"), "utf8")).toContain("新主角接替");
+  });
 });

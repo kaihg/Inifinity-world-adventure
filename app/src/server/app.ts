@@ -22,7 +22,8 @@ import { initWorld, endWorld, replaceProtagonist } from "../engine/world-ops.js"
 import { clearRecallIndex } from "../recall/clear-index.js";
 import { todayISO } from "../engine/turn/shared.js";
 import { appendPlayerDecision } from "../engine/player-decisions.js";
-import { readPlayerMetaCounts } from "../engine/player-meta.js";
+import { ensurePlayerMeta, readPlayerMetaCounts } from "../engine/player-meta.js";
+import { settleProtagonist } from "../engine/protagonist-epitaph.js";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 // app/src/server/app.ts → app/web（dev：原始檔；prod：Vite build 輸出 web-dist）
@@ -262,6 +263,21 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     const opLogger = logger.child({ op: "world-protagonist" });
     try {
       if (body.choice === "end-world") {
+        // 主角死亡後直接結束世界：先結算主角，再封存世界
+        await ensurePlayerMeta(repoRoot);
+        const { protagonistGenerationCount } = await readPlayerMetaCounts(repoRoot).catch(async () => {
+          await ensurePlayerMeta(repoRoot);
+          return readPlayerMetaCounts(repoRoot);
+        });
+        await settleProtagonist({
+          repoRoot,
+          worldDir: config.worldDir,
+          client: makeClient(opLogger),
+          logger: opLogger,
+          today: todayISO(),
+          endingType: "隨世界結束",
+          protagonistGeneration: protagonistGenerationCount + 1,
+        });
         const archivedTo = await endWorld({
           repoRoot, worldDir: config.worldDir, client: makeClient(opLogger),
           today: todayISO(), logger: opLogger,
