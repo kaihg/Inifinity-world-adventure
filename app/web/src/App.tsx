@@ -117,11 +117,9 @@ export function App() {
   }
 
   const SESSION_TURN_ID_KEY = "iwa_turnId";
-  const SESSION_OFFSET_KEY = "iwa_receivedOffset";
 
   function clearReconnectState() {
     sessionStorage.removeItem(SESSION_TURN_ID_KEY);
-    sessionStorage.removeItem(SESSION_OFFSET_KEY);
   }
 
   async function reconnectIfNeeded() {
