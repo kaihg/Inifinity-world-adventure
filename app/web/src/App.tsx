@@ -5,6 +5,21 @@ import { WorldSetupWizard } from "./WorldSetupWizard";
 import { DeathChoiceModal } from "./DeathChoiceModal";
 import { EndWorldModal } from "./EndWorldModal";
 
+export const TYPEWRITER_INTERVAL_MS = 25;
+export const LOOKAHEAD_MIN = 20;
+
+export function shouldTypewriterOutput({
+  queueLength,
+  llmDone,
+}: {
+  queueLength: number;
+  llmDone: boolean;
+}): boolean {
+  if (queueLength === 0) return false;
+  if (!llmDone && queueLength < LOOKAHEAD_MIN) return false;
+  return true;
+}
+
 const COMPUTING_HINT = "🌌 主控系統正在運算中…（自架模型首字推論可能需數十秒，請稍候）";
 
 export function App() {
@@ -21,6 +36,9 @@ export function App() {
   const storyEndRef = useRef<HTMLDivElement | null>(null);
   const loadedInitialRef = useRef(false);
   const busyRef = useRef(busy);
+  const pendingQueue = useRef<string[]>([]);
+  const llmDoneRef = useRef(false);
+  const typewriterTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 🚀 保持 busyRef 與 busy 同步
   useEffect(() => {
@@ -66,11 +84,42 @@ export function App() {
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
+  function startTypewriter() {
+    if (typewriterTimer.current) return;
+    typewriterTimer.current = setInterval(() => {
+      if (
+        shouldTypewriterOutput({
+          queueLength: pendingQueue.current.length,
+          llmDone: llmDoneRef.current,
+        })
+      ) {
+        const char = pendingQueue.current.shift()!;
+        setStory((s) => s + char);
+      } else if (llmDoneRef.current && pendingQueue.current.length === 0) {
+        clearInterval(typewriterTimer.current!);
+        typewriterTimer.current = null;
+      }
+    }, TYPEWRITER_INTERVAL_MS);
+  }
+
+  function stopTypewriter(clearQueue = false) {
+    if (typewriterTimer.current) {
+      clearInterval(typewriterTimer.current);
+      typewriterTimer.current = null;
+    }
+    if (clearQueue) {
+      pendingQueue.current = [];
+    }
+    llmDoneRef.current = false;
+  }
+
   async function send(action: string) {
     const text = action.trim();
     if (!text || busy) return;
     setBusy(true);
     setStory("");
+    stopTypewriter(true);
+    llmDoneRef.current = false;
     setSuggested([]);
     setInput("");
     // 新回合：把劇情卡捲到可視區頂端，streaming 期間不再自動捲動
@@ -83,7 +132,10 @@ export function App() {
       await streamTurn(text, (ev) => {
         switch (ev.type) {
           case "delta":
-            setStory((s) => s + ev.text);
+            for (const char of ev.text) {
+              pendingQueue.current.push(char);
+            }
+            startTypewriter();
             break;
           case "transition":
             setStory(
@@ -96,6 +148,7 @@ export function App() {
             setStory((s) => s + `\n[提示] ${ev.message}\n`);
             break;
           case "error":
+            stopTypewriter(true);
             setStory((s) => s + `\n[錯誤] ${ev.message}\n`);
             break;
           case "done":
@@ -109,11 +162,13 @@ export function App() {
               setSuggested([]);
             }
             if (ev.state) setState(ev.state);
+            llmDoneRef.current = true;
             break;
         }
       });
       await refresh();
     } catch (e) {
+      stopTypewriter(true);
       // 🚀 斷線與背景喚醒自我癒合機制 ── 帶重試輪詢 (Polling with backoff/retries for slow self-hosted models)
       console.warn("streamTurn 發生中斷，開始執行自我癒合輪詢檢測...", e);
 
