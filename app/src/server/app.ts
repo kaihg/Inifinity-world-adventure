@@ -157,6 +157,15 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
   // 同一時間只允許一個回合在跑：防止並行回合互相覆寫 world/ 或搶 git commit 鎖。
   let turnInProgress = false;
 
+  interface TurnBuffer {
+    turnId: string;
+    narrative: string;
+    events: TurnEvent[];
+    active: boolean;
+  }
+
+  let currentTurnBuffer: TurnBuffer | null = null;
+
   // 啟動時建立一次（建構本身零 I/O，模型/索引延遲初始化）；未啟用時不建立，避免不必要的模型下載
   const recall: RecallIndex | undefined =
     deps.recall ?? (config.recall.enabled ? createRecallIndex(config.recall.indexDir) : undefined);
@@ -285,6 +294,13 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     }
   });
 
+  server.get("/api/turn/status", async () => {
+    return {
+      active: currentTurnBuffer?.active ?? false,
+      turnId: currentTurnBuffer?.turnId ?? null,
+    };
+  });
+
   // 推進主空間/副本敘事回合，以 SSE 串流 delta/done 事件
   server.post("/api/turn", async (req, reply) => {
     const input = (req.body as { input?: string })?.input ?? "";
@@ -309,6 +325,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       return reply.code(409).send({ error: "上一回合仍在執行中，請稍候再試" });
     }
     turnInProgress = true;
+    currentTurnBuffer = { turnId, narrative: "", events: [], active: true };
 
     reply.hijack();
     reply.raw.writeHead(200, {
@@ -349,6 +366,11 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       let done: Extract<TurnEvent, { type: "done" }> | null = null;
       for await (const ev of gen) {
         if (ev.type === "warning") turnLogger.warn({ ev }, "回合警告事件");
+        // 累積到 buffer（done 在截留後另外 push）
+        if (ev.type !== "done" && currentTurnBuffer) {
+          if (ev.type === "delta") currentTurnBuffer.narrative += ev.text;
+          currentTurnBuffer.events.push(ev);
+        }
         if (ev.type === "done") { done = ev; continue; }
         reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`);
       }
@@ -400,6 +422,10 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       }
 
       // 5. 送出最終 done
+      if (currentTurnBuffer) {
+        currentTurnBuffer.events.push(done);
+        currentTurnBuffer.active = false;
+      }
       reply.raw.write(`data: ${JSON.stringify(done)}\n\n`);
 
       turnLogger.info({ durationMs: Date.now() - startedAt }, "/api/turn 完成");

@@ -538,6 +538,44 @@ describe("POST /api/world/protagonist", () => {
   });
 });
 
+describe("TurnBuffer：POST /api/turn 填充 buffer", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-buffer-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    await writeFile(path.join(world, "setting.md"), "# 設定\n\n世界。\n");
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 進行中的副本：無\n- 最後更新：[2026-06-26] 測試\n",
+    );
+    await writeFile(path.join(world, "characters", "protagonist.md"), "- 姓名：沈奕\n- 當前積分：0\n");
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("回合完成後 GET /api/turn/status 回 active:false、turnId 不為 null", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["敘事內容。"]),
+      controlClient: fakeClient([
+        JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "回合",
+        }),
+      ]),
+      commit: async () => true,
+    });
+    await server.inject({ method: "POST", url: "/api/turn", payload: { input: "行動" } });
+    const res = await server.inject({ method: "GET", url: "/api/turn/status" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.active).toBe(false);
+    expect(typeof body.turnId).toBe("string");
+    expect(body.turnId).not.toBe("");
+    await server.close();
+  });
+});
+
 describe("POST /api/turn 在 .pending-death 存在時擋下", () => {
   let world: string;
   beforeEach(async () => {
