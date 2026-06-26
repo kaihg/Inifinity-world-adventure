@@ -181,12 +181,15 @@ describe("POST /api/turn（SSE）", () => {
 
   it("一回合（含自動推進）仍在執行時，第二個 /api/turn 請求回 409，不會並發寫 world/", async () => {
     let releaseFirst: () => void = () => {};
+    // streamStarted 讓測試確定性地等到第一回合進入 streamChat（此時 turnInProgress=true 已設定），
+    // 再送第二個請求，避免 setTimeout 競態導致 releaseFirst 被覆寫後 timeout。
+    let signalStreamStarted: () => void = () => {};
+    const streamStarted = new Promise<void>((resolve) => { signalStreamStarted = resolve; });
     const blockingClient: LlmClient = {
       async *streamChat() {
+        signalStreamStarted();
         yield "前半段，";
-        await new Promise<void>((resolve) => {
-          releaseFirst = resolve;
-        });
+        await new Promise<void>((resolve) => { releaseFirst = resolve; });
         yield "後半段。";
       },
     };
@@ -202,8 +205,7 @@ describe("POST /api/turn（SSE）", () => {
     });
 
     const firstReq = server.inject({ method: "POST", url: "/api/turn", payload: { input: "我四處看看" } });
-    // 讓第一個請求先進入 hijack/streamChat，確保鎖已被設置
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await streamStarted; // 確定性地等到 streamChat 被呼叫（turnInProgress=true 已設定）
 
     const secondRes = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "再四處看看" } });
     expect(secondRes.statusCode).toBe(409);
