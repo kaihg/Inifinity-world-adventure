@@ -301,6 +301,68 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     };
   });
 
+  server.get("/api/turn/stream", async (req, reply) => {
+    const offsetParam = (req.query as { offset?: string }).offset;
+    const offset = offsetParam !== undefined ? parseInt(offsetParam, 10) : 0;
+
+    // buffer 不存在（伺服器重啟或從未有回合）
+    if (!currentTurnBuffer) {
+      return reply.code(204).send();
+    }
+
+    const buf = currentTurnBuffer;
+
+    // offset 超出範圍（伺服器重啟後 buffer 清空，舊 offset 無效）
+    if (offset > buf.events.length) {
+      return reply.code(410).send({ error: "offset 超出 buffer 範圍，請重新整理" });
+    }
+
+    // 已完成且沒有新事件可送
+    if (!buf.active && offset >= buf.events.length) {
+      return reply.code(204).send();
+    }
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+
+    // 重播 offset 之後的事件
+    for (let i = offset; i < buf.events.length; i++) {
+      reply.raw.write(`data: ${JSON.stringify(buf.events[i])}\n\n`);
+    }
+
+    // 若回合已結束，直接關閉
+    if (!buf.active) {
+      reply.raw.end();
+      return;
+    }
+
+    // 回合仍在進行：polling 等待新事件（每 100ms 檢查一次，最多等 5 分鐘）
+    let cursor = buf.events.length;
+    const maxWaitMs = 5 * 60 * 1000;
+    const pollMs = 100;
+    const deadline = Date.now() + maxWaitMs;
+
+    await new Promise<void>((resolve) => {
+      const tick = setInterval(() => {
+        // 送出新增的事件
+        while (cursor < buf.events.length) {
+          reply.raw.write(`data: ${JSON.stringify(buf.events[cursor])}\n\n`);
+          cursor++;
+        }
+        // 回合結束或逾時，關閉串流
+        if (!buf.active || Date.now() > deadline) {
+          clearInterval(tick);
+          reply.raw.end();
+          resolve();
+        }
+      }, pollMs);
+    });
+  });
+
   // 推進主空間/副本敘事回合，以 SSE 串流 delta/done 事件
   server.post("/api/turn", async (req, reply) => {
     const input = (req.body as { input?: string })?.input ?? "";

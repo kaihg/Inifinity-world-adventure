@@ -576,6 +576,75 @@ describe("TurnBuffer：POST /api/turn 填充 buffer", () => {
   });
 });
 
+describe("GET /api/turn/stream 重連端點", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-stream-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    await writeFile(path.join(world, "setting.md"), "# 設定\n\n世界。\n");
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 進行中的副本：無\n- 最後更新：[2026-06-26] 測試\n",
+    );
+    await writeFile(path.join(world, "characters", "protagonist.md"), "- 姓名：沈奕\n- 當前積分：0\n");
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("GET /api/turn/stream?offset=0 重播所有已落地事件，active=false 時串流結束", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["abc", "def"]),
+      controlClient: fakeClient([
+        JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: ["行動A"], commit_summary: "回合",
+        }),
+      ]),
+      commit: async () => true,
+    });
+    await server.inject({ method: "POST", url: "/api/turn", payload: { input: "行動" } });
+    const res = await server.inject({ method: "GET", url: "/api/turn/stream?offset=0" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/event-stream");
+    const events = parseSSEEvents(res.body);
+    const deltas = events.filter((e: any) => e.type === "delta");
+    expect(deltas.length).toBeGreaterThan(0);
+    const done = events.find((e: any) => e.type === "done");
+    expect(done).toBeDefined();
+    await server.close();
+  });
+
+  it("GET /api/turn/stream?offset=N 超出 buffer 長度 → 410", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["x"]),
+      controlClient: fakeClient([
+        JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "回合",
+        }),
+      ]),
+      commit: async () => true,
+    });
+    await server.inject({ method: "POST", url: "/api/turn", payload: { input: "行動" } });
+    // 超出實際 events 長度
+    const res = await server.inject({ method: "GET", url: "/api/turn/stream?offset=9999" });
+    expect(res.statusCode).toBe(410);
+    await server.close();
+  });
+
+  it("沒有進行中的回合（buffer 為 null）→ GET /api/turn/stream 回 204", async () => {
+    // 全新 server，未觸發任何回合
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient([]),
+      commit: async () => true,
+    });
+    const res = await server.inject({ method: "GET", url: "/api/turn/stream?offset=0" });
+    expect(res.statusCode).toBe(204);
+    await server.close();
+  });
+});
+
 describe("POST /api/turn 在 .pending-death 存在時擋下", () => {
   let world: string;
   beforeEach(async () => {
