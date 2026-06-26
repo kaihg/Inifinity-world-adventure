@@ -3,6 +3,7 @@ import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promis
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resetWorldToPlaceholder, endWorld, initWorld } from "./world-ops.js";
+import { readWorldUuid } from "./world-id.js";
 import { isWorldInitialized } from "./world-status.js";
 import { createLogger } from "../logger.js";
 import type { LlmClient, ChatMessage } from "../llm/client.js";
@@ -136,6 +137,9 @@ describe("endWorld", () => {
     const remaining = await listFiles(worldDir);
     expect(remaining).toEqual(PLACEHOLDER_FILES);
     expect(await isWorldInitialized(worldDir)).toBe(false);
+
+    // 3) setting.md 無 UUID，封存路徑應以 -unknown 結尾
+    expect(archivedTo).toMatch(/-unknown$/);
   });
 });
 
@@ -239,6 +243,17 @@ describe("initWorld 骨架注入", () => {
     expect(order.indexOf("setting-end")).toBeLessThan(order.indexOf("character-start"));
 
     await initPromise;
+  });
+
+  it("readWorldUuid 從 setting.md 讀取並回傳 UUID", async () => {
+    await writeFile(path.join(worldDir, "setting.md"), "# 標題\n\n- 世界 UUID：550e8400-e29b-41d4-a716-446655440000\n", "utf8");
+    const uuid = await readWorldUuid(worldDir);
+    expect(uuid).toBe("550e8400-e29b-41d4-a716-446655440000");
+  });
+
+  it("readWorldUuid 找不到 UUID 時拋出錯誤", async () => {
+    await writeFile(path.join(worldDir, "setting.md"), "# 標題\n\n無 UUID。\n", "utf8");
+    await expect(readWorldUuid(worldDir)).rejects.toThrow();
   });
 
   it("journal.md 第一筆記錄是依 setting+protagonist 生成的開場敘事，不是制式文字", async () => {

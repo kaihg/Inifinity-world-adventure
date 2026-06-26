@@ -45,12 +45,6 @@ describe("archiveWorld / archiveWorldFiles", () => {
     expect(protagonistCopy).toBe("- 姓名：沈奕\n");
   });
 
-  it("archiveWorld 以 world_uuid 組 archive 路徑", async () => {
-    const fixedNow = new Date("2026-06-26T00:00:00.000Z");
-    const rel = await archiveWorld(repoRoot, worldDir, "550e8400-e29b-41d4-a716-446655440000", fixedNow);
-    expect(rel).toContain("550e8400-e29b-41d4-a716-446655440000");
-  });
-
   it("archiveWorldFiles 只複製指定的相對路徑清單，保留子目錄結構", async () => {
     const fixedNow = new Date("2026-06-23T15:00:00.000Z");
     const rel = await archiveWorldFiles(
