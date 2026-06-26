@@ -94,6 +94,7 @@ export interface BuildMessagesParams {
   recallBlock?: string;
   nudgeBlock?: string;
   pacingBlock?: string;
+  openingPrompt?: string;
 }
 
 /** 主空間回合的對話訊息（純函式，可測試） */
@@ -124,6 +125,9 @@ export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage
     "",
     canonicalBlock(state),
     ...appendOptionalBlocks(params),
+    ...(params.openingPrompt
+      ? ["", "## 開場回合特別指引", params.openingPrompt.trim()]
+      : []),
   ].join("\n");
 
   return [
