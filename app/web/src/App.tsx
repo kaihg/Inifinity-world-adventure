@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { fetchState, fetchVersion, streamTurn, fetchWorldStatus, endWorld, type AppVersion, type GameState } from "./api";
+import { fetchState, fetchVersion, streamTurn, fetchWorldStatus, endWorld, fetchTurnStatus, streamTurnFromOffset, type AppVersion, type GameState } from "./api";
 import { WorldSetupWizard } from "./WorldSetupWizard";
 import { DeathChoiceModal } from "./DeathChoiceModal";
 import { EndWorldModal } from "./EndWorldModal";
@@ -64,21 +64,24 @@ export function App() {
     refresh();
     fetchVersion().then(setVersion).catch(() => {});
 
+    reconnectIfNeeded().catch(() => {});
+
     // 🚀 手機 App / 網頁切換至背景後喚醒自動同步
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        fetchState()
-          .then((s) => {
-            // 只有當不處於忙碌中時，喚醒才需要同步最新狀態、劇情與建議動作，避免打斷串流
-            if (!busyRef.current) {
+        reconnectIfNeeded().catch(() => {});
+        // 無論是否重連，也補一次 fetchState 更新 sidebar 狀態
+        if (!busyRef.current) {
+          fetchState()
+            .then((s) => {
               setState(s);
-              if (s.lastTurn) {
+              if (s.lastTurn && !busyRef.current) {
                 setStory(s.lastTurn.narrative);
                 setSuggested(s.lastTurn.suggestedActions);
               }
-            }
-          })
-          .catch(() => {});
+            })
+            .catch(() => {});
+        }
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
@@ -113,6 +116,97 @@ export function App() {
     llmDoneRef.current = false;
   }
 
+  const SESSION_TURN_ID_KEY = "iwa_turnId";
+  const SESSION_OFFSET_KEY = "iwa_receivedOffset";
+
+  function saveReconnectState(turnId: string, offset: number) {
+    sessionStorage.setItem(SESSION_TURN_ID_KEY, turnId);
+    sessionStorage.setItem(SESSION_OFFSET_KEY, String(offset));
+  }
+
+  function loadReconnectState(): { turnId: string; offset: number } | null {
+    const turnId = sessionStorage.getItem(SESSION_TURN_ID_KEY);
+    const offsetStr = sessionStorage.getItem(SESSION_OFFSET_KEY);
+    if (!turnId || offsetStr === null) return null;
+    return { turnId, offset: parseInt(offsetStr, 10) };
+  }
+
+  function clearReconnectState() {
+    sessionStorage.removeItem(SESSION_TURN_ID_KEY);
+    sessionStorage.removeItem(SESSION_OFFSET_KEY);
+  }
+
+  async function reconnectIfNeeded() {
+    if (busyRef.current) return; // 正在執行回合，不重連
+    try {
+      const status = await fetchTurnStatus();
+      if (!status.active) {
+        // 回合已完成，走現有 fetchState() 還原路徑
+        return;
+      }
+      // 回合仍在進行中
+      setBusy(true);
+      setStory("");
+      setSuggested([]);
+      const offset = 0; // 固定從 0 重播 buffer 全部事件（buffer 保留完整序列）
+
+      let receivedEventCount = offset;
+      try {
+        await streamTurnFromOffset(offset, (ev) => {
+          receivedEventCount++;
+          switch (ev.type) {
+            case "delta":
+              for (const char of ev.text) {
+                pendingQueue.current.push(char);
+              }
+              startTypewriter();
+              break;
+            case "transition":
+              setStory(
+                (s) =>
+                  s + `\n\n【${ev.to === "dungeon" ? `進入副本 ${ev.dungeonId ?? ""}` : "返回安全區"}】\n\n`,
+              );
+              setSuggested([]);
+              break;
+            case "warning":
+              setStory((s) => s + `\n[提示] ${ev.message}\n`);
+              break;
+            case "error":
+              stopTypewriter(true);
+              setStory((s) => s + `\n[錯誤] ${ev.message}\n`);
+              break;
+            case "done":
+              if (ev.protagonistDied) {
+                setProtagonistDied(true);
+                setSuggested([]);
+              } else if (ev.awaitingUserInput) {
+                setSuggested(ev.suggestedActions ?? []);
+              } else {
+                setSuggested([]);
+              }
+              if (ev.state) setState(ev.state);
+              llmDoneRef.current = true;
+              break;
+          }
+        });
+        await refresh();
+        clearReconnectState();
+      } catch (e) {
+        if (e instanceof Error && e.message === "GONE") {
+          // buffer 已清（伺服器重啟），降級還原最後已落地回合
+          await refresh();
+          setStory((s) => s || "連線已中斷，已還原最後進度。");
+        } else {
+          setStory((s) => s + `\n[重連失敗] ${(e as Error).message}\n`);
+        }
+      } finally {
+        setBusy(false);
+      }
+    } catch {
+      // fetchTurnStatus 失敗，靜默忽略（網路問題，不影響現有流程）
+    }
+  }
+
   async function send(action: string) {
     const text = action.trim();
     if (!text || busy) return;
@@ -129,6 +223,10 @@ export function App() {
     const preTurnLastUpdated = state?.now?.lastUpdated;
 
     try {
+      // 標記本回合 ID 供重連使用，非同步取得不阻塞
+      fetchTurnStatus().then((s) => {
+        if (s.turnId) sessionStorage.setItem(SESSION_TURN_ID_KEY, s.turnId);
+      }).catch(() => {});
       await streamTurn(text, (ev) => {
         switch (ev.type) {
           case "delta":
@@ -167,8 +265,10 @@ export function App() {
         }
       });
       await refresh();
+      clearReconnectState();
     } catch (e) {
       stopTypewriter(true);
+      clearReconnectState();
       // 🚀 斷線與背景喚醒自我癒合機制 ── 帶重試輪詢 (Polling with backoff/retries for slow self-hosted models)
       console.warn("streamTurn 發生中斷，開始執行自我癒合輪詢檢測...", e);
 
