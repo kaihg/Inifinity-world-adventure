@@ -1,4 +1,4 @@
-import { copyFile, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { LlmClient } from "../llm/client.js";
 import type { Logger } from "../logger.js";
@@ -20,17 +20,6 @@ export interface SettleProtagonistOpts {
   today: string;
   endingType: "死亡" | "主動封存" | "隨世界結束";
   protagonistGeneration: number;
-}
-
-/**
- * 讀取檔案；若不存在回傳 fallback 字串（不拋錯）。
- */
-async function readSafe(filePath: string, fallback: string): Promise<string> {
-  try {
-    return await readFile(filePath, "utf8");
-  } catch {
-    return fallback;
-  }
 }
 
 /**
@@ -58,16 +47,16 @@ async function snapshotWorldFiles(
   let protagonistMd: string;
 
   try {
-    await copyFile(journalSrc, journalDest);
-    journalMd = await readFile(journalDest, "utf8");
+    journalMd = await readFile(journalSrc, "utf8");
+    await writeFile(journalDest, journalMd, "utf8");
   } catch {
     journalMd = "# 主空間日誌（Journal）\n\n（無日誌記錄）\n";
     await writeFile(journalDest, journalMd, "utf8");
   }
 
   try {
-    await copyFile(protagonistSrc, protagonistDest);
-    protagonistMd = await readFile(protagonistDest, "utf8");
+    protagonistMd = await readFile(protagonistSrc, "utf8");
+    await writeFile(protagonistDest, protagonistMd, "utf8");
   } catch {
     protagonistMd = "# 主角檔案\n\n（無主角記錄）\n";
     await writeFile(protagonistDest, protagonistMd, "utf8");

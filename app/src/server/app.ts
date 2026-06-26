@@ -265,10 +265,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       if (body.choice === "end-world") {
         // 主角死亡後直接結束世界：先結算主角，再封存世界
         await ensurePlayerMeta(repoRoot);
-        const { protagonistGenerationCount } = await readPlayerMetaCounts(repoRoot).catch(async () => {
-          await ensurePlayerMeta(repoRoot);
-          return readPlayerMetaCounts(repoRoot);
-        });
+        const { protagonistGenerationCount } = await readPlayerMetaCounts(repoRoot);
         await settleProtagonist({
           repoRoot,
           worldDir: config.worldDir,
