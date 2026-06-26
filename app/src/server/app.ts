@@ -435,6 +435,9 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       reply.raw.write(`data: ${JSON.stringify({ type: "error", message })}\n\n`);
     } finally {
       turnInProgress = false;
+      if (currentTurnBuffer?.active) {
+        currentTurnBuffer.active = false;
+      }
       reply.raw.end();
     }
   });
