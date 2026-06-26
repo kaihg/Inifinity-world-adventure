@@ -55,6 +55,16 @@ export async function fetchVersion(): Promise<AppVersion> {
   return res.json();
 }
 
+export interface FrontendConfig {
+  typewriterIntervalMs: number;
+}
+
+export async function fetchConfig(): Promise<FrontendConfig> {
+  const res = await fetch("/api/config");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
 export type TurnEvent =
   | { type: "ping" }
   | { type: "delta"; text: string }

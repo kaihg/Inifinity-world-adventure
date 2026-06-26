@@ -194,6 +194,10 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     return { ok: true, model: config.openai.model };
   });
 
+  server.get("/api/config", async () => {
+    return { typewriterIntervalMs: config.typewriterIntervalMs };
+  });
+
   // 開發者用：app/ 最後一次功能性 commit 的 hash + message，啟動時算一次並快取
   const versionPromise: Promise<AppVersionInfo | null> =
     deps.version !== undefined ? Promise.resolve(deps.version) : getAppVersion(repoRoot);

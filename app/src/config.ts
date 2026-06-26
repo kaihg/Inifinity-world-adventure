@@ -53,6 +53,8 @@ export interface AppConfig {
   };
   /** LLM 呼叫耗時/token 用量 log 路徑（derived，不進 git，append-only JSON Lines） */
   usageLogPath: string;
+  /** 前端打字機每字元間隔毫秒數（控制敘事顯示速度） */
+  typewriterIntervalMs: number;
 }
 
 const DEFAULTS = {
@@ -66,6 +68,7 @@ const DEFAULTS = {
   nudgeSimilarityThreshold: 0.92,
   pacingReviewInterval: 10,
   recallTopK: 5,
+  typewriterIntervalMs: 50,
 };
 
 /** 解析正整數，非法或非正數時退回預設 */
@@ -156,6 +159,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       topK: parsePositiveInt(env.RECALL_TOP_K, DEFAULTS.recallTopK),
     },
     usageLogPath: env.USAGE_LOG_PATH ? path.resolve(env.USAGE_LOG_PATH) : defaultUsageLogPath(),
+    typewriterIntervalMs: parsePositiveInt(env.TYPEWRITER_INTERVAL_MS, DEFAULTS.typewriterIntervalMs),
   };
 }
 

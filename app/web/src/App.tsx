@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { fetchState, fetchVersion, streamTurn, fetchWorldStatus, endWorld, fetchTurnStatus, streamTurnFromOffset, type AppVersion, type GameState } from "./api";
+import { fetchState, fetchVersion, fetchConfig, streamTurn, fetchWorldStatus, endWorld, fetchTurnStatus, streamTurnFromOffset, type AppVersion, type GameState } from "./api";
 import { WorldSetupWizard } from "./WorldSetupWizard";
 import { DeathChoiceModal } from "./DeathChoiceModal";
 import { EndWorldModal } from "./EndWorldModal";
 
-export const TYPEWRITER_INTERVAL_MS = 25;
+export const TYPEWRITER_INTERVAL_MS_DEFAULT = 50;
 export const LOOKAHEAD_MIN = 20;
 
 export function shouldTypewriterOutput({
@@ -40,6 +40,7 @@ export function App() {
   const llmDoneRef = useRef(false);
   const typewriterTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectingRef = useRef(false);
+  const typewriterIntervalMsRef = useRef(TYPEWRITER_INTERVAL_MS_DEFAULT);
 
   // 🚀 保持 busyRef 與 busy 同步
   useEffect(() => {
@@ -61,6 +62,10 @@ export function App() {
     fetchWorldStatus()
       .then((s) => setWorldInitialized(s.initialized))
       .catch(() => setWorldInitialized(true)); // 失敗時保守當已初始化，至少能進主畫面
+
+    fetchConfig()
+      .then((c) => { typewriterIntervalMsRef.current = c.typewriterIntervalMs; })
+      .catch(() => {});
 
     refresh();
     fetchVersion().then(setVersion).catch(() => {});
@@ -103,7 +108,7 @@ export function App() {
         clearInterval(typewriterTimer.current!);
         typewriterTimer.current = null;
       }
-    }, TYPEWRITER_INTERVAL_MS);
+    }, typewriterIntervalMsRef.current);
   }
 
   function stopTypewriter(clearQueue = false) {
@@ -124,7 +129,7 @@ export function App() {
           clearInterval(check);
           resolve();
         }
-      }, TYPEWRITER_INTERVAL_MS);
+      }, typewriterIntervalMsRef.current);
     });
   }
 
