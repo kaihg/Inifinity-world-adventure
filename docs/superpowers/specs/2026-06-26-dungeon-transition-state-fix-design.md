@@ -80,7 +80,7 @@ if (didTransition) {
 容易再演一次轉場。
 
 ### 修法
-guard 分支補寫 `now.md` 的最後更新時間戳（`bumpNowUpdated`，lossless，只改時間戳行）：
+guard 分支用 `applyNowChanges` 強制覆寫 `nextStep` 為系統過渡語氣，讓下一輪 canonical block 不再矛盾：
 
 ```typescript
 if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
@@ -89,14 +89,12 @@ if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
   try {
     const nowPath = path.join(config.worldDir, "now.md");
     const nowMd = await readFile(nowPath, "utf8");
-    await writeFile(
-      nowPath,
-      bumpNowUpdated(nowMd, {
-        date: todayISO(),
-        summary: "系統判定要進入副本但未確定副本 id，等待玩家確認",
-      }),
-      "utf8",
+    const now = applyNowChanges(
+      parseNow(nowMd),
+      { nextStep: "傳送中（副本目標定位中）" },
+      { date: todayISO(), summary: "副本傳送程序已觸發，目標定位中" },
     );
+    await writeFile(nowPath, serializeNow(now), "utf8");
   } catch (err) {
     turnLogger.warn({ err }, "guard 補寫 now.md 失敗，略過");
   }
@@ -107,9 +105,10 @@ if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
 ```
 
 **說明**：
-- 用 `bumpNowUpdated` 而非整個覆寫，不動其他欄位，符合 lossless 原則。
+- 用 `applyNowChanges` 覆寫 `nextStep`，使下一輪模型讀到的 canonical block 反映「過渡中」而非「已進副本」。
+- `nextStep: "傳送中（副本目標定位中）"` 採主神系統語氣，不暴露內部細節，也不暗示主角已在副本內。
+- 其他 `now` 欄位（`scene`/`companions` 等）不動，只修正脫鈎的 `nextStep`。
 - 失敗時只 warn 不崩潰，與其他降級路徑一致。
-- 不強行改 `nextStep` 欄位內容（Layer 2 已落地的 now 欄位保留），只確保時間戳反映「狀態已被系統確認」。
 
 ---
 
@@ -119,8 +118,11 @@ if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
 // node:fs/promises 已有 rm，補加 readFile / writeFile
 import { rm, readFile, writeFile } from "node:fs/promises";
 
-// 補加 bumpNowUpdated
-import { bumpNowUpdated } from "../engine/now.js";
+// 補加 applyNowChanges / serializeNow（bumpNowUpdated 不需要）
+import { applyNowChanges, serializeNow } from "../engine/now.js";
+
+// 補加 parseNow（已在 engine/context.js export）
+import { loadState, parseNow } from "../engine/context.js";
 ```
 
 ---
