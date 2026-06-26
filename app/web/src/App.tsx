@@ -375,7 +375,7 @@ export function App() {
               <input
                 value={input}
                 disabled={busy || protagonistDied}
-                placeholder="你的行動，例如：觀察四周、對 NPC 說話、使用技能或道具…"
+                placeholder="你的行動，例如：觀察四周、對其他人說話、使用技能或道具…"
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && send(input)}
               />
