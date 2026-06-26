@@ -128,4 +128,16 @@ describe("readPlayerDecisions", () => {
     expect(decisions[0].turnId).toBe("turn-1");
     expect(decisions[1].turnId).toBe("turn-2");
   });
+
+  it("允許空字串的玩家輸入", async () => {
+    await appendPlayerDecision(worldDir, {
+      turnId: "turn-empty",
+      protagonistGeneration: 1,
+      createdAt: "2026-06-26T10:02:00Z",
+      input: "",
+    });
+    const decisions = await readPlayerDecisions(worldDir);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].input).toBe("");
+  });
 });
