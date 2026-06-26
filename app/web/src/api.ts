@@ -161,3 +161,41 @@ export async function resolveProtagonistDeath(
   if (!res.ok) throw new Error("HTTP " + res.status);
   return res.json();
 }
+
+export async function fetchTurnStatus(): Promise<{ active: boolean; turnId: string | null }> {
+  const res = await fetch("/api/turn/status");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+/** 從指定 offset 重播已落地事件，並持續接收新事件直到串流結束 */
+export async function streamTurnFromOffset(
+  offset: number,
+  onEvent: (ev: TurnEvent) => void,
+): Promise<void> {
+  const res = await fetch(`/api/turn/stream?offset=${offset}`);
+  if (res.status === 204) return; // 沒有需要重播的事件
+  if (res.status === 410) throw new Error("GONE"); // buffer 已清，呼叫端降級處理
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  if (!res.body) throw new Error("無回應串流");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() ?? "";
+    for (const part of parts) {
+      const line = part.replace(/^data: /, "").trim();
+      if (!line) continue;
+      try {
+        onEvent(JSON.parse(line) as TurnEvent);
+      } catch {
+        /* 忽略不完整片段 */
+      }
+    }
+  }
+}
