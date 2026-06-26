@@ -5,7 +5,6 @@ import path from "node:path";
 import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import type { Embedder } from "../../recall/embedder.js";
 import { appendJournalSummary } from "../journal-summary.js";
-import { AUTO_CONTINUE_INPUT } from "./shared.js";
 import { cosineSimilarity, runNudgeBlock } from "./nudge.js";
 import type { TurnDeps, TurnEvent } from "./types.js";
 
@@ -97,22 +96,13 @@ describe("runNudgeBlock", () => {
     expect(result).toBe("");
   });
 
-  it("命中時若 input 不是 AUTO_CONTINUE_INPUT，建議文字含玩家方向提示", async () => {
+  it("命中時建議文字含玩家輸入方向提示", async () => {
     for (let i = 0; i < 5; i++) {
       await appendJournalSummary(world, { timestamp: `2026-06-23T10:0${i}:00`, mode: "主空間", summary: `重複${i}` });
     }
     const embedder = fakeEmbedder({ 重複0: [1, 0], 重複1: [1, 0], 重複2: [1, 0], 重複3: [1, 0], 重複4: [1, 0] });
     const { result } = await collect(runNudgeBlock(baseDeps({ embedder, nudgeWindowSize: 5 }), "推門進去，做好戰鬥準備"));
     expect(result).toContain("推門進去，做好戰鬥準備");
-  });
-
-  it("命中時若 input 是 AUTO_CONTINUE_INPUT，建議文字不含方向提示句", async () => {
-    for (let i = 0; i < 5; i++) {
-      await appendJournalSummary(world, { timestamp: `2026-06-23T10:0${i}:00`, mode: "主空間", summary: `重複${i}` });
-    }
-    const embedder = fakeEmbedder({ 重複0: [1, 0], 重複1: [1, 0], 重複2: [1, 0], 重複3: [1, 0], 重複4: [1, 0] });
-    const { result } = await collect(runNudgeBlock(baseDeps({ embedder, nudgeWindowSize: 5 }), AUTO_CONTINUE_INPUT));
-    expect(result).not.toContain("玩家最近表達的方向");
   });
 
   it("預設 windowSize（3）：3 筆連續高相似度即觸發（根因 H：窗口縮小才填得滿）", async () => {

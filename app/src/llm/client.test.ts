@@ -29,7 +29,6 @@ function makeConfig(usageLogPath: string): AppConfig {
     debug: false,
     logLevel: "silent",
     git: { authorName: "a", authorEmail: "a@x.com" },
-    autoAdvanceMax: 4,
     worldDir: "/tmp/world",
     recall: { enabled: false, indexDir: "/tmp/idx", topK: 5 },
     nudge: { windowSize: 20, similarityThreshold: 0.85 },

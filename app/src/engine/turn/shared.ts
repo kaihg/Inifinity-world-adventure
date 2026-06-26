@@ -11,9 +11,6 @@ export function nowISOSeconds(): string {
   return new Date().toISOString().slice(0, 19);
 }
 
-/** 自動推進迴圈用的系統 placeholder 輸入；短期停滯規則（nudge.ts）需要排除這個值，故搬到這裡共用，避免跟 index.ts 循環依賴 */
-export const AUTO_CONTINUE_INPUT = "（系統自動推進：延續上一刻，繼續敘事，玩家未介入）";
-
 export function deriveSummary(narrative: string): string {
   const firstLine = narrative.split("\n").find((l) => l.trim()) ?? "回合";
   const oneLine = firstLine.replace(/[#*>`]/g, "").trim();

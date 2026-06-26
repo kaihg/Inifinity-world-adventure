@@ -9,7 +9,6 @@ describe("loadConfig", () => {
     expect(c.openai.model).toBe("gpt-4o");
     expect(c.openai.apiKey).toBe("");
     expect(c.port).toBe(5173);
-    expect(c.autoAdvanceMax).toBe(4);
     expect(c.git.authorName).toBe("Infinity World Engine");
   });
 
@@ -19,7 +18,6 @@ describe("loadConfig", () => {
       OPENAI_API_KEY: "sk-test",
       MODEL: "qwen2.5",
       PORT: "8080",
-      AUTO_ADVANCE_MAX: "2",
       GIT_AUTHOR_NAME: "Me",
       GIT_AUTHOR_EMAIL: "me@x.com",
     });
@@ -27,14 +25,12 @@ describe("loadConfig", () => {
     expect(c.openai.apiKey).toBe("sk-test");
     expect(c.openai.model).toBe("qwen2.5");
     expect(c.port).toBe(8080);
-    expect(c.autoAdvanceMax).toBe(2);
     expect(c.git.authorEmail).toBe("me@x.com");
   });
 
-  it("PORT / AUTO_ADVANCE_MAX 解析為數字，非法值退回預設", () => {
-    const c = loadConfig({ PORT: "not-a-number", AUTO_ADVANCE_MAX: "-3" });
+  it("PORT 解析為數字，非法值退回預設", () => {
+    const c = loadConfig({ PORT: "not-a-number" });
     expect(c.port).toBe(5173);
-    expect(c.autoAdvanceMax).toBe(4);
     expect(typeof c.port).toBe("number");
   });
 

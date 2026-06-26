@@ -16,8 +16,6 @@ export interface AppConfig {
     authorName: string;
     authorEmail: string;
   };
-  /** 單次 /api/turn 最多自動推進的回合數上限 */
-  autoAdvanceMax: number;
   /** world/ 狀態目錄的絕對路徑 */
   worldDir: string;
   /** 角色意圖 LLM（選填）；缺省時 engine 沿用主 client */
@@ -64,7 +62,6 @@ const DEFAULTS = {
   host: "127.0.0.1",
   authorName: "Infinity World Engine",
   authorEmail: "engine@localhost",
-  autoAdvanceMax: 4,
   nudgeWindowSize: 3,
   nudgeSimilarityThreshold: 0.92,
   pacingReviewInterval: 10,
@@ -122,7 +119,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       authorName: env.GIT_AUTHOR_NAME || DEFAULTS.authorName,
       authorEmail: env.GIT_AUTHOR_EMAIL || DEFAULTS.authorEmail,
     },
-    autoAdvanceMax: parsePositiveInt(env.AUTO_ADVANCE_MAX, DEFAULTS.autoAdvanceMax),
     worldDir: env.WORLD_DIR ? path.resolve(env.WORLD_DIR) : defaultWorldDir(),
     character:
       env.CHARACTER_OPENAI_BASE_URL && env.CHARACTER_MODEL
