@@ -299,6 +299,38 @@ describe("POST /api/turn（SSE）", () => {
     expect(nowMd).toContain("傳送中（副本目標定位中）");
     await server.close();
   });
+
+  it("settle_dungeon 轉場後 done.state.mode 為 main-space", async () => {
+    // 先建立副本狀態的 now.md
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 進行中的副本：D-001 + run-1\n- 最後更新：[2026-06-26] 測試\n",
+    );
+    // 建立副本目錄與 log.md（settle_dungeon 會嘗試 rename）
+    const dungeonDir = path.join(world, "dungeons", "D-001");
+    await mkdir(dungeonDir, { recursive: true });
+    await writeFile(path.join(dungeonDir, "log.md"), "# 副本 D-001 · run-1（2026-06-26）\n\n---\n\n");
+
+    const settleCtl = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "settle_dungeon",
+      awaiting_user_input: true, suggested_actions: [], commit_summary: "副本結算",
+    });
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["副本結算完成。"]),
+      controlClient: fakeClient([settleCtl, settleCtl]), // Layer 2 + Layer 3 各一份
+      commit: async () => true,
+    });
+
+    const res = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "撤退" } });
+    expect(res.statusCode).toBe(200);
+    const events = parseSSEEvents(res.body);
+    const done = events.find((e: any) => e.type === "done");
+    expect(done).toBeDefined();
+
+    // settle_dungeon 轉場後 done.state.mode 必須是 main-space
+    expect(done.state?.mode).toBe("main-space");
+    await server.close();
+  });
 });
 
 describe("GET /api/world/status", () => {
@@ -715,6 +747,39 @@ describe("GET /api/turn/stream 重連端點", () => {
 
     // 轉場後 done.state.mode 必須是 dungeon（不是轉場前的 main-space）
     expect(done.state?.mode).toBe("dungeon");
+    await server.close();
+  });
+
+  it("settle_dungeon 轉場後重連（offset=0）可看到 transition 事件", async () => {
+    // 先建立副本狀態的 now.md
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 進行中的副本：D-001 + run-1\n- 最後更新：[2026-06-26] 測試\n",
+    );
+    // 建立副本目錄與 log.md（settle_dungeon 會嘗試 rename）
+    const dungeonDir = path.join(world, "dungeons", "D-001");
+    await mkdir(dungeonDir, { recursive: true });
+    await writeFile(path.join(dungeonDir, "log.md"), "# 副本 D-001 · run-1（2026-06-26）\n\n---\n\n");
+
+    const settleCtl = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "settle_dungeon",
+      awaiting_user_input: true, suggested_actions: [], commit_summary: "副本結算",
+    });
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["副本結算完成。"]),
+      controlClient: fakeClient([settleCtl, settleCtl]), // Layer 2 + Layer 3 各一份
+      commit: async () => true,
+    });
+
+    await server.inject({ method: "POST", url: "/api/turn", payload: { input: "撤退" } });
+
+    const res = await server.inject({ method: "GET", url: "/api/turn/stream?offset=0" });
+    expect(res.statusCode).toBe(200);
+    const events = parseSSEEvents(res.body);
+    const transitions = events.filter((e: any) => e.type === "transition");
+
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0].to).toBe("main-space");
     await server.close();
   });
 });
