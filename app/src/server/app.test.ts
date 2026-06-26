@@ -276,6 +276,29 @@ describe("POST /api/turn（SSE）", () => {
     expect(dones[0].suggestedActions).toEqual(["順勢而為"]);
     await server.close();
   });
+
+  it("enter_dungeon guard（缺 dungeonId）後 now.md nextStep 寫成過渡狀態", async () => {
+    // mode_transition=enter_dungeon 但沒有 transition_dungeon_id → 觸發 guard
+    const guardCtl = JSON.stringify({
+      state_changes: { now: { nextStep: "主角即將進入副本，虛空傳送中" } },
+      rolls: [], mode_transition: "enter_dungeon",
+      // 故意不給 transition_dungeon_id
+      awaiting_user_input: true, suggested_actions: [], commit_summary: "觸發傳送",
+    });
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["系統強制傳送。"]),
+      controlClient: fakeClient([guardCtl, guardCtl]),
+      commit: async () => true,
+    });
+
+    const res = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "等待" } });
+    expect(res.statusCode).toBe(200);
+
+    // 確認 now.md 的 nextStep 被覆寫為過渡語氣
+    const nowMd = await readFile(path.join(world, "now.md"), "utf8");
+    expect(nowMd).toContain("傳送中（副本目標定位中）");
+    await server.close();
+  });
 });
 
 describe("GET /api/world/status", () => {

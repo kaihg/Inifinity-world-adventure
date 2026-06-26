@@ -1,12 +1,13 @@
 import { existsSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { rm, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { AppConfig } from "../config.js";
-import { loadState } from "../engine/context.js";
+import { loadState, parseNow } from "../engine/context.js";
+import { applyNowChanges, serializeNow } from "../engine/now.js";
 import { isWorldInitialized } from "../engine/world-status.js";
 import { runMainSpaceTurn, runDungeonTurn, type PendingLoreSync, type TurnEvent } from "../engine/turn/index.js";
 import { enterDungeon, formatActiveDungeon, parseActiveDungeon, renameLogAfterSettle } from "../engine/dungeon.js";
@@ -454,6 +455,20 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
 
       if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
         turnLogger.warn("mode_transition=enter_dungeon 但缺 transition_dungeon_id，無法進入副本，停在等玩家");
+
+        try {
+          const nowPath = path.join(config.worldDir, "now.md");
+          const nowMd = await readFile(nowPath, "utf8");
+          const now = applyNowChanges(
+            parseNow(nowMd),
+            { nextStep: "傳送中（副本目標定位中）" },
+            { date: todayISO(), summary: "副本傳送程序已觸發，目標定位中" },
+          );
+          await writeFile(nowPath, serializeNow(now), "utf8");
+        } catch (err) {
+          turnLogger.warn({ err }, "guard 補寫 now.md 失敗，略過");
+        }
+
         reply.raw.write(`data: ${JSON.stringify({ type: "warning", message: "系統判定要進入副本，但未能確定副本 id，暫停等玩家確認。" })}\n\n`);
         done = { ...done, modeTransition: null };
       }
