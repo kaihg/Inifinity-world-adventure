@@ -28,10 +28,11 @@ describe("archiveWorld / archiveWorldFiles", () => {
     await rm(repoRoot, { recursive: true, force: true });
   });
 
-  it("archiveWorld 把整個 worldDir 複製到 archives/<ts>/world/，回傳相對路徑", async () => {
+  it("archiveWorld 把整個 worldDir 複製到 archives/<ts>-<uuid>/world/，回傳相對路徑", async () => {
     const fixedNow = new Date("2026-06-23T14:30:05.000Z");
-    const rel = await archiveWorld(repoRoot, worldDir, fixedNow);
-    expect(rel).toBe("archives/2026-06-23_14-30-05");
+    const fixedUuid = "00000000-0000-0000-0000-000000000001";
+    const rel = await archiveWorld(repoRoot, worldDir, fixedUuid, fixedNow);
+    expect(rel).toBe(`archives/2026-06-23_14-30-05-${fixedUuid}`);
     const settingCopy = await readFile(
       path.join(repoRoot, rel, "world", "setting.md"),
       "utf8",

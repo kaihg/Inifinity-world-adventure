@@ -9,15 +9,16 @@ export function archiveTimestamp(now: Date = new Date()): string {
 }
 
 /**
- * 把 worldDir 整個目錄複製到 archives/<archiveTimestamp()>/world/。
- * 回傳封存目錄相對於 repoRoot 的路徑（例如 "archives/2026-06-23_14-30-00"）。
+ * 把 worldDir 整個目錄複製到 archives/<archiveTimestamp()>-<worldUuid>/world/。
+ * 回傳封存目錄相對於 repoRoot 的路徑（例如 "archives/2026-06-23_14-30-00-<uuid>"）。
  */
 export async function archiveWorld(
   repoRoot: string,
   worldDir: string,
+  worldUuid: string,
   now: Date = new Date(),
 ): Promise<string> {
-  const relArchiveDir = path.join("archives", archiveTimestamp(now));
+  const relArchiveDir = path.join("archives", `${archiveTimestamp(now)}-${worldUuid}`);
   const dest = path.join(repoRoot, relArchiveDir, "world");
   await mkdir(dest, { recursive: true });
   await cp(worldDir, dest, { recursive: true, force: true });

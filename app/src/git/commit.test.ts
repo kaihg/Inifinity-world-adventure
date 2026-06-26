@@ -38,4 +38,14 @@ describe("commitWorld", () => {
     const log = await simpleGit(repo).log();
     expect(log.total).toBe(1);
   });
+
+  it("meta/ 存在時一併 commit，meta/player.md 出現在 HEAD tree", async () => {
+    await mkdir(path.join(repo, "meta"), { recursive: true });
+    await writeFile(path.join(repo, "meta", "player.md"), "init player\n");
+    await writeFile(path.join(repo, "world", "now.md"), "changed\n");
+    const ok = await commitWorld({ repoRoot: repo, message: "含 meta", ...author });
+    expect(ok).toBe(true);
+    const tree = await simpleGit(repo).raw(["ls-tree", "-r", "--name-only", "HEAD"]);
+    expect(tree).toContain("meta/player.md");
+  });
 });
