@@ -325,7 +325,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
 
       // 1. 讀狀態決定跑哪種回合
       const state = await loadState(config.worldDir, turnLogger);
-      const deps = {
+      const turnDeps = {
         client: makeClient(turnLogger),
         characterClient,
         controlClient,
@@ -342,8 +342,8 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         pacingReviewInterval: config.pacingReviewInterval,
       };
       const gen = state.mode === "dungeon"
-        ? runDungeonTurn(deps, input)
-        : runMainSpaceTurn(deps, input);
+        ? runDungeonTurn(turnDeps, input)
+        : runMainSpaceTurn(turnDeps, input);
 
       // 2. 逐事件轉發，截留 done
       let done: Extract<import("../engine/turn/types.js").TurnEvent, { type: "done" }> | null = null;
