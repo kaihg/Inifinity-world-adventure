@@ -347,7 +347,12 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     const deadline = Date.now() + maxWaitMs;
 
     await new Promise<void>((resolve) => {
-      const tick = setInterval(() => {
+      let tick: ReturnType<typeof setInterval>;
+      req.raw.on("close", () => {
+        clearInterval(tick);
+        resolve();
+      });
+      tick = setInterval(() => {
         // 送出新增的事件
         while (cursor < buf.events.length) {
           reply.raw.write(`data: ${JSON.stringify(buf.events[cursor])}\n\n`);
