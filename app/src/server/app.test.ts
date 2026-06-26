@@ -671,6 +671,29 @@ describe("GET /api/turn/stream 重連端點", () => {
     expect(transitions[0].dungeonId).toBe("D-001");
     await server.close();
   });
+
+  it("enter_dungeon 轉場後 done.state.mode 為 dungeon", async () => {
+    const enterCtl = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
+      transition_dungeon_id: "D-002", transition_dungeon_goal: "目標",
+      awaiting_user_input: true, suggested_actions: [], commit_summary: "進副本",
+    });
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["敘事。"]),
+      controlClient: fakeClient([enterCtl, enterCtl]),
+      commit: async () => true,
+    });
+
+    const res = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "行動" } });
+    expect(res.statusCode).toBe(200);
+    const events = parseSSEEvents(res.body);
+    const done = events.find((e: any) => e.type === "done");
+    expect(done).toBeDefined();
+
+    // 轉場後 done.state.mode 必須是 dungeon（不是轉場前的 main-space）
+    expect(done.state?.mode).toBe("dungeon");
+    await server.close();
+  });
 });
 
 describe("POST /api/turn 在 .pending-death 存在時擋下", () => {

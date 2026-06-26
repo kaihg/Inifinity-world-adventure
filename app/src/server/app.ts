@@ -450,6 +450,8 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       }
 
       // 3. 處理轉場
+      let didTransition = false;
+
       if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
         turnLogger.warn("mode_transition=enter_dungeon 但缺 transition_dungeon_id，無法進入副本，停在等玩家");
         reply.raw.write(`data: ${JSON.stringify({ type: "warning", message: "系統判定要進入副本，但未能確定副本 id，暫停等玩家確認。" })}\n\n`);
@@ -476,6 +478,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         reply.raw.write(`data: ${JSON.stringify(enterTransEv)}\n\n`);
         // 合成 done
         done = { ...done, modeTransition: null, suggestedActions: ["順勢而為"], awaitingUserInput: true };
+        didTransition = true;
       }
 
       if (done.modeTransition === "settle_dungeon") {
@@ -488,6 +491,16 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         if (currentTurnBuffer) currentTurnBuffer.events.push(settleTransEv);
         reply.raw.write(`data: ${JSON.stringify(settleTransEv)}\n\n`);
         done = { ...done, modeTransition: null, suggestedActions: ["順勢而為"], awaitingUserInput: true };
+        didTransition = true;
+      }
+
+      // 轉場後補讀：確保 done.state 反映落地後磁碟狀態（不是轉場前快照）
+      if (didTransition) {
+        try {
+          done = { ...done, state: await loadState(config.worldDir, turnLogger) };
+        } catch (err) {
+          turnLogger.warn({ err }, "轉場後 loadState 失敗，done.state 保留轉場前快照");
+        }
       }
 
       // 4. fallback 按鈕
