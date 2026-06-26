@@ -471,7 +471,9 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
           summary: `進入副本 ${active.dungeonId}`,
         });
         await makeCommit(turnLogger)(`進入副本 ${active.dungeonId} ${active.runId}`);
-        reply.raw.write(`data: ${JSON.stringify({ type: "transition", to: "dungeon", dungeonId: active.dungeonId })}\n\n`);
+        const enterTransEv = { type: "transition", to: "dungeon", dungeonId: active.dungeonId } as const;
+        if (currentTurnBuffer) currentTurnBuffer.events.push(enterTransEv);
+        reply.raw.write(`data: ${JSON.stringify(enterTransEv)}\n\n`);
         // 合成 done
         done = { ...done, modeTransition: null, suggestedActions: ["順勢而為"], awaitingUserInput: true };
       }
@@ -482,7 +484,9 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         if (activeForSettle) await renameLogAfterSettle(config.worldDir, activeForSettle.dungeonId, turnLogger);
         await setNowActiveDungeon(config.worldDir, "無", { date: todayISO(), summary: "副本結算，返回安全區" });
         await makeCommit(turnLogger)("副本結算，返回安全區");
-        reply.raw.write(`data: ${JSON.stringify({ type: "transition", to: "main-space" })}\n\n`);
+        const settleTransEv = { type: "transition", to: "main-space" } as const;
+        if (currentTurnBuffer) currentTurnBuffer.events.push(settleTransEv);
+        reply.raw.write(`data: ${JSON.stringify(settleTransEv)}\n\n`);
         done = { ...done, modeTransition: null, suggestedActions: ["順勢而為"], awaitingUserInput: true };
       }
 

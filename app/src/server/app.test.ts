@@ -643,6 +643,34 @@ describe("GET /api/turn/stream 重連端點", () => {
     expect(res.statusCode).toBe(204);
     await server.close();
   });
+
+  it("enter_dungeon 轉場後重連（offset=0）可看到 transition 事件", async () => {
+    const enterCtl = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
+      transition_dungeon_id: "D-001", transition_dungeon_goal: "找到鑰匙",
+      awaiting_user_input: false, suggested_actions: [], commit_summary: "系統開啟副本",
+    });
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["系統警報響起。"]),
+      controlClient: fakeClient([enterCtl, enterCtl]),
+      commit: async () => true,
+    });
+
+    // 先完成一個有轉場的回合
+    await server.inject({ method: "POST", url: "/api/turn", payload: { input: "等待" } });
+
+    // 重連，從 offset=0 重播
+    const res = await server.inject({ method: "GET", url: "/api/turn/stream?offset=0" });
+    expect(res.statusCode).toBe(200);
+    const events = parseSSEEvents(res.body);
+    const transitions = events.filter((e: any) => e.type === "transition");
+
+    // 重播的事件裡必須包含 transition
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0].to).toBe("dungeon");
+    expect(transitions[0].dungeonId).toBe("D-001");
+    await server.close();
+  });
 });
 
 describe("POST /api/turn 在 .pending-death 存在時擋下", () => {
