@@ -36,7 +36,10 @@
 meta/
   player.md
   epitaphs/
-    <epitaph-id>.md
+    <epitaph-id>/
+      epitaph.md
+      journal.md
+      protagonist.md
 ```
 
 ### 4.1 `world/` 與 `meta/` 的責任分界
@@ -67,9 +70,9 @@ meta/
 
 ## 墓誌銘索引
 
-| Epitaph ID | 世界參照 | 主角代數 | 主角姓名 | 結局類型 | 建立時間 |
-|------------|----------|----------|----------|----------|----------|
-| epi-20260626-001 | archives/2026-06-26T10-00-00 | 1 | 沈奕 | 死亡 | 2026-06-26 |
+| Epitaph ID | World UUID | 主角代數 | 主角姓名 | 結局類型 | 建立時間 |
+|------------|------------|----------|----------|----------|----------|
+| epi-20260626-001 | world-550e8400-e29b-41d4-a716-446655440000 | 1 | 沈奕 | 死亡 | 2026-06-26 |
 ```
 
 ### 5.1 欄位語義
@@ -89,18 +92,34 @@ meta/
 - `墓誌銘索引`
   - 只放摘要與 reference，不存墓誌銘全文
   - 用來支援未來的回顧、traits 提煉、角色更換與讀檔關聯
+  - 世界層的主鍵統一用 `world_uuid`，不以 archive timestamp 路徑當主索引
 
-## 6. `meta/epitaphs/*.md` 設計
+## 6. `meta/epitaphs/` 設計
 
-每一代主角對應一份短墓誌銘 / 主神評語，作為未來大 meta 之前的中介資產。
+每一代主角對應一個獨立目錄，裡面至少包含：
+
+- 一份短墓誌銘 / 主神評語
+- 一份該代主角對應的 `journal.md` 封存副本
+- 一份該代主角結算當下的 `protagonist.md` 封存副本
+
+這是未來大 meta 之前的中介資產。
 
 建議結構：
+
+```md
+meta/epitaphs/epi-20260626-001/
+  epitaph.md
+  journal.md
+  protagonist.md
+```
+
+`epitaph.md` 內容例如：
 
 ```md
 # 主角墓誌銘
 
 - Epitaph ID：epi-20260626-001
-- 世界參照：archives/2026-06-26T10-00-00
+- World UUID：world-550e8400-e29b-41d4-a716-446655440000
 - 主角代數：1
 - 主角姓名：沈奕
 - 結局類型：死亡
@@ -116,21 +135,66 @@ meta/
 - 它是跨世界玩家層資產，不應綁在 active `world/` 裡。
 - 之後若要支援主角切換、讀檔寫入、跨輪 traits 提煉，這個位置最好索引。
 - `recall` 目前只針對 `world/`，因此 `meta/` 不會被意外載入到劇情 prompt。
+- 每代主角的旅程、角色終局狀態與其墓誌銘應綁在同一個目錄，避免換代後被後續主角的 `journal.md` / `protagonist.md` 覆蓋語意。
 
 ### 6.2 Reference 規則
 
-每份墓誌銘都必須可追溯回對應世界或世界封存結果，因此內容與索引都需保存：
+每份墓誌銘都必須可追溯回對應世界或世界封存結果，因此內容與索引都需保存穩定的世界主鍵。
 
-- `世界參照`
-  - 若世界已封存：寫 `archives/<timestamp>`
-  - 若主角結算時世界尚未封存：需先保存一個穩定的 world session reference，待世界封存時再補全或映射
+- `world_uuid`
+  - 在 `world/init` 時由引擎生成一次
+  - 寫入 `world/setting.md` 的固定欄位，作為該世界 lifecycle 的唯一 ID
+  - 同一個世界內即使更換多代主角，`world_uuid` 仍保持不變
+  - 墓誌銘、`meta/player.md` 索引、以及未來回顧功能都以它作為世界層主索引
 
-V1 實作時可採其中一種策略：
+archive 路徑也應改為以這組 UUID 為主，而不是單純 timestamp。例如：
 
-1. 先為 active world 生成穩定 `world_session_id`，之後世界封存再對應到 archive path
-2. 先允許墓誌銘 reference 指向 active world session，世界封存時補寫 archive reference
+- `archives/<world_uuid>/...`
+- 或 `archives/<timestamp>-<world_uuid>/...`
 
-本設計要求的是：**reference 必須穩定、可追溯、不可只靠檔名猜測。**
+具體命名可在 implementation plan 決定，但設計要求是：
+
+- `world_uuid` 才是世界主鍵
+- archive path 只是此主鍵的持久化落點之一
+- 不可再用「封存後才出現的 archive timestamp 路徑」充當唯一 world reference
+
+### 6.3 `world_uuid` 的設計責任
+
+為避免世界參照只存在 `meta/` 而與 `world/` 脫鉤，`world_uuid` 必須在世界初始化時進入世界層 canonical。
+
+具體要求：
+
+- `world/init` 建立新世界時生成 UUID
+- `world/setting.md` 新增固定欄位保存該 UUID
+- 世界封存時沿用這個 UUID 組 archive 目錄名與索引
+- 主角墓誌銘只引用這個 UUID，不直接依賴 archive 生成前後的不同路徑形態
+
+### 6.4 為什麼要一併封存 `journal.md`
+
+主角換代時，後續劇情仍可能發生在同一個世界中；此時如果只留下墓誌銘、不把該代主角對應的 `journal.md` 一起切出來，會失去這一代主角旅程的完整上下文。
+
+因此本設計要求：
+
+- 主角結算時，把該代主角對應的 `journal.md` 一起封存在 `meta/epitaphs/<epitaph-id>/journal.md`
+- 這份 `journal.md` 代表的是「這一代主角的旅途封存」，不是整個世界最終版本的 journal
+- 同世界後續換上新主角後，active `world/journal.md` 可以繼續成長，但不應覆蓋前一代已封存的 journal 副本
+
+V1 implementation plan 需要再明確定義：
+
+- 是把整份當下 `world/journal.md` 複製進去
+- 還是先切出與該代主角對應的 journal segment 再封存
+
+這裡先定責任與保存需求，不先定切段算法。
+
+### 6.5 為什麼要一併封存 `protagonist.md`
+
+墓誌銘與旅途紀錄之外，還需要保存該代主角的最終 canonical 狀態。否則未來回顧、traits 提煉、或角色切換相關功能，都只能看到敘事與短評，卻看不到這一代主角最後實際擁有的積分、能力、物品、buff/debuff。
+
+因此本設計要求：
+
+- 主角結算時，把當下的 `world/characters/protagonist.md` 一起封存在 `meta/epitaphs/<epitaph-id>/protagonist.md`
+- 這份檔案代表的是「這一代主角結算當下的角色快照」
+- 同世界換上新主角後，active `world/characters/protagonist.md` 可以被新一代覆寫，但不應覆蓋前一代已封存的角色快照
 
 ## 7. 事件與更新時機
 
@@ -148,9 +212,11 @@ V1 實作時可採其中一種策略：
 
 1. 收集本代主角的結算材料
 2. 生成一篇短墓誌銘 / 主神評語
-3. 寫入 `meta/epitaphs/<epitaph-id>.md`
-4. 更新 `meta/player.md`
-5. 再進入換代或世界封存後續流程
+3. 把本代主角對應的 `journal.md` 一起封存到 `meta/epitaphs/<epitaph-id>/journal.md`
+4. 把本代主角的 `protagonist.md` 一起封存到 `meta/epitaphs/<epitaph-id>/protagonist.md`
+5. 寫入 `meta/epitaphs/<epitaph-id>/epitaph.md`
+6. 更新 `meta/player.md`
+7. 再進入換代或世界封存後續流程
 
 效果：
 
@@ -232,8 +298,10 @@ V1 的正確策略是：
 
 - repo-level `meta/` 檔案管理
 - 主角結算時的墓誌銘生成流程
+- 主角結算時的 journal 封存流程
+- 主角結算時的 protagonist 快照封存流程
 - `meta/player.md` 計數與索引維護
-- 墓誌銘與 archive/session 的 reference 管理
+- 墓誌銘與 `world_uuid` / archive reference 的管理
 
 ### 10.2 不需要改動的核心假設
 
@@ -248,10 +316,11 @@ V1 的驗證重點不是 prompt 效果，而是資料邊界與關聯正確性。
 
 ### 11.1 資料正確性
 
-- 主角換代時，正確新增一份 `meta/epitaphs/*.md`
+- 主角換代時，正確新增一個 `meta/epitaphs/<epitaph-id>/`
+- 其中同時包含 `epitaph.md`、該代主角的 `journal.md`、以及 `protagonist.md`
 - `meta/player.md` 的主角代數正確增加
 - 主角死亡後直接結束世界時，世界數與代數都正確增加
-- 索引可正確指向對應世界 reference
+- 索引可正確指向對應 `world_uuid` 與其 archive 落點
 
 ### 11.2 邊界正確性
 
