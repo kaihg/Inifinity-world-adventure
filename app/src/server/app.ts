@@ -8,7 +8,10 @@ import fastifyStatic from "@fastify/static";
 import type { AppConfig } from "../config.js";
 import { loadState } from "../engine/context.js";
 import { isWorldInitialized } from "../engine/world-status.js";
-import { runTurnLoop, type PendingLoreSync } from "../engine/turn/index.js";
+import { runMainSpaceTurn, runDungeonTurn, type PendingLoreSync } from "../engine/turn/index.js";
+import { enterDungeon, formatActiveDungeon, parseActiveDungeon, renameLogAfterSettle } from "../engine/dungeon.js";
+import { generateSecrets, setNowActiveDungeon } from "../engine/turn/dungeon-transition.js";
+import { readBestEffort } from "../engine/turn/shared.js";
 import { createOpenAiClient, type LlmClient } from "../llm/client.js";
 import { commitWorld } from "../git/commit.js";
 import { getAppVersion, type AppVersionInfo } from "../git/version.js";
@@ -282,7 +285,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     }
   });
 
-  // 推進主空間敘事回合（含自動推進），以 SSE 串流 delta/auto-advance/done 事件
+  // 推進主空間/副本敘事回合，以 SSE 串流 delta/done 事件
   server.post("/api/turn", async (req, reply) => {
     const input = (req.body as { input?: string })?.input ?? "";
     const turnId = randomUUID();
@@ -303,7 +306,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     }
 
     if (turnInProgress) {
-      return reply.code(409).send({ error: "上一回合（含自動推進）仍在執行中，請稍候再試" });
+      return reply.code(409).send({ error: "上一回合仍在執行中，請稍候再試" });
     }
     turnInProgress = true;
 
@@ -319,29 +322,81 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     try {
       // 立刻寫入第一筆 ping 事件，建立首位元組資料，防止反向代理（如 Tailscale Serve）在 LLM 漫長 Prefill 時發生 30s 閘道超時
       reply.raw.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
-      for await (const ev of runTurnLoop(
-        {
-          client: makeClient(turnLogger),
-          characterClient,
-          controlClient,
-          loreClient,
-          pendingLoreSync,
-          worldDir: config.worldDir,
-          commit: makeCommit(turnLogger),
-          logger: turnLogger,
-          recall,
-          recallTopK: config.recall.topK,
-          pacingClient,
-          nudgeWindowSize: config.nudge.windowSize,
-          nudgeSimilarityThreshold: config.nudge.similarityThreshold,
-          pacingReviewInterval: config.pacingReviewInterval,
-        },
-        input,
-        config.autoAdvanceMax,
-      )) {
+
+      // 1. 讀狀態決定跑哪種回合
+      const state = await loadState(config.worldDir, turnLogger);
+      const deps = {
+        client: makeClient(turnLogger),
+        characterClient,
+        controlClient,
+        loreClient,
+        pendingLoreSync,
+        worldDir: config.worldDir,
+        commit: makeCommit(turnLogger),
+        logger: turnLogger,
+        recall,
+        recallTopK: config.recall.topK,
+        pacingClient,
+        nudgeWindowSize: config.nudge.windowSize,
+        nudgeSimilarityThreshold: config.nudge.similarityThreshold,
+        pacingReviewInterval: config.pacingReviewInterval,
+      };
+      const gen = state.mode === "dungeon"
+        ? runDungeonTurn(deps, input)
+        : runMainSpaceTurn(deps, input);
+
+      // 2. 逐事件轉發，截留 done
+      let done: Extract<import("../engine/turn/types.js").TurnEvent, { type: "done" }> | null = null;
+      for await (const ev of gen) {
         if (ev.type === "warning") turnLogger.warn({ ev }, "回合警告事件");
+        if (ev.type === "done") { done = ev; continue; }
         reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`);
       }
+      if (!done) {
+        turnLogger.warn("/api/turn 未收到 done 事件，異常降級");
+        return;
+      }
+
+      // 3. 處理轉場
+      if (done.modeTransition === "enter_dungeon" && done.transitionDungeonId) {
+        await pendingLoreSync.promise;
+        const settingText = await readBestEffort(path.join(config.worldDir, "setting.md"));
+        const secretsText = await generateSecrets(makeClient(turnLogger), settingText, done.transitionDungeonId);
+        const active = await enterDungeon(config.worldDir, {
+          dungeonId: done.transitionDungeonId,
+          today: todayISO(),
+          protagonistSummary: `${state.protagonist.name}（積分 ${state.protagonist.points}）`,
+          goal: done.transitionDungeonGoal?.trim() || "（待劇情揭露）",
+          secretsText,
+        }, turnLogger);
+        await setNowActiveDungeon(config.worldDir, formatActiveDungeon(active), {
+          date: todayISO(),
+          summary: `進入副本 ${active.dungeonId}`,
+        });
+        await makeCommit(turnLogger)(`進入副本 ${active.dungeonId} ${active.runId}`);
+        reply.raw.write(`data: ${JSON.stringify({ type: "transition", to: "dungeon", dungeonId: active.dungeonId })}\n\n`);
+        // 合成 done
+        done = { ...done, modeTransition: null, suggestedActions: ["順勢而為"], awaitingUserInput: true };
+      }
+
+      if (done.modeTransition === "settle_dungeon") {
+        await pendingLoreSync.promise;
+        const activeForSettle = parseActiveDungeon(state.now.activeDungeon);
+        if (activeForSettle) await renameLogAfterSettle(config.worldDir, activeForSettle.dungeonId, turnLogger);
+        await setNowActiveDungeon(config.worldDir, "無", { date: todayISO(), summary: "副本結算，返回安全區" });
+        await makeCommit(turnLogger)("副本結算，返回安全區");
+        reply.raw.write(`data: ${JSON.stringify({ type: "transition", to: "main-space" })}\n\n`);
+        done = { ...done, modeTransition: null, suggestedActions: ["順勢而為"], awaitingUserInput: true };
+      }
+
+      // 4. fallback 按鈕
+      if (done.suggestedActions.length === 0) {
+        done = { ...done, suggestedActions: ["順勢而為"] };
+      }
+
+      // 5. 送出最終 done
+      reply.raw.write(`data: ${JSON.stringify(done)}\n\n`);
+
       turnLogger.info({ durationMs: Date.now() - startedAt }, "/api/turn 完成");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
