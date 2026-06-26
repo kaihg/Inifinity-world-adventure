@@ -36,8 +36,9 @@ const FAST_CONTROL_FORMAT_BLOCK = [
   "- rolls: [{desc, value, success?}]（敘事中實際用到的骰值與判定，沒有就空陣列）",
   '- mode_transition: null | "enter_dungeon" | "settle_dungeon"',
   "- transition_dungeon_id / transition_dungeon_goal：配合 enter_dungeon 才填",
-  "- awaiting_user_input: boolean —— 敘事屬純環境/系統旁白/NPC 自行動作、玩家不需做決定時設 false；需要玩家選擇才設 true。",
+  "- awaiting_user_input: boolean —— 此回合有明確玩家決策點時設 true，純環境/系統旁白/NPC 自行動作時設 false（引擎不因此改變行為，僅供語意標記）。",
   "- suggested_actions: string[]",
+  "  （若此回合無明確決策點，可給空陣列，引擎會自動補上預設選項。）",
   "- commit_summary: string —— 兩句以內的**事實描述**：第一句寫主角或 NPC 做了什麼具體行動或發生了什麼具體事件；第二句（可省）寫直接結果或影響。" +
   "禁止用詩化/氛圍語句（例如「緊繃如弓弦」「撕開現實邊界」）。" +
   "格式範例：「沈奕向葉晴詢問暗號詞進度，葉晴確認目前仍未定案。」或「沈奕跟蹤可疑男子至走廊轉角，目擊對方敲開隱藏通道。」",
