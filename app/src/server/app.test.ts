@@ -315,7 +315,7 @@ describe("POST /api/world/init", () => {
     // 建全域骨架（最小版，供 getTemplate fallback）
     await mkdir(path.join(repoRoot, "templates"), { recursive: true });
     await writeFile(path.join(repoRoot, "templates", "setting.md"), "# 世界設定（World Setting）\n\n## 主控系統\n<!-- 填入 -->\n", "utf8");
-    await writeFile(path.join(repoRoot, "templates", "protagonist.md"), "# 主角檔案\n\n## 基本資訊\n<!-- 填入 -->\n", "utf8");
+    await writeFile(path.join(repoRoot, "templates", "character.md"), "# 主角檔案\n\n## 基本資訊\n<!-- 填入 -->\n", "utf8");
     await writeFile(path.join(repoRoot, "templates", "opening.md"), "# 開場敘事\n\n## 必須涵蓋\n<!-- 填入 -->\n", "utf8");
     // 未初始化：不寫 setting.md
   });
