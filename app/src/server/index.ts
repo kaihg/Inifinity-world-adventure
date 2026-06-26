@@ -23,6 +23,18 @@ async function main(): Promise<void> {
     logger.error({ err }, "啟動失敗");
     process.exit(1);
   }
+
+  const shutdown = async () => {
+    logger.info("收到終止信號，正在關閉伺服器…");
+    try {
+      await server.close();
+    } finally {
+      process.exit(0);
+    }
+  };
+
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
 }
 
 main();
