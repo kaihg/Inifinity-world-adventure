@@ -63,6 +63,7 @@ export async function ensurePlayerMeta(repoRoot: string): Promise<void> {
  * 格式：epi-YYYYMMDD-<代數，最少三位補零>
  * 例：("2026-06-26", 1) → "epi-20260626-001"
  */
+/** 數字後綴是跨所有世界的全域單調主角代數，不是每日計數器。 */
 export function nextEpitaphId(today: string, protagonistGenerationCount: number): string {
   const datePart = today.replace(/-/g, "");
   const genPart = String(protagonistGenerationCount).padStart(3, "0");
@@ -106,6 +107,7 @@ export async function readPlayerMetaCounts(
 /**
  * 以 regex 就地替換 meta/player.md 中的計數值；不整份重寫，保留其餘內容。
  */
+// 讀-改-寫的正確性依賴「單一活躍世界序列化」假設（不可有並行 settlement 同時寫入）。
 export async function incrementPlayerCounts(
   repoRoot: string,
   counts: { worldHistoryDelta?: number; protagonistGenerationDelta?: number },

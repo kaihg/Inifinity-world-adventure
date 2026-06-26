@@ -23,7 +23,7 @@ export interface SettleProtagonistOpts {
 }
 
 /**
- * 從主角档案中萃取姓名（第一個「姓名：」後的值）。
+ * 從主角檔案中萃取姓名（第一個「姓名：」後的值）。
  * 找不到時回傳「（未知）」。
  */
 function extractProtagonistName(protagonistMd: string): string {
