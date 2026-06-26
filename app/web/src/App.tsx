@@ -39,6 +39,7 @@ export function App() {
   const pendingQueue = useRef<string[]>([]);
   const llmDoneRef = useRef(false);
   const typewriterTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectingRef = useRef(false);
 
   // 🚀 保持 busyRef 與 busy 同步
   useEffect(() => {
@@ -116,28 +117,30 @@ export function App() {
     llmDoneRef.current = false;
   }
 
-  const SESSION_TURN_ID_KEY = "iwa_turnId";
-
-  function clearReconnectState() {
-    sessionStorage.removeItem(SESSION_TURN_ID_KEY);
+  function waitForTypewriter(): Promise<void> {
+    return new Promise((resolve) => {
+      const check = setInterval(() => {
+        if (!typewriterTimer.current) {
+          clearInterval(check);
+          resolve();
+        }
+      }, TYPEWRITER_INTERVAL_MS);
+    });
   }
 
   async function reconnectIfNeeded() {
-    if (busyRef.current) return; // 正在執行回合，不重連
+    if (busyRef.current || reconnectingRef.current) return;
     try {
       const status = await fetchTurnStatus();
-      if (!status.active) {
-        // 回合已完成，走現有 fetchState() 還原路徑
-        return;
-      }
+      if (!status.active) return;
       // 回合仍在進行中
+      reconnectingRef.current = true;
+      stopTypewriter(true); // 清掉可能殘留的舊 timer 再開始重播
       setBusy(true);
       setStory("");
       setSuggested([]);
-      const offset = 0; // 固定從 0 重播 buffer 全部事件（buffer 保留完整序列）
-
       try {
-        await streamTurnFromOffset(offset, (ev) => {
+        await streamTurnFromOffset(0, (ev) => {
           switch (ev.type) {
             case "delta":
               for (const char of ev.text) {
@@ -173,18 +176,20 @@ export function App() {
               break;
           }
         });
+        await waitForTypewriter(); // 等 typewriter 排空再 refresh
         await refresh();
-        clearReconnectState();
+
       } catch (e) {
+        stopTypewriter(true);
         if (e instanceof Error && e.message === "GONE") {
-          // buffer 已清（伺服器重啟），降級還原最後已落地回合
           await refresh();
           setStory((s) => s || "連線已中斷，已還原最後進度。");
         } else {
           setStory((s) => s + `\n[重連失敗] ${(e as Error).message}\n`);
         }
       } finally {
-        clearReconnectState();
+
+        reconnectingRef.current = false;
         setBusy(false);
       }
     } catch {
@@ -208,10 +213,6 @@ export function App() {
     const preTurnLastUpdated = state?.now?.lastUpdated;
 
     try {
-      // 標記本回合 ID 供重連使用，非同步取得不阻塞
-      fetchTurnStatus().then((s) => {
-        if (s.turnId) sessionStorage.setItem(SESSION_TURN_ID_KEY, s.turnId);
-      }).catch(() => {});
       await streamTurn(text, (ev) => {
         switch (ev.type) {
           case "delta":
@@ -293,6 +294,7 @@ export function App() {
         setStory((s) => s + `\n[請求失敗] ${(e as Error).message}（伺服器可能未完成運算，請確認網路或手動重整）`);
       }
     } finally {
+      await waitForTypewriter();
       setBusy(false);
     }
   }

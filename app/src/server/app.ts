@@ -304,6 +304,9 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
   server.get("/api/turn/stream", async (req, reply) => {
     const offsetParam = (req.query as { offset?: string }).offset;
     const offset = offsetParam !== undefined ? parseInt(offsetParam, 10) : 0;
+    if (isNaN(offset) || offset < 0) {
+      return reply.code(400).send({ error: "offset 必須為非負整數" });
+    }
 
     // buffer 不存在（伺服器重啟或從未有回合）
     if (!currentTurnBuffer) {
@@ -499,6 +502,9 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       turnLogger.error({ err, durationMs: Date.now() - startedAt }, "/api/turn 失敗");
+      // warning 寫進 buffer，讓重連端能看到串流已結束（active=false 由 finally 設定）
+      const warnEv: TurnEvent = { type: "warning", message };
+      if (currentTurnBuffer) currentTurnBuffer.events.push(warnEv);
       reply.raw.write(`data: ${JSON.stringify({ type: "error", message })}\n\n`);
     } finally {
       turnInProgress = false;

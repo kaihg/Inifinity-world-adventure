@@ -74,19 +74,7 @@ export type TurnEvent =
       state?: GameState;
     };
 
-/** 送出一個回合，解析 SSE 串流，逐事件回呼 */
-export async function streamTurn(input: string, onEvent: (ev: TurnEvent) => void): Promise<void> {
-  const res = await fetch("/api/turn", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { error?: string });
-    throw new Error(body.error ?? `HTTP ${res.status}`);
-  }
-  if (!res.body) throw new Error("無回應串流");
-  const reader = res.body.getReader();
+async function readSSEStream(reader: ReadableStreamDefaultReader<Uint8Array>, onEvent: (ev: TurnEvent) => void): Promise<void> {
   const decoder = new TextDecoder();
   let buf = "";
   for (;;) {
@@ -105,6 +93,21 @@ export async function streamTurn(input: string, onEvent: (ev: TurnEvent) => void
       }
     }
   }
+}
+
+/** 送出一個回合，解析 SSE 串流，逐事件回呼 */
+export async function streamTurn(input: string, onEvent: (ev: TurnEvent) => void): Promise<void> {
+  const res = await fetch("/api/turn", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { error?: string });
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
+  if (!res.body) throw new Error("無回應串流");
+  await readSSEStream(res.body.getReader(), onEvent);
 }
 
 export interface ProtagonistSeed {
@@ -179,23 +182,5 @@ export async function streamTurnFromOffset(
   if (!res.ok) throw new Error("HTTP " + res.status);
   if (!res.body) throw new Error("無回應串流");
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const parts = buf.split("\n\n");
-    buf = parts.pop() ?? "";
-    for (const part of parts) {
-      const line = part.replace(/^data: /, "").trim();
-      if (!line) continue;
-      try {
-        onEvent(JSON.parse(line) as TurnEvent);
-      } catch {
-        /* 忽略不完整片段 */
-      }
-    }
-  }
+  await readSSEStream(res.body.getReader(), onEvent);
 }
