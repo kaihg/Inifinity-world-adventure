@@ -28,10 +28,11 @@ describe("archiveWorld / archiveWorldFiles", () => {
     await rm(repoRoot, { recursive: true, force: true });
   });
 
-  it("archiveWorld 把整個 worldDir 複製到 archives/<ts>/world/，回傳相對路徑", async () => {
+  it("archiveWorld 把整個 worldDir 複製到 archives/<ts>-<uuid>/world/，回傳相對路徑", async () => {
     const fixedNow = new Date("2026-06-23T14:30:05.000Z");
-    const rel = await archiveWorld(repoRoot, worldDir, fixedNow);
-    expect(rel).toBe("archives/2026-06-23_14-30-05");
+    const fixedUuid = "00000000-0000-0000-0000-000000000001";
+    const rel = await archiveWorld(repoRoot, worldDir, fixedUuid, fixedNow);
+    expect(rel).toBe(`archives/2026-06-23_14-30-05-${fixedUuid}`);
     const settingCopy = await readFile(
       path.join(repoRoot, rel, "world", "setting.md"),
       "utf8",
@@ -42,6 +43,12 @@ describe("archiveWorld / archiveWorldFiles", () => {
       "utf8",
     );
     expect(protagonistCopy).toBe("- 姓名：沈奕\n");
+  });
+
+  it("archiveWorld 以 world_uuid 組 archive 路徑", async () => {
+    const fixedNow = new Date("2026-06-26T00:00:00.000Z");
+    const rel = await archiveWorld(repoRoot, worldDir, "550e8400-e29b-41d4-a716-446655440000", fixedNow);
+    expect(rel).toContain("550e8400-e29b-41d4-a716-446655440000");
   });
 
   it("archiveWorldFiles 只複製指定的相對路徑清單，保留子目錄結構", async () => {

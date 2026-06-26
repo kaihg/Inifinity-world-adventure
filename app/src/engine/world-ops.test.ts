@@ -185,6 +185,27 @@ describe("initWorld 骨架注入", () => {
     await rm(repoRoot, { recursive: true, force: true });
   });
 
+  it("initWorld 會把 world_uuid 寫進 setting.md", async () => {
+    const client: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("設定設計師")) {
+          yield "# 世界設定（World Setting）\n\n冷酷系統。\n";
+          return;
+        }
+        if (system.includes("角色設計師")) {
+          yield "# 主角檔案\n\n沈奕。\n";
+          return;
+        }
+        yield "# 內容\n";
+      },
+    };
+
+    await initWorld({ worldDir, repoRoot, client, input: {}, today: "2026-06-26", logger: createLogger() });
+    const setting = await readFile(path.join(worldDir, "setting.md"), "utf8");
+    expect(setting).toMatch(/世界 UUID[:：]\s*[a-f0-9-]{36}/i);
+  });
+
   it("setting 先完成後，protagonist 才開始生成（character 需要 settingMd 定義屬性系統）", async () => {
     const order: string[] = [];
     const settingDeferred = createDeferred<void>();

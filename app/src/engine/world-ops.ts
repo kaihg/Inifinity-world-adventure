@@ -11,6 +11,7 @@ import {
   UNINITIALIZED_GM_NOTES_PLACEHOLDER,
 } from "./world-status.js";
 import { getTemplate } from "./template-loader.js";
+import { generateWorldUuid, injectWorldUuid, readWorldUuid } from "./world-id.js";
 
 /** 把一次性 streamChat 收斂成完整字串（世界級生成都是非串流場景） */
 export async function generateText(client: LlmClient, messages: ChatMessage[]): Promise<string> {
@@ -67,7 +68,8 @@ export async function initWorld(opts: {
   ]);
 
   // 2) setting.md（玩家可見）：先串行生成，後續文件都依賴它
-  const settingMd = await generateText(client, [
+  const worldUuid = generateWorldUuid();
+  const settingMdRaw = await generateText(client, [
     {
       role: "system",
       content:
@@ -85,6 +87,7 @@ export async function initWorld(opts: {
       ].join("\n"),
     },
   ]);
+  const settingMd = injectWorldUuid(settingMdRaw, worldUuid);
 
   // 3) protagonist：依賴 settingMd（需知道屬性系統定義），串行生成
   const protagonistMd = await generateText(client, [
@@ -139,8 +142,9 @@ export async function initWorld(opts: {
   ]);
 
   // 5) 全部寫入（最後才一次性落地，避免半初始化）
+  // settingMd 已由 injectWorldUuid 確保結尾換行，不再額外加 \n
   await mkdir(path.join(worldDir, "characters"), { recursive: true });
-  await writeFile(path.join(worldDir, "setting.md"), `${settingMd}\n`, "utf8");
+  await writeFile(path.join(worldDir, "setting.md"), settingMd, "utf8");
   await writeFile(path.join(worldDir, "gm-notes.md"), `${gmNotesMd}\n`, "utf8");
   await writeFile(path.join(worldDir, "characters", "protagonist.md"), `${protagonistMd}\n`, "utf8");
   await writeFile(
@@ -236,7 +240,13 @@ export async function endWorld(opts: {
     summary = "（摘要生成失敗）";
   }
 
-  const archivedTo = await archiveWorld(repoRoot, worldDir);
+  let worldUuid: string;
+  try {
+    worldUuid = await readWorldUuid(worldDir);
+  } catch {
+    worldUuid = "unknown";
+  }
+  const archivedTo = await archiveWorld(repoRoot, worldDir, worldUuid);
   await writeFile(path.join(repoRoot, archivedTo, "summary.md"), `# 終章摘要\n\n${summary}\n`, "utf8");
   await resetWorldToPlaceholder(worldDir, today);
   return archivedTo;
