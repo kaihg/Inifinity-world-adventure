@@ -15,6 +15,14 @@ function fakeClient(deltas: string[]): LlmClient {
   };
 }
 
+function parseSSEEvents(body: string): any[] {
+  return body
+    .split("\n\n")
+    .map((chunk) => chunk.replace(/^data: /, "").trim())
+    .filter(Boolean)
+    .flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
+}
+
 describe("buildServer", () => {
   // 用隔離的 temp 世界，不讀線上 ./world（否則封存重置後線上 world 變佔位狀態會害這些測試掛）
   let world: string;
@@ -203,6 +211,69 @@ describe("POST /api/turn（SSE）", () => {
     releaseFirst();
     const firstRes = await firstReq;
     expect(firstRes.statusCode).toBe(200);
+    await server.close();
+  });
+
+  it("suggestedActions 為空時，done 事件補「順勢而為」", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["敘事。"]),
+      controlClient: fakeClient([
+        JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "回合",
+        }),
+      ]),
+      commit: async () => true,
+    });
+    const res = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "等待" } });
+    expect(res.statusCode).toBe(200);
+    const events = parseSSEEvents(res.body);
+    const done = events.find((e: any) => e.type === "done");
+    expect(done?.suggestedActions).toEqual(["順勢而為"]);
+    await server.close();
+  });
+
+  it("suggestedActions 非空時，不補順勢而為", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["敘事。"]),
+      controlClient: fakeClient([
+        JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: ["拔刀", "躲避"], commit_summary: "回合",
+        }),
+      ]),
+      commit: async () => true,
+    });
+    const res = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "等待" } });
+    expect(res.statusCode).toBe(200);
+    const events = parseSSEEvents(res.body);
+    const done = events.find((e: any) => e.type === "done");
+    expect(done?.suggestedActions).toEqual(["拔刀", "躲避"]);
+    await server.close();
+  });
+
+  it("enter_dungeon 轉場後即停，不繼續執行下一回合", async () => {
+    const enterCtl = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
+      transition_dungeon_id: "D-001", transition_dungeon_goal: "找到鑰匙",
+      awaiting_user_input: false, suggested_actions: [], commit_summary: "系統開啟副本",
+    });
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["系統警報響起。", "這個副本的機關是洪水。"]),
+      controlClient: fakeClient([enterCtl, enterCtl]),  // Layer 2 + Layer 3
+      commit: async () => true,
+    });
+    const res = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "在安全區等待" } });
+    expect(res.statusCode).toBe(200);
+    const events = parseSSEEvents(res.body);
+    const transitions = events.filter((e: any) => e.type === "transition");
+    const dones = events.filter((e: any) => e.type === "done");
+    // 轉場後即停，只有一個 transition 與一個 done
+    expect(transitions).toHaveLength(1);
+    expect(dones).toHaveLength(1);
+    expect(transitions[0].to).toBe("dungeon");
+    // 轉場後合成的 done 要有 fallback 按鈕
+    expect(dones[0].suggestedActions).toEqual(["順勢而為"]);
     await server.close();
   });
 });
