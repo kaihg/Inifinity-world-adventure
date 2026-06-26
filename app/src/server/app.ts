@@ -8,7 +8,7 @@ import fastifyStatic from "@fastify/static";
 import type { AppConfig } from "../config.js";
 import { loadState } from "../engine/context.js";
 import { isWorldInitialized } from "../engine/world-status.js";
-import { runMainSpaceTurn, runDungeonTurn, type PendingLoreSync } from "../engine/turn/index.js";
+import { runMainSpaceTurn, runDungeonTurn, type PendingLoreSync, type TurnEvent } from "../engine/turn/index.js";
 import { enterDungeon, formatActiveDungeon, parseActiveDungeon, renameLogAfterSettle } from "../engine/dungeon.js";
 import { generateSecrets, setNowActiveDungeon } from "../engine/turn/dungeon-transition.js";
 import { readBestEffort } from "../engine/turn/shared.js";
@@ -154,7 +154,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
   const pendingLoreSync: PendingLoreSync = { promise: null };
 
   // 單一回合鎖：自動推進可能讓一次 /api/turn 跑很久，此時若玩家重整網頁再送出新行動，
-  // 會有兩個 runTurnLoop 並行寫 world/ 並各自 commit，互相覆寫/搶鎖。同一時間只允許一個回合在跑。
+  // 同一時間只允許一個回合在跑：防止並行回合互相覆寫 world/ 或搶 git commit 鎖。
   let turnInProgress = false;
 
   // 啟動時建立一次（建構本身零 I/O，模型/索引延遲初始化）；未啟用時不建立，避免不必要的模型下載
@@ -346,7 +346,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
         : runMainSpaceTurn(turnDeps, input);
 
       // 2. 逐事件轉發，截留 done
-      let done: Extract<import("../engine/turn/types.js").TurnEvent, { type: "done" }> | null = null;
+      let done: Extract<TurnEvent, { type: "done" }> | null = null;
       for await (const ev of gen) {
         if (ev.type === "warning") turnLogger.warn({ ev }, "回合警告事件");
         if (ev.type === "done") { done = ev; continue; }
@@ -358,7 +358,12 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
       }
 
       // 3. 處理轉場
-      if (done.modeTransition === "enter_dungeon" && done.transitionDungeonId) {
+      if (done.modeTransition === "enter_dungeon" && !done.transitionDungeonId) {
+        turnLogger.warn("mode_transition=enter_dungeon 但缺 transition_dungeon_id，無法進入副本，停在等玩家");
+        reply.raw.write(`data: ${JSON.stringify({ type: "warning", message: "系統判定要進入副本，但未能確定副本 id，暫停等玩家確認。" })}\n\n`);
+        done = { ...done, modeTransition: null };
+      }
+      if (done.modeTransition === "enter_dungeon" && done.transitionDungeonId && state.mode !== "dungeon") {
         await pendingLoreSync.promise;
         const settingText = await readBestEffort(path.join(config.worldDir, "setting.md"));
         const secretsText = await generateSecrets(makeClient(turnLogger), settingText, done.transitionDungeonId);
