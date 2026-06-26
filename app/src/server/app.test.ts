@@ -538,6 +538,44 @@ describe("POST /api/world/protagonist", () => {
   });
 });
 
+describe("POST /api/turn 玩家決策記錄", () => {
+  let world: string;
+  beforeEach(async () => {
+    world = await mkdtemp(path.join(tmpdir(), "iwa-turn-decision-"));
+    await mkdir(path.join(world, "characters"), { recursive: true });
+    await writeFile(path.join(world, "setting.md"), "# 設定\n禁止竄改數值。\n");
+    await writeFile(
+      path.join(world, "now.md"),
+      "- 當前篇章：第一章\n- 進行中的副本：無\n- 最後更新：[2026-06-18] 舊\n",
+    );
+    await writeFile(
+      path.join(world, "characters", "protagonist.md"),
+      "- 姓名：沈奕\n- 當前積分：0\n",
+    );
+  });
+  afterEach(async () => {
+    await rm(world, { recursive: true, force: true });
+  });
+
+  it("POST /api/turn 會在主回合開始前記錄玩家原始輸入", async () => {
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["前半段，", "後半段。"]),
+      controlClient: fakeClient([
+        JSON.stringify({
+          state_changes: {}, rolls: [], mode_transition: null,
+          awaiting_user_input: true, suggested_actions: [], commit_summary: "確認出口",
+        }),
+      ]),
+      commit: async () => true,
+    });
+    const res = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "先確認出口" } });
+    expect(res.statusCode).toBe(200);
+    const decisionsContent = await readFile(path.join(world, "player-decisions.md"), "utf8");
+    expect(decisionsContent).toContain("先確認出口");
+    await server.close();
+  });
+});
+
 describe("POST /api/turn 在 .pending-death 存在時擋下", () => {
   let world: string;
   beforeEach(async () => {

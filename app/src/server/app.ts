@@ -21,6 +21,8 @@ import type { RecallIndex } from "../recall/store.js";
 import { initWorld, endWorld, replaceProtagonist } from "../engine/world-ops.js";
 import { clearRecallIndex } from "../recall/clear-index.js";
 import { todayISO } from "../engine/turn/shared.js";
+import { appendPlayerDecision } from "../engine/player-decisions.js";
+import { readPlayerMetaCounts } from "../engine/player-meta.js";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 // app/src/server/app.ts → app/web（dev：原始檔；prod：Vite build 輸出 web-dist）
@@ -325,6 +327,27 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
 
       // 1. 讀狀態決定跑哪種回合
       const state = await loadState(config.worldDir, turnLogger);
+
+      // 1a. 記錄玩家原始輸入（決策溯源日誌）——在 LLM 生成前落地
+      {
+        const metaPlayerPath = path.join(repoRoot, "meta", "player.md");
+        let protagonistGeneration = 1;
+        if (existsSync(metaPlayerPath)) {
+          try {
+            const counts = await readPlayerMetaCounts(repoRoot);
+            protagonistGeneration = counts.protagonistGenerationCount + 1;
+          } catch {
+            // player.md 格式異常時靜默降級，不中斷回合
+          }
+        }
+        await appendPlayerDecision(config.worldDir, {
+          turnId,
+          protagonistGeneration,
+          createdAt: new Date().toISOString(),
+          input,
+        });
+      }
+
       const turnDeps = {
         client: makeClient(turnLogger),
         characterClient,
