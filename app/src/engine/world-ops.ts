@@ -37,12 +37,12 @@ const UNSPEC = "（使用者未指定，由你自由發揮）";
 function initialNow(today: string): NowState {
   return {
     chapter: "第一章：開場",
-    scene: "主神空間安全區，剛被系統選中",
+    scene: "主神空間",
     companions: "（無）",
     activeDungeon: "無",
-    threads: "（待劇情展開）",
-    nextStep: "熟悉環境，等待第一個副本公告",
-    lastUpdated: `[${today}] 新世界啟用`,
+    threads: "無",
+    nextStep: "",
+    lastUpdated: `[${today}] 進入主神空間`,
   };
 }
 
