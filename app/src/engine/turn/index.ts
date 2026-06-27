@@ -13,6 +13,7 @@ import {
 import { listLoreIds } from "../lore.js";
 import { appendJournal } from "../journal.js";
 import { rollPool } from "../roll.js";
+import { getTemplate } from "../template-loader.js";
 import { runPrePassBlock, runRecallBlock } from "./context-blocks.js";
 import { generateSecrets, setNowActiveDungeon } from "./dungeon-transition.js";
 import { scheduleLoreSync } from "./lore-sync.js";
@@ -86,6 +87,14 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const state = await loadState(deps.worldDir, log);
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
 
+  // 偵測 opening 回合：journal.md 只有標題行（無任何 ## 段落）→ 注入 opening prompt
+  const journalText = await readBestEffort(path.join(deps.worldDir, "journal.md"));
+  const isOpeningTurn = !/^## /m.test(journalText.trim());
+  const repoRoot = path.dirname(deps.worldDir);
+  const openingPrompt = isOpeningTurn
+    ? await getTemplate("opening", deps.worldDir, repoRoot).catch(() => "")
+    : undefined;
+
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const recallBlock = yield* runRecallBlock(deps, input);
 
@@ -99,7 +108,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const existingEntityIds = await collectExistingEntityIds(deps.worldDir, state, log);
 
   const plan: TurnPlan = {
-    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock, nudgeBlock, pacingBlock }),
+    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock, nudgeBlock, pacingBlock, openingPrompt }),
     buildFastControl: (narrative) =>
       buildFastControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
     buildLoreSync: (narrative) =>
