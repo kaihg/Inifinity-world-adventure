@@ -84,6 +84,16 @@ export type TurnEvent =
       state?: GameState;
     };
 
+function emitSSEPart(part: string, onEvent: (ev: TurnEvent) => void): void {
+  const line = part.replace(/^data: /, "").trim();
+  if (!line) return;
+  try {
+    onEvent(JSON.parse(line) as TurnEvent);
+  } catch {
+    /* 忽略不完整片段 */
+  }
+}
+
 async function readSSEStream(reader: ReadableStreamDefaultReader<Uint8Array>, onEvent: (ev: TurnEvent) => void): Promise<void> {
   const decoder = new TextDecoder();
   let buf = "";
@@ -93,16 +103,10 @@ async function readSSEStream(reader: ReadableStreamDefaultReader<Uint8Array>, on
     buf += decoder.decode(value, { stream: true });
     const parts = buf.split("\n\n");
     buf = parts.pop() ?? "";
-    for (const part of parts) {
-      const line = part.replace(/^data: /, "").trim();
-      if (!line) continue;
-      try {
-        onEvent(JSON.parse(line) as TurnEvent);
-      } catch {
-        /* 忽略不完整片段 */
-      }
-    }
+    for (const part of parts) emitSSEPart(part, onEvent);
   }
+  // 串流結束時 buf 可能還留著最後一段未以 \n\n 結尾的事件，必須補處理，否則最後幾個字元會消失
+  if (buf.trim()) emitSSEPart(buf, onEvent);
 }
 
 /** 送出一個回合，解析 SSE 串流，逐事件回呼 */
