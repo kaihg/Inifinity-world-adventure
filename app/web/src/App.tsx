@@ -319,6 +319,13 @@ export function App() {
             for (const char of ev.text) pendingQueue.current.push(char);
             startTypewriter();
             break;
+          case "transition":
+            setStory(
+              (s) =>
+                s + `\n\n【${ev.to === "dungeon" ? `進入副本 ${ev.dungeonId ?? ""}` : "返回安全區"}】\n\n`,
+            );
+            setSuggested([]);
+            break;
           case "warning":
             setStory((s) => s + `\n[提示] ${ev.message}\n`);
             break;
@@ -327,7 +334,12 @@ export function App() {
             setStory((s) => s + `\n[錯誤] ${ev.message}\n`);
             break;
           case "done":
-            if (ev.awaitingUserInput) setSuggested(ev.suggestedActions ?? []);
+            if (ev.protagonistDied) {
+              setProtagonistDied(true);
+              setSuggested([]);
+            } else if (ev.awaitingUserInput) {
+              setSuggested(ev.suggestedActions ?? []);
+            }
             if (ev.state) setState(ev.state);
             llmDoneRef.current = true;
             break;
