@@ -1275,10 +1275,11 @@ describe("opening turn injection", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("journal.md 只有標題行時，system prompt 含 opening.md 內容", async () => {
+  it("now.md の lastUpdated に「進入主神空間」が含まれる場合、system prompt に opening.md 内容が注入される", async () => {
     const worldDir = path.join(dir, "world");
-    // journal.md 只有標題行（無 ## 段落）
-    await writeFile(path.join(worldDir, "journal.md"), "# 主空間日誌（Journal）\n");
+    // initWorld 直後：now.md の lastUpdated は「進入主神空間」を含む
+    await writeFile(path.join(worldDir, "journal.md"), "# 主空間日誌（Journal）\n\n## [2026-06-27] 新世界啟用\n\n開場敘事。\n");
+    // now.md は beforeEach で「進入主神空間」を含む状態に設定済み
 
     const captured: ChatMessage[][] = [];
     const client: LlmClient = {
@@ -1305,10 +1306,11 @@ describe("opening turn injection", () => {
     expect(captured[0][0].content).toContain("開場回合專屬指引：測試內容。");
   });
 
-  it("journal.md 有 ## 段落時，system prompt 不含 opening.md 內容", async () => {
+  it("now.md の lastUpdated に「進入主神空間」が含まれない場合、opening.md 内容は注入されない", async () => {
     const worldDir = path.join(dir, "world");
-    // journal.md 有真實段落
-    await writeFile(path.join(worldDir, "journal.md"), "# 主空間日誌（Journal）\n\n## [2026-06-27] 開場\n\n一段敘事。\n");
+    // 既に回合が進んだ状態：lastUpdated が通常の回合内容に更新済み
+    await writeFile(path.join(worldDir, "now.md"), "# 當前局勢\n\n- 當前篇章：第一章：開場\n- 此刻場景/地點：主神空間\n- 在場同伴/相關 NPC：（無）\n- 進行中的副本：無\n- 未解懸念/伏筆：無\n- 主角下一步打算：\n- 最後更新：[2026-06-27] 主角觀察了四周\n");
+    await writeFile(path.join(worldDir, "journal.md"), "# 主空間日誌（Journal）\n\n## [2026-06-27] 新世界啟用\n\n開場敘事。\n\n## [2026-06-27] 第一回合\n\n一段敘事。\n");
 
     const captured: ChatMessage[][] = [];
     const client: LlmClient = {

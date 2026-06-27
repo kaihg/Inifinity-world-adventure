@@ -34,6 +34,7 @@ function makeConfig(usageLogPath: string): AppConfig {
     nudge: { windowSize: 20, similarityThreshold: 0.85 },
     pacingReviewInterval: 50,
     usageLogPath,
+    typewriterIntervalMs: 25,
   };
 }
 

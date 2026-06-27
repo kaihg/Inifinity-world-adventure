@@ -68,7 +68,7 @@ const DEFAULTS = {
   nudgeSimilarityThreshold: 0.92,
   pacingReviewInterval: 10,
   recallTopK: 5,
-  typewriterIntervalMs: 50,
+  typewriterIntervalMs: 25,
 };
 
 /** 解析正整數，非法或非正數時退回預設 */

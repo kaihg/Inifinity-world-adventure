@@ -5,7 +5,7 @@ import { WorldSetupWizard } from "./WorldSetupWizard";
 import { DeathChoiceModal } from "./DeathChoiceModal";
 import { EndWorldModal } from "./EndWorldModal";
 
-export const TYPEWRITER_INTERVAL_MS_DEFAULT = 50;
+export const TYPEWRITER_INTERVAL_MS_DEFAULT = 25;
 export const LOOKAHEAD_MIN = 20;
 
 export function shouldTypewriterOutput({
@@ -124,8 +124,16 @@ export function App() {
 
   function waitForTypewriter(): Promise<void> {
     return new Promise((resolve) => {
+      // タイムアウトガード：done イベントなしで SSE が閉じた場合のデッドロック防止
+      const TIMEOUT_MS = 10_000;
+      const timeout = setTimeout(() => {
+        clearInterval(check);
+        llmDoneRef.current = true; // タイマー自己クリア条件を満たすよう強制設定
+        resolve();
+      }, TIMEOUT_MS);
       const check = setInterval(() => {
         if (!typewriterTimer.current) {
+          clearTimeout(timeout);
           clearInterval(check);
           resolve();
         }
@@ -305,13 +313,14 @@ export function App() {
   }
 
   async function sendOpening() {
-    if (busy) return;
+    if (busyRef.current) return;
     setBusy(true);
     setStory("");
     stopTypewriter(true);
     llmDoneRef.current = false;
     setSuggested([]);
     setInput("");
+    storyEndRef.current?.parentElement?.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       await streamTurn("", (ev) => {
         switch (ev.type) {
@@ -339,6 +348,9 @@ export function App() {
               setSuggested([]);
             } else if (ev.awaitingUserInput) {
               setSuggested(ev.suggestedActions ?? []);
+            } else {
+              // 自動推進中的中間回合：清空建議 chips 防止殘留
+              setSuggested([]);
             }
             if (ev.state) setState(ev.state);
             llmDoneRef.current = true;
@@ -362,8 +374,8 @@ export function App() {
     return <WorldSetupWizard onDone={(s) => {
       setState(s);
       setWorldInitialized(true);
-      loadedInitialRef.current = true;
-      // init 完成後自動執行 opening turn
+      // loadedInitialRef は sendOpening の refresh() 完了後に設定される
+      // ここで true にすると sendOpening 失敗時に refresh() が lastTurn を復元できなくなる
       void sendOpening();
     }} />;
   }
