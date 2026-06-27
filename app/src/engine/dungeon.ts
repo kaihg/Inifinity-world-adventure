@@ -118,7 +118,7 @@ export async function appendLog(
   entry: RunEntry,
 ): Promise<void> {
   const file = path.join(dungeonDir(worldDir, dungeonId), "log.md");
-  await appendFile(file, `\n### [${entry.date}] ${entry.title}\n\n${entry.body.trim()}\n`, "utf8");
+  await appendFile(file, `\n## [${entry.date}] ${entry.title}\n\n${entry.body.trim()}\n`, "utf8");
 }
 
 /** @deprecated 請改用 appendLog */

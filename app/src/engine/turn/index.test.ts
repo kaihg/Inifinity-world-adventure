@@ -656,7 +656,7 @@ describe("runDungeonTurn", () => {
     }
 
     const run = await readFile(path.join(world, "dungeons", "U-001", "log.md"), "utf8");
-    expect(run).toContain("### [2026-06-19] 進入大廳");
+    expect(run).toContain("## [2026-06-19] 進入大廳");
     expect(run).toContain("往前走");
     const wiki = await readFile(path.join(world, "dungeons", "U-001", "wiki.md"), "utf8");
     expect(wiki).toContain("入口大廳有三道門");

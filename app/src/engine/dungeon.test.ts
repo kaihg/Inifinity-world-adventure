@@ -112,7 +112,7 @@ describe("enterDungeon / appendLog / loadDungeonLore", () => {
     await enterDungeon(world, { dungeonId: "U-001", today: "2026-06-19", protagonistSummary: "x", goal: "g", secretsText: "真相" });
     await appendLog(world, "U-001", "run-1", { date: "2026-06-19", title: "回合一", body: "發生了事" });
     const log = await readFile(path.join(world, "dungeons", "U-001", "log.md"), "utf8");
-    expect(log).toContain("### [2026-06-19] 回合一");
+    expect(log).toContain("## [2026-06-19] 回合一");
     expect(log).toContain("發生了事");
 
     const lore = await loadDungeonLore(world, "U-001");
