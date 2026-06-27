@@ -304,11 +304,68 @@ export function App() {
     }
   }
 
+  async function sendOpening() {
+    if (busy) return;
+    setBusy(true);
+    setStory("");
+    stopTypewriter(true);
+    llmDoneRef.current = false;
+    setSuggested([]);
+    setInput("");
+    try {
+      await streamTurn("", (ev) => {
+        switch (ev.type) {
+          case "delta":
+            for (const char of ev.text) pendingQueue.current.push(char);
+            startTypewriter();
+            break;
+          case "transition":
+            setStory(
+              (s) =>
+                s + `\n\n【${ev.to === "dungeon" ? `進入副本 ${ev.dungeonId ?? ""}` : "返回安全區"}】\n\n`,
+            );
+            setSuggested([]);
+            break;
+          case "warning":
+            setStory((s) => s + `\n[提示] ${ev.message}\n`);
+            break;
+          case "error":
+            stopTypewriter(true);
+            setStory((s) => s + `\n[錯誤] ${ev.message}\n`);
+            break;
+          case "done":
+            if (ev.protagonistDied) {
+              setProtagonistDied(true);
+              setSuggested([]);
+            } else if (ev.awaitingUserInput) {
+              setSuggested(ev.suggestedActions ?? []);
+            }
+            if (ev.state) setState(ev.state);
+            llmDoneRef.current = true;
+            break;
+        }
+      });
+      await refresh();
+    } catch (e) {
+      stopTypewriter(true);
+      setStory((s) => s + `\n[開場失敗] ${(e as Error).message}\n`);
+    } finally {
+      await waitForTypewriter();
+      setBusy(false);
+    }
+  }
+
   const isDungeon = state?.mode === "dungeon";
 
   if (worldInitialized === null) return <div className="app-shell app-shell--main" />;
   if (!worldInitialized) {
-    return <WorldSetupWizard onDone={(s) => { setState(s); setWorldInitialized(true); loadedInitialRef.current = true; }} />;
+    return <WorldSetupWizard onDone={(s) => {
+      setState(s);
+      setWorldInitialized(true);
+      loadedInitialRef.current = true;
+      // init 完成後自動執行 opening turn
+      void sendOpening();
+    }} />;
   }
 
   return (

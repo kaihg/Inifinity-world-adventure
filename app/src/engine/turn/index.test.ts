@@ -1254,3 +1254,83 @@ describe("主角永久死亡（protagonist_permanent_death）", () => {
     await expect(readFile(path.join(world, ".pending-death"), "utf8")).rejects.toThrow();
   });
 });
+
+describe("opening turn injection", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "opening-"));
+    const worldDir = path.join(dir, "world");
+    await mkdir(path.join(worldDir, "characters"), { recursive: true });
+    await mkdir(path.join(dir, "templates"), { recursive: true });
+    // 世界已初始化（有 setting.md）
+    await writeFile(path.join(worldDir, "setting.md"), "# 世界設定\n\n## 基本規則\n測試規則。\n");
+    await writeFile(path.join(worldDir, "characters", "protagonist.md"), "# 主角檔案\n\n- 姓名：測試者\n\n## 積分\n\n1000\n");
+    await writeFile(path.join(worldDir, "characters", "index.md"), "# 角色索引\n\n| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |\n|----|------|------|----------|--------------|\n");
+    await writeFile(path.join(worldDir, "now.md"), "# 當前局勢\n\n- 當前篇章：第一章：開場\n- 此刻場景/地點：主神空間\n- 在場同伴/相關 NPC：（無）\n- 進行中的副本：無\n- 未解懸念/伏筆：無\n- 主角下一步打算：\n- 最後更新：[2026-06-27] 進入主神空間\n");
+    await writeFile(path.join(dir, "templates", "opening.md"), "開場回合專屬指引：測試內容。");
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("journal.md 只有標題行時，system prompt 含 opening.md 內容", async () => {
+    const worldDir = path.join(dir, "world");
+    // journal.md 只有標題行（無 ## 段落）
+    await writeFile(path.join(worldDir, "journal.md"), "# 主空間日誌（Journal）\n");
+
+    const captured: ChatMessage[][] = [];
+    const client: LlmClient = {
+      async *streamChat(messages) {
+        captured.push(messages);
+        yield "opening 敘事";
+      },
+    };
+    const controlClient = fakeClient([controlJson(true, "opening")]);
+
+    const deps: TurnDeps = {
+      client,
+      controlClient,
+      worldDir,
+      commit: async () => false,
+    };
+
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "")) {
+      events.push(ev);
+    }
+
+    // Layer 1 system prompt 應包含 opening.md 內容
+    expect(captured[0][0].content).toContain("開場回合專屬指引：測試內容。");
+  });
+
+  it("journal.md 有 ## 段落時，system prompt 不含 opening.md 內容", async () => {
+    const worldDir = path.join(dir, "world");
+    // journal.md 有真實段落
+    await writeFile(path.join(worldDir, "journal.md"), "# 主空間日誌（Journal）\n\n## [2026-06-27] 開場\n\n一段敘事。\n");
+
+    const captured: ChatMessage[][] = [];
+    const client: LlmClient = {
+      async *streamChat(messages) {
+        captured.push(messages);
+        yield "正常敘事";
+      },
+    };
+    const controlClient = fakeClient([controlJson(true, "normal")]);
+
+    const deps: TurnDeps = {
+      client,
+      controlClient,
+      worldDir,
+      commit: async () => false,
+    };
+
+    const events: TurnEvent[] = [];
+    for await (const ev of runMainSpaceTurn(deps, "任意行動")) {
+      events.push(ev);
+    }
+
+    expect(captured[0][0].content).not.toContain("開場回合專屬指引：測試內容。");
+  });
+});
