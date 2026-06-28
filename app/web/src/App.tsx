@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { fetchState, fetchVersion, fetchConfig, streamTurn, fetchWorldStatus, endWorld, fetchTurnStatus, streamTurnFromOffset, type AppVersion, type GameState, type TurnEvent } from "./api";
+import { fetchState, fetchVersion, fetchConfig, streamTurn, fetchWorldStatus, endWorld, fetchTurnStatus, streamTurnFromOffset, pollUntilProgressed, type AppVersion, type GameState, type TurnEvent } from "./api";
 import { WorldSetupWizard } from "./WorldSetupWizard";
 import { DeathChoiceModal } from "./DeathChoiceModal";
 import { EndWorldModal } from "./EndWorldModal";
@@ -190,42 +190,12 @@ export function App() {
       await refresh();
     } catch (e) {
       tw.stop(true);
-      // 🚀 斷線與背景喚醒自我癒合機制 ── 帶重試輪詢 (Polling with backoff/retries for slow self-hosted models)
-      console.warn("streamTurn 發生中斷，開始執行自我癒合輪詢檢測...", e);
-
-      const maxAttempts = 6; // 總共輪詢 6 次
-      const pollIntervalMs = 3000; // 每 3 秒輪詢一次（符合自架 MoE 模型預計算/吐字週期）
-      let healed = false;
-
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          if (attempt > 1) {
-            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-          }
-
-          console.log(`[癒合輪詢] 第 ${attempt}/${maxAttempts} 次嘗試拉取最新狀態...`);
-          const freshState = await fetchState();
-
-          // 確保當前 state 存在且 lastUpdated 已經推進了，才進行癒合
-          if (
-            freshState.lastTurn &&
-            preTurnLastUpdated &&
-            freshState.now.lastUpdated !== preTurnLastUpdated
-          ) {
-            console.log(`[癒合成功] 偵測到伺服器端已順利完成回合，lastUpdated 從 ${preTurnLastUpdated} 推進至 ${freshState.now.lastUpdated}`);
-            setState(freshState);
-            setStory(freshState.lastTurn.narrative);
-            setSuggested(freshState.lastTurn.suggestedActions);
-            healed = true;
-            break; // 成功癒合，退出輪詢
-          }
-        } catch (err) {
-          console.warn(`[癒合輪詢] 第 ${attempt} 次拉取失敗:`, err);
-        }
-      }
-
-      if (!healed) {
-        // 如果所有輪詢結束後仍未偵測到進度推進，則判定為真失敗
+      const healed = await pollUntilProgressed(preTurnLastUpdated);
+      if (healed) {
+        setState(healed);
+        setStory(healed.lastTurn!.narrative);
+        setSuggested(healed.lastTurn!.suggestedActions);
+      } else {
         setStory((s) => s + `\n[請求失敗] ${(e as Error).message}（伺服器可能未完成運算，請確認網路或手動重整）`);
       }
     } finally {

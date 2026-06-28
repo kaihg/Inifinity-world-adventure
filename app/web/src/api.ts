@@ -179,6 +179,22 @@ export async function resolveProtagonistDeath(
   return res.json();
 }
 
+/** 輪詢直到伺服器端回合已落地（lastUpdated 推進）或次數耗盡。回傳最新 state 或 null。 */
+export async function pollUntilProgressed(
+  preTurnLastUpdated: string | undefined,
+  opts?: { maxAttempts?: number; intervalMs?: number },
+): Promise<GameState | null> {
+  const { maxAttempts = 6, intervalMs = 3000 } = opts ?? {};
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (attempt > 1) await new Promise<void>((r) => setTimeout(r, intervalMs));
+    const freshState = await fetchState().catch(() => null);
+    if (freshState?.lastTurn && preTurnLastUpdated && freshState.now.lastUpdated !== preTurnLastUpdated) {
+      return freshState;
+    }
+  }
+  return null;
+}
+
 export async function fetchTurnStatus(): Promise<{ active: boolean; turnId: string | null }> {
   const res = await fetch("/api/turn/status");
   if (!res.ok) throw new Error("HTTP " + res.status);
