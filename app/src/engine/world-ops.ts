@@ -164,6 +164,7 @@ export async function initWorld(opts: {
   const dungeonsDir = path.join(worldDir, "dungeons");
   await rm(dungeonsDir, { recursive: true, force: true }).catch(() => {});
   await mkdir(dungeonsDir, { recursive: true });
+  await writeFile(path.join(worldDir, ".pending-opening"), new Date().toISOString(), "utf8");
 }
 
 /**

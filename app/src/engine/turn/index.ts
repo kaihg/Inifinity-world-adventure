@@ -1,4 +1,5 @@
 import path from "node:path";
+import { access, unlink } from "node:fs/promises";
 import { logger as defaultLogger, type Logger } from "../../logger.js";
 import { loadState, type GameState } from "../context.js";
 import {
@@ -87,9 +88,8 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const state = await loadState(deps.worldDir, log);
   const settingText = await readBestEffort(path.join(deps.worldDir, "setting.md"));
 
-  // 偵測 opening 回合：now.md 的 lastUpdated 含「進入主神空間」（initialNow 的初始值）
-  // 比 journal.md 標頭偵測更可靠：initWorld 會預寫 ## 段落到 journal.md，但 now.md 只在第一回合落地後才被覆寫
-  const isOpeningTurn = state.now.lastUpdated.includes("進入主神空間");
+  const pendingOpeningPath = path.join(deps.worldDir, ".pending-opening");
+  const isOpeningTurn = await access(pendingOpeningPath).then(() => true).catch(() => false);
   const repoRoot = path.dirname(deps.worldDir);
   const openingPrompt = isOpeningTurn
     ? await getTemplate("opening", deps.worldDir, repoRoot).catch((err) => {
@@ -121,6 +121,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   };
 
   const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
+  await unlink(pendingOpeningPath).catch(() => {});
   await scheduleLoreSync(deps, narrative, settingText, plan, log);
 }
 

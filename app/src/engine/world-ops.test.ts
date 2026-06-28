@@ -288,6 +288,20 @@ describe("initWorld 骨架注入", () => {
     expect(journal).not.toContain("新世界建立，主角剛被系統選中。");
   });
 
+  it("initWorld 完成後 .pending-opening 存在（ISO timestamp）", async () => {
+    const client: LlmClient = {
+      async *streamChat(messages: ChatMessage[]) {
+        const system = messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("設定設計師")) { yield "# 世界設定（World Setting）\n\n冷酷系統。\n"; return; }
+        if (system.includes("角色設計師")) { yield "# 主角檔案\n\n沈奕。\n"; return; }
+        yield "# 內容\n";
+      },
+    };
+    await initWorld({ worldDir, repoRoot, client, input: {}, today: "2026-06-28", logger: createLogger() });
+    const content = await readFile(path.join(worldDir, ".pending-opening"), "utf8");
+    expect(content).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
 });
 
 describe("replaceProtagonist 主角結算整合", () => {

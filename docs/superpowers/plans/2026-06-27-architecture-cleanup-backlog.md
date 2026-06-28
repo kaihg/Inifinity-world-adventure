@@ -9,7 +9,7 @@
 
 | # | 任務 | 影響範圍 | 優先 | 狀態 |
 |---|------|---------|------|------|
-| 1 | `.pending-opening` sentinel 取代字串偵測 | 後端 | 中 | 待處理 |
+| 1 | `.pending-opening` sentinel 取代字串偵測 | 後端 | 中 | ✅ 完成 |
 | 2 | Recall 向量索引改為預設啟用 | 後端 config | 高 | 待處理 |
 | 3 | 拆分 `server/app.ts` | 後端 | 低（加功能前再做） | ✅ 完成 |
 | 4 | 提取共用 `handleTurnEvent()` | 前端 | 高 | ✅ 完成 |

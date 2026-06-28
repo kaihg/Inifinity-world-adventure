@@ -1275,11 +1275,12 @@ describe("opening turn injection", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("now.md の lastUpdated に「進入主神空間」が含まれる場合、system prompt に opening.md 内容が注入される", async () => {
+  it(".pending-opening が存在する場合 system prompt に opening.md 内容が注入される", async () => {
     const worldDir = path.join(dir, "world");
-    // initWorld 直後：now.md の lastUpdated は「進入主神空間」を含む
+    // initWorld 直後：.pending-opening が存在する（lastUpdated の文字列は関係ない）
+    await writeFile(path.join(worldDir, ".pending-opening"), new Date().toISOString(), "utf8");
     await writeFile(path.join(worldDir, "journal.md"), "# 主空間日誌（Journal）\n\n## [2026-06-27] 新世界啟用\n\n開場敘事。\n");
-    // now.md は beforeEach で「進入主神空間」を含む状態に設定済み
+    // now.md は beforeEach で設定済み（lastUpdated の値は問わない）
 
     const captured: ChatMessage[][] = [];
     const client: LlmClient = {
@@ -1304,6 +1305,39 @@ describe("opening turn injection", () => {
 
     // Layer 1 system prompt 應包含 opening.md 內容
     expect(captured[0][0].content).toContain("開場回合專屬指引：測試內容。");
+  });
+
+  it(".pending-opening 存在し lastUpdated が通常値のとき opening prompt が注入される", async () => {
+    const worldDir = path.join(dir, "world");
+    await writeFile(path.join(worldDir, ".pending-opening"), new Date().toISOString(), "utf8");
+    // lastUpdated は「進入主神空間」を含まない — 旧コードはここで opening を注入しない
+    await writeFile(path.join(worldDir, "now.md"), "# 當前局勢\n\n- 當前篇章：第一章：開場\n- 此刻場景/地點：主神空間\n- 在場同伴/相關 NPC：（無）\n- 進行中的副本：無\n- 未解懸念/伏筆：無\n- 主角下一步打算：\n- 最後更新：[2026-06-28] 第一回合開始\n");
+    await writeFile(path.join(worldDir, "journal.md"), "# 主空間日誌（Journal）\n\n## [2026-06-28] 新世界啟用\n\n開場敘事。\n");
+
+    const captured: ChatMessage[][] = [];
+    const client: LlmClient = {
+      async *streamChat(messages) { captured.push(messages); yield "opening 敘事"; },
+    };
+    const controlClient = fakeClient([controlJson(true, "opening")]);
+    const deps: TurnDeps = { client, controlClient, worldDir, commit: async () => false };
+
+    for await (const _ of runMainSpaceTurn(deps, "")) { /* drain */ }
+
+    expect(captured[0][0].content).toContain("開場回合專屬指引：測試內容。");
+  });
+
+  it("開場回合完成後 .pending-opening が削除される", async () => {
+    const worldDir = path.join(dir, "world");
+    await writeFile(path.join(worldDir, ".pending-opening"), new Date().toISOString(), "utf8");
+    await writeFile(path.join(worldDir, "journal.md"), "# 主空間日誌（Journal）\n\n## [2026-06-28] 新世界啟用\n\n開場敘事。\n");
+
+    const client = fakeClient(["opening 敘事"]);
+    const controlClient = fakeClient([controlJson(true, "opening")]);
+    const deps: TurnDeps = { client, controlClient, worldDir, commit: async () => false };
+
+    for await (const _ of runMainSpaceTurn(deps, "")) { /* drain */ }
+
+    await expect(readFile(path.join(worldDir, ".pending-opening"), "utf8")).rejects.toThrow();
   });
 
   it("now.md の lastUpdated に「進入主神空間」が含まれない場合、opening.md 内容は注入されない", async () => {
