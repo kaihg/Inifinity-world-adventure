@@ -1,5 +1,5 @@
 import path from "node:path";
-import { access, unlink } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
 import { logger as defaultLogger, type Logger } from "../../logger.js";
 import { loadState, type GameState } from "../context.js";
 import {
@@ -120,8 +120,8 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
     rawFilePath: path.join(deps.worldDir, "journal.md"),
   };
 
+  if (isOpeningTurn) await rm(pendingOpeningPath, { force: true });
   const narrative = yield* runTurnCore(deps, input, state, dicePool, today, plan, log);
-  await unlink(pendingOpeningPath).catch(() => {});
   await scheduleLoreSync(deps, narrative, settingText, plan, log);
 }
 

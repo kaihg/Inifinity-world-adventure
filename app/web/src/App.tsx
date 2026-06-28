@@ -154,7 +154,7 @@ export function App() {
         await refresh();
 
       } catch (e) {
-        stopTypewriter(true);
+        tw.stop(true);
         if (e instanceof Error && e.message === "GONE") {
           await refresh();
           setStory((s) => s || "連線已中斷，已還原最後進度。");
