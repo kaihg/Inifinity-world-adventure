@@ -162,6 +162,22 @@ describe("loadConfig", () => {
   it("pacing 欄位：未設定時為 undefined", () => {
     expect(loadConfig({ OPENAI_API_KEY: "key" }).pacing).toBeUndefined();
   });
+
+  it("recall.enabled 未設定時預設為 true", () => {
+    expect(loadConfig({}).recall.enabled).toBe(true);
+  });
+
+  it("recall.enabled 以 RECALL_ENABLED=false 明確關閉", () => {
+    expect(loadConfig({ RECALL_ENABLED: "false" }).recall.enabled).toBe(false);
+  });
+
+  it("recall.enabled 以 RECALL_ENABLED=true 明確啟用（向後相容）", () => {
+    expect(loadConfig({ RECALL_ENABLED: "true" }).recall.enabled).toBe(true);
+  });
+
+  it("recall.enabled 以 RECALL_ENABLED=1 啟用（向後相容）", () => {
+    expect(loadConfig({ RECALL_ENABLED: "1" }).recall.enabled).toBe(true);
+  });
 });
 
 describe("configWarnings", () => {

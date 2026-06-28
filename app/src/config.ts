@@ -45,7 +45,7 @@ export interface AppConfig {
     baseUrl: string;
     model: string;
   };
-  /** 語意檢索（recall）設定；derived cache，不進 git，預設關閉（需下載嵌入模型） */
+  /** 語意檢索（recall）設定；derived cache，不進 git，預設啟用（RECALL_ENABLED=false 可關閉） */
   recall: {
     enabled: boolean;
     indexDir: string;
@@ -154,7 +154,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ? { baseUrl: env.PACING_OPENAI_BASE_URL, model: env.PACING_MODEL }
         : undefined,
     recall: {
-      enabled: env.RECALL_ENABLED === "true" || env.RECALL_ENABLED === "1",
+      enabled: env.RECALL_ENABLED !== "false",
       indexDir: env.RECALL_INDEX_DIR ? path.resolve(env.RECALL_INDEX_DIR) : defaultRecallIndexDir(),
       topK: parsePositiveInt(env.RECALL_TOP_K, DEFAULTS.recallTopK),
     },
