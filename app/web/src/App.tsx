@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { fetchState, fetchVersion, fetchConfig, streamTurn, fetchWorldStatus, endWorld, fetchTurnStatus, streamTurnFromOffset, type AppVersion, type GameState } from "./api";
+import { fetchState, fetchVersion, fetchConfig, streamTurn, fetchWorldStatus, endWorld, fetchTurnStatus, streamTurnFromOffset, type AppVersion, type GameState, type TurnEvent } from "./api";
 import { WorldSetupWizard } from "./WorldSetupWizard";
 import { DeathChoiceModal } from "./DeathChoiceModal";
 import { EndWorldModal } from "./EndWorldModal";
@@ -21,6 +21,54 @@ export function shouldTypewriterOutput({
 }
 
 const COMPUTING_HINT = "🌌 主控系統正在運算中…（自架模型首字推論可能需數十秒，請稍候）";
+
+export interface TurnEventHandlerDeps {
+  enqueue: (char: string) => void;
+  startTypewriter: () => void;
+  stopTypewriter: (clearQueue?: boolean) => void;
+  appendStory: (text: string) => void;
+  setSuggested: (actions: string[]) => void;
+  setState: (s: GameState) => void;
+  setProtagonistDied: (died: boolean) => void;
+  setLlmDone: () => void;
+}
+
+/** 消除三份重複的 SSE switch：delta/transition/warning/error/done 共用邏輯 */
+export function makeTurnEventHandler(deps: TurnEventHandlerDeps): (ev: TurnEvent) => void {
+  return (ev) => {
+    switch (ev.type) {
+      case "delta":
+        for (const char of ev.text) deps.enqueue(char);
+        deps.startTypewriter();
+        break;
+      case "transition":
+        deps.appendStory(
+          `\n\n【${ev.to === "dungeon" ? `進入副本 ${ev.dungeonId ?? ""}` : "返回安全區"}】\n\n`,
+        );
+        deps.setSuggested([]);
+        break;
+      case "warning":
+        deps.appendStory(`\n[提示] ${ev.message}\n`);
+        break;
+      case "error":
+        deps.stopTypewriter(true);
+        deps.appendStory(`\n[錯誤] ${ev.message}\n`);
+        break;
+      case "done":
+        if (ev.protagonistDied) {
+          deps.setProtagonistDied(true);
+          deps.setSuggested([]);
+        } else if (ev.awaitingUserInput) {
+          deps.setSuggested(ev.suggestedActions ?? []);
+        } else {
+          deps.setSuggested([]);
+        }
+        if (ev.state) deps.setState(ev.state);
+        deps.setLlmDone();
+        break;
+    }
+  };
+}
 
 export function App() {
   const [state, setState] = useState<GameState | null>(null);
@@ -141,6 +189,17 @@ export function App() {
     });
   }
 
+  const handleTurnEvent = makeTurnEventHandler({
+    enqueue: (char) => pendingQueue.current.push(char),
+    startTypewriter,
+    stopTypewriter,
+    appendStory: (text) => setStory((s) => s + text),
+    setSuggested,
+    setState: (s) => setState(s),
+    setProtagonistDied,
+    setLlmDone: () => { llmDoneRef.current = true; },
+  });
+
   async function reconnectIfNeeded() {
     if (busyRef.current || reconnectingRef.current) return;
     try {
@@ -153,42 +212,7 @@ export function App() {
       setStory("");
       setSuggested([]);
       try {
-        await streamTurnFromOffset(0, (ev) => {
-          switch (ev.type) {
-            case "delta":
-              for (const char of ev.text) {
-                pendingQueue.current.push(char);
-              }
-              startTypewriter();
-              break;
-            case "transition":
-              setStory(
-                (s) =>
-                  s + `\n\n【${ev.to === "dungeon" ? `進入副本 ${ev.dungeonId ?? ""}` : "返回安全區"}】\n\n`,
-              );
-              setSuggested([]);
-              break;
-            case "warning":
-              setStory((s) => s + `\n[提示] ${ev.message}\n`);
-              break;
-            case "error":
-              stopTypewriter(true);
-              setStory((s) => s + `\n[錯誤] ${ev.message}\n`);
-              break;
-            case "done":
-              if (ev.protagonistDied) {
-                setProtagonistDied(true);
-                setSuggested([]);
-              } else if (ev.awaitingUserInput) {
-                setSuggested(ev.suggestedActions ?? []);
-              } else {
-                setSuggested([]);
-              }
-              if (ev.state) setState(ev.state);
-              llmDoneRef.current = true;
-              break;
-          }
-        });
+        await streamTurnFromOffset(0, handleTurnEvent);
         await waitForTypewriter(); // 等 typewriter 排空再 refresh
         await refresh();
 
@@ -226,43 +250,7 @@ export function App() {
     const preTurnLastUpdated = state?.now?.lastUpdated;
 
     try {
-      await streamTurn(text, (ev) => {
-        switch (ev.type) {
-          case "delta":
-            for (const char of ev.text) {
-              pendingQueue.current.push(char);
-            }
-            startTypewriter();
-            break;
-          case "transition":
-            setStory(
-              (s) =>
-                s + `\n\n【${ev.to === "dungeon" ? `進入副本 ${ev.dungeonId ?? ""}` : "返回安全區"}】\n\n`,
-            );
-            setSuggested([]); // 轉場時清空上回合的過期按鈕，防止幽靈按鈕殘留
-            break;
-          case "warning":
-            setStory((s) => s + `\n[提示] ${ev.message}\n`);
-            break;
-          case "error":
-            stopTypewriter(true);
-            setStory((s) => s + `\n[錯誤] ${ev.message}\n`);
-            break;
-          case "done":
-            if (ev.protagonistDied) {
-              setProtagonistDied(true);
-              setSuggested([]); // 死亡時不顯示建議行動 chips
-            } else if (ev.awaitingUserInput) {
-              setSuggested(ev.suggestedActions ?? []);
-            } else {
-              // 自動推進中的中間回合：還會有後續回合，不要先露出看起來可點、實際被 busy 鎖死的建議 chips
-              setSuggested([]);
-            }
-            if (ev.state) setState(ev.state);
-            llmDoneRef.current = true;
-            break;
-        }
-      });
+      await streamTurn(text, handleTurnEvent);
       await refresh();
       clearReconnectState();
     } catch (e) {
@@ -322,41 +310,7 @@ export function App() {
     setInput("");
     storyEndRef.current?.parentElement?.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
-      await streamTurn("", (ev) => {
-        switch (ev.type) {
-          case "delta":
-            for (const char of ev.text) pendingQueue.current.push(char);
-            startTypewriter();
-            break;
-          case "transition":
-            setStory(
-              (s) =>
-                s + `\n\n【${ev.to === "dungeon" ? `進入副本 ${ev.dungeonId ?? ""}` : "返回安全區"}】\n\n`,
-            );
-            setSuggested([]);
-            break;
-          case "warning":
-            setStory((s) => s + `\n[提示] ${ev.message}\n`);
-            break;
-          case "error":
-            stopTypewriter(true);
-            setStory((s) => s + `\n[錯誤] ${ev.message}\n`);
-            break;
-          case "done":
-            if (ev.protagonistDied) {
-              setProtagonistDied(true);
-              setSuggested([]);
-            } else if (ev.awaitingUserInput) {
-              setSuggested(ev.suggestedActions ?? []);
-            } else {
-              // 自動推進中的中間回合：清空建議 chips 防止殘留
-              setSuggested([]);
-            }
-            if (ev.state) setState(ev.state);
-            llmDoneRef.current = true;
-            break;
-        }
-      });
+      await streamTurn("", handleTurnEvent);
       await refresh();
     } catch (e) {
       stopTypewriter(true);

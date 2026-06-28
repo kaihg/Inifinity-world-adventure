@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { App, Field, shouldTypewriterOutput } from "./App";
+import { App, Field, shouldTypewriterOutput, makeTurnEventHandler } from "./App";
 
 // vi.mock is hoisted — applies to all tests in this file
 vi.mock("./api", async (importOriginal) => {
@@ -68,6 +68,107 @@ describe("shouldTypewriterOutput", () => {
 
   it("queue 為 0 且 LLM 完成 → 回 false（沒字可取）", () => {
     expect(shouldTypewriterOutput({ queueLength: 0, llmDone: true })).toBe(false);
+  });
+});
+
+describe("makeTurnEventHandler", () => {
+  function makeDeps(overrides: Partial<Parameters<typeof makeTurnEventHandler>[0]> = {}) {
+    return {
+      enqueue: vi.fn(),
+      startTypewriter: vi.fn(),
+      stopTypewriter: vi.fn(),
+      appendStory: vi.fn(),
+      setSuggested: vi.fn(),
+      setState: vi.fn(),
+      setProtagonistDied: vi.fn(),
+      setLlmDone: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  it("delta: 逐字 enqueue 並啟動 typewriter", () => {
+    const deps = makeDeps();
+    const handler = makeTurnEventHandler(deps);
+    handler({ type: "delta", text: "ab" });
+    expect(deps.enqueue).toHaveBeenNthCalledWith(1, "a");
+    expect(deps.enqueue).toHaveBeenNthCalledWith(2, "b");
+    expect(deps.startTypewriter).toHaveBeenCalledOnce();
+  });
+
+  it("transition 進副本：append 轉場訊息並清空 suggestedActions", () => {
+    const deps = makeDeps();
+    const handler = makeTurnEventHandler(deps);
+    handler({ type: "transition", to: "dungeon", dungeonId: "forest-001" });
+    expect(deps.appendStory).toHaveBeenCalledWith(expect.stringContaining("進入副本 forest-001"));
+    expect(deps.setSuggested).toHaveBeenCalledWith([]);
+  });
+
+  it("transition 返回主空間：append 返回訊息", () => {
+    const deps = makeDeps();
+    const handler = makeTurnEventHandler(deps);
+    handler({ type: "transition", to: "main-space" });
+    expect(deps.appendStory).toHaveBeenCalledWith(expect.stringContaining("返回安全區"));
+  });
+
+  it("warning: append 提示訊息", () => {
+    const deps = makeDeps();
+    const handler = makeTurnEventHandler(deps);
+    handler({ type: "warning", message: "危險警示" });
+    expect(deps.appendStory).toHaveBeenCalledWith(expect.stringContaining("[提示] 危險警示"));
+  });
+
+  it("error: 停止 typewriter 並 append 錯誤訊息", () => {
+    const deps = makeDeps();
+    const handler = makeTurnEventHandler(deps);
+    handler({ type: "error", message: "連線中斷" });
+    expect(deps.stopTypewriter).toHaveBeenCalledWith(true);
+    expect(deps.appendStory).toHaveBeenCalledWith(expect.stringContaining("[錯誤] 連線中斷"));
+  });
+
+  it("done protagonistDied=true：標記死亡並清空 suggested", () => {
+    const deps = makeDeps();
+    const handler = makeTurnEventHandler(deps);
+    const baseDone = { type: "done" as const, narrative: "", committed: true, modeTransition: null, transitionDungeonId: undefined, transitionDungeonGoal: undefined };
+    handler({ ...baseDone, awaitingUserInput: false, suggestedActions: [], protagonistDied: true });
+    expect(deps.setProtagonistDied).toHaveBeenCalledWith(true);
+    expect(deps.setSuggested).toHaveBeenCalledWith([]);
+    expect(deps.setLlmDone).toHaveBeenCalled();
+  });
+
+  it("done awaitingUserInput=true：帶入 suggestedActions", () => {
+    const deps = makeDeps();
+    const handler = makeTurnEventHandler(deps);
+    const baseDone = { type: "done" as const, narrative: "", committed: true, modeTransition: null, protagonistDied: false };
+    handler({ ...baseDone, awaitingUserInput: true, suggestedActions: ["行動A", "行動B"] });
+    expect(deps.setSuggested).toHaveBeenCalledWith(["行動A", "行動B"]);
+    expect(deps.setLlmDone).toHaveBeenCalled();
+  });
+
+  it("done awaitingUserInput=false：清空 suggested", () => {
+    const deps = makeDeps();
+    const handler = makeTurnEventHandler(deps);
+    const baseDone = { type: "done" as const, narrative: "", committed: true, modeTransition: null, protagonistDied: false };
+    handler({ ...baseDone, awaitingUserInput: false, suggestedActions: [] });
+    expect(deps.setSuggested).toHaveBeenCalledWith([]);
+    expect(deps.setLlmDone).toHaveBeenCalled();
+  });
+
+  it("done 有 state：呼叫 setState", () => {
+    const deps = makeDeps();
+    const handler = makeTurnEventHandler(deps);
+    const fakeState = { now: { lastUpdated: "t" } } as never;
+    const baseDone = { type: "done" as const, narrative: "", committed: true, modeTransition: null, protagonistDied: false };
+    handler({ ...baseDone, awaitingUserInput: false, suggestedActions: [], state: fakeState });
+    expect(deps.setState).toHaveBeenCalledWith(fakeState);
+  });
+
+  it("ping：靜默忽略，不呼叫任何 dep", () => {
+    const deps = makeDeps();
+    const handler = makeTurnEventHandler(deps);
+    handler({ type: "ping" });
+    expect(deps.enqueue).not.toHaveBeenCalled();
+    expect(deps.appendStory).not.toHaveBeenCalled();
+    expect(deps.setLlmDone).not.toHaveBeenCalled();
   });
 });
 
