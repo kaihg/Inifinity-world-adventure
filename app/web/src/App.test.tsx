@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { App, Field, shouldTypewriterOutput, makeTurnEventHandler } from "./App";
+import { App, Field, makeTurnEventHandler } from "./App";
 
 // vi.mock is hoisted — applies to all tests in this file
 vi.mock("./api", async (importOriginal) => {
@@ -53,23 +53,6 @@ describe("Field", () => {
   });
 });
 
-describe("shouldTypewriterOutput", () => {
-  it("queue 充足時回 true", () => {
-    expect(shouldTypewriterOutput({ queueLength: 25, llmDone: false })).toBe(true);
-  });
-
-  it("queue 不足且 LLM 未完成時回 false（lookahead pause）", () => {
-    expect(shouldTypewriterOutput({ queueLength: 5, llmDone: false })).toBe(false);
-  });
-
-  it("LLM 完成後即使 queue 不足也回 true（排空 queue）", () => {
-    expect(shouldTypewriterOutput({ queueLength: 5, llmDone: true })).toBe(true);
-  });
-
-  it("queue 為 0 且 LLM 完成 → 回 false（沒字可取）", () => {
-    expect(shouldTypewriterOutput({ queueLength: 0, llmDone: true })).toBe(false);
-  });
-});
 
 describe("makeTurnEventHandler", () => {
   function makeDeps(overrides: Partial<Parameters<typeof makeTurnEventHandler>[0]> = {}) {

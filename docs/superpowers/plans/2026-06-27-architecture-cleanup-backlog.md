@@ -13,7 +13,7 @@
 | 2 | Recall 向量索引改為預設啟用 | 後端 config | 高 | 待處理 |
 | 3 | 拆分 `server/app.ts` | 後端 | 低（加功能前再做） | ✅ 完成 |
 | 4 | 提取共用 `handleTurnEvent()` | 前端 | 高 | ✅ 完成 |
-| 5 | 提取 `useTypewriter()` hook | 前端 | 中 | 待處理 |
+| 5 | 提取 `useTypewriter()` hook | 前端 | 中 | ✅ 完成 |
 | 6 | 提取 `pollUntilProgressed()` utility | 前端 | 低 | 待處理 |
 
 ---

@@ -4,21 +4,9 @@ import { fetchState, fetchVersion, fetchConfig, streamTurn, fetchWorldStatus, en
 import { WorldSetupWizard } from "./WorldSetupWizard";
 import { DeathChoiceModal } from "./DeathChoiceModal";
 import { EndWorldModal } from "./EndWorldModal";
+import { useTypewriter } from "./useTypewriter";
 
-export const TYPEWRITER_INTERVAL_MS_DEFAULT = 25;
-export const LOOKAHEAD_MIN = 20;
-
-export function shouldTypewriterOutput({
-  queueLength,
-  llmDone,
-}: {
-  queueLength: number;
-  llmDone: boolean;
-}): boolean {
-  if (queueLength === 0) return false;
-  if (!llmDone && queueLength < LOOKAHEAD_MIN) return false;
-  return true;
-}
+export { shouldTypewriterOutput, TYPEWRITER_INTERVAL_MS_DEFAULT, LOOKAHEAD_MIN } from "./useTypewriter";
 
 const COMPUTING_HINT = "🌌 主控系統正在運算中…（自架模型首字推論可能需數十秒，請稍候）";
 
@@ -84,11 +72,8 @@ export function App() {
   const storyEndRef = useRef<HTMLDivElement | null>(null);
   const loadedInitialRef = useRef(false);
   const busyRef = useRef(busy);
-  const pendingQueue = useRef<string[]>([]);
-  const llmDoneRef = useRef(false);
-  const typewriterTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectingRef = useRef(false);
-  const typewriterIntervalMsRef = useRef(TYPEWRITER_INTERVAL_MS_DEFAULT);
+  const tw = useTypewriter((char) => setStory((s) => s + char));
 
   // 🚀 保持 busyRef 與 busy 同步
   useEffect(() => {
@@ -112,7 +97,7 @@ export function App() {
       .catch(() => setWorldInitialized(true)); // 失敗時保守當已初始化，至少能進主畫面
 
     fetchConfig()
-      .then((c) => { typewriterIntervalMsRef.current = c.typewriterIntervalMs; })
+      .then((c) => { tw.setIntervalMs(c.typewriterIntervalMs); })
       .catch(() => {});
 
     refresh();
@@ -141,63 +126,15 @@ export function App() {
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
-  function startTypewriter() {
-    if (typewriterTimer.current) return;
-    typewriterTimer.current = setInterval(() => {
-      if (
-        shouldTypewriterOutput({
-          queueLength: pendingQueue.current.length,
-          llmDone: llmDoneRef.current,
-        })
-      ) {
-        const char = pendingQueue.current.shift()!;
-        setStory((s) => s + char);
-      } else if (llmDoneRef.current && pendingQueue.current.length === 0) {
-        clearInterval(typewriterTimer.current!);
-        typewriterTimer.current = null;
-      }
-    }, typewriterIntervalMsRef.current);
-  }
-
-  function stopTypewriter(clearQueue = false) {
-    if (typewriterTimer.current) {
-      clearInterval(typewriterTimer.current);
-      typewriterTimer.current = null;
-    }
-    if (clearQueue) {
-      pendingQueue.current = [];
-    }
-    llmDoneRef.current = false;
-  }
-
-  function waitForTypewriter(): Promise<void> {
-    return new Promise((resolve) => {
-      // タイムアウトガード：done イベントなしで SSE が閉じた場合のデッドロック防止
-      const TIMEOUT_MS = 10_000;
-      const timeout = setTimeout(() => {
-        clearInterval(check);
-        llmDoneRef.current = true; // タイマー自己クリア条件を満たすよう強制設定
-        resolve();
-      }, TIMEOUT_MS);
-      const check = setInterval(() => {
-        if (!typewriterTimer.current) {
-          clearTimeout(timeout);
-          clearInterval(check);
-          resolve();
-        }
-      }, typewriterIntervalMsRef.current);
-    });
-  }
-
   const handleTurnEvent = makeTurnEventHandler({
-    enqueue: (char) => pendingQueue.current.push(char),
-    startTypewriter,
-    stopTypewriter,
+    enqueue: tw.enqueue,
+    startTypewriter: tw.start,
+    stopTypewriter: tw.stop,
     appendStory: (text) => setStory((s) => s + text),
     setSuggested,
     setState: (s) => setState(s),
     setProtagonistDied,
-    setLlmDone: () => { llmDoneRef.current = true; },
+    setLlmDone: tw.setLlmDone,
   });
 
   async function reconnectIfNeeded() {
@@ -207,13 +144,13 @@ export function App() {
       if (!status.active) return;
       // 回合仍在進行中
       reconnectingRef.current = true;
-      stopTypewriter(true); // 清掉可能殘留的舊 timer 再開始重播
+      tw.stop(true); // 清掉可能殘留的舊 timer 再開始重播
       setBusy(true);
       setStory("");
       setSuggested([]);
       try {
         await streamTurnFromOffset(0, handleTurnEvent);
-        await waitForTypewriter(); // 等 typewriter 排空再 refresh
+        await tw.waitDone(); // 等 typewriter 排空再 refresh
         await refresh();
 
       } catch (e) {
@@ -239,8 +176,7 @@ export function App() {
     if (!text || busy) return;
     setBusy(true);
     setStory("");
-    stopTypewriter(true);
-    llmDoneRef.current = false;
+    tw.stop(true);
     setSuggested([]);
     setInput("");
     // 新回合：把劇情卡捲到可視區頂端，streaming 期間不再自動捲動
@@ -252,10 +188,8 @@ export function App() {
     try {
       await streamTurn(text, handleTurnEvent);
       await refresh();
-      clearReconnectState();
     } catch (e) {
-      stopTypewriter(true);
-      clearReconnectState();
+      tw.stop(true);
       // 🚀 斷線與背景喚醒自我癒合機制 ── 帶重試輪詢 (Polling with backoff/retries for slow self-hosted models)
       console.warn("streamTurn 發生中斷，開始執行自我癒合輪詢檢測...", e);
 
@@ -295,7 +229,7 @@ export function App() {
         setStory((s) => s + `\n[請求失敗] ${(e as Error).message}（伺服器可能未完成運算，請確認網路或手動重整）`);
       }
     } finally {
-      await waitForTypewriter();
+      await tw.waitDone();
       setBusy(false);
     }
   }
@@ -304,8 +238,7 @@ export function App() {
     if (busyRef.current) return;
     setBusy(true);
     setStory("");
-    stopTypewriter(true);
-    llmDoneRef.current = false;
+    tw.stop(true);
     setSuggested([]);
     setInput("");
     storyEndRef.current?.parentElement?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -313,10 +246,10 @@ export function App() {
       await streamTurn("", handleTurnEvent);
       await refresh();
     } catch (e) {
-      stopTypewriter(true);
+      tw.stop(true);
       setStory((s) => s + `\n[開場失敗] ${(e as Error).message}\n`);
     } finally {
-      await waitForTypewriter();
+      await tw.waitDone();
       setBusy(false);
     }
   }
