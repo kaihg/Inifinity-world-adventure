@@ -31,3 +31,8 @@ export function createLogger(opts: CreateLoggerOptions = {}): Logger {
 
 /** 共用的預設 logger（未顯式注入 logger 的呼叫點退回用這個） */
 export const logger = createLogger();
+
+/** 完全靜音的 logger，測試用 */
+export function createSilentLogger(): Logger {
+  return pino({ level: "silent" });
+}
