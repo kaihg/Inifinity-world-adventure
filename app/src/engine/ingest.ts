@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { LlmClient } from "../llm/client.js";
 import type { Logger } from "../logger.js";
-import { loadLoreFile, rewriteLoreFile, listLoreIds, type LoreCategory } from "./lore.js";
+import { loadLoreFile, loreFilePath, rewriteLoreFile, listLoreIds, type LoreCategory } from "./lore.js";
 import {
   callLoreRewrite,
   callProtagonistRewrite,
@@ -13,6 +13,7 @@ import {
 import { getTemplate } from "./template-loader.js";
 import { toTraditional } from "./text/traditionalize.js";
 import { TRADITIONAL_CHINESE_RULE } from "./turn/prompts.js";
+import { reindexTouchedFiles } from "./turn/shared.js";
 import type { TurnDeps } from "./turn/types.js";
 
 const ExtractedEntitySchema = z.object({
@@ -247,6 +248,21 @@ export async function runIngest(
   await Promise.all(wikiTasks);
 
   if (Object.keys(touchedByCategory).length > 0 || protagonistTouched) {
+    // 語意索引：重新索引有異動的 entity .md 檔
+    if (deps.recall) {
+      const touchedPaths: string[] = [];
+      for (const [loreCat, touchedIds] of Object.entries(touchedByCategory)) {
+        for (const id of touchedIds) {
+          touchedPaths.push(loreFilePath(deps.worldDir, loreCat as LoreCategory, id));
+        }
+      }
+      if (protagonistTouched) {
+        touchedPaths.push(path.join(deps.worldDir, "characters", "protagonist.md"));
+      }
+      if (touchedPaths.length > 0) {
+        await reindexTouchedFiles(deps.recall, deps.worldDir, touchedPaths, log);
+      }
+    }
     await deps.commit("ingest: 更新實體知識（entity.md / wiki.md）");
   }
 }

@@ -262,172 +262,26 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(prot).toBe(initialContent);
   });
 
-  it("touched_entities（npc）：整檔重寫角色檔，並用小模型摘要同步進 characters/index.md", async () => {
-    await writeFile(path.join(world, "characters", "yeqing.md"), "# 葉晴\n- 姓名：葉晴\n前特種部隊教官\n", "utf8");
-    await writeFile(
-      path.join(world, "characters", "index.md"),
-      [
-        "| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |",
-        "|----|------|------|----------|--------------|",
-        "| yeqing | 葉晴 | NPC | 結盟 | - |",
-      ].join("\n"),
-      "utf8",
-    );
-    const ctrl = JSON.stringify({
-      state_changes: {
-        touched_entities: [
-          { id: "yeqing", category: "npc", name: "葉晴", excerpt: "葉晴點點頭，眼神多了幾分信任。" },
-        ],
-      },
-      rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
-      commit_summary: "葉晴信任提升",
-    });
-    const events: TurnEvent[] = [];
-    // 序列：主腦敘事 → Layer 2 fast-control(ctrl) → Layer 3 抽取(ctrl) → 比較重寫(新版角色檔全文)
-    for await (const ev of runMainSpaceTurn(
-      {
-        client: sequencedClient([
-          "葉晴點點頭，眼神多了幾分信任。",
-          ctrl,
-          ctrl,
-          "# 葉晴\n- 姓名：葉晴\n前特種部隊教官，對沈奕的信任進一步提升。",
-        ]),
-        characterClient: fakeClient(["信任大幅提升"]),
-        worldDir: world,
-        commit: async () => true,
-        today: () => "2026-06-19",
-        dicePool: [1],
-      },
-      "和葉晴交談",
-    )) {
-      events.push(ev);
-    }
-    const yeqing = await readFile(path.join(world, "characters", "yeqing.md"), "utf8");
-    expect(yeqing).toContain("對沈奕的信任進一步提升");
-    const index = await readFile(path.join(world, "characters", "index.md"), "utf8");
-    expect(index).toContain("| yeqing | 葉晴 | NPC | 信任大幅提升 | - |");
-  });
-
-  it("touched_entities（npc，全新角色）：建檔並掛進 characters/index.md", async () => {
-    await writeFile(
-      path.join(world, "characters", "index.md"),
-      ["| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |", "|----|------|------|----------|--------------|"].join("\n"),
-      "utf8",
-    );
-    const ctrl = JSON.stringify({
-      state_changes: {
-        touched_entities: [
-          { id: "newcomer", category: "npc", name: "陌生男子", excerpt: "一名陌生男子從陰影中走出，自稱姓陳。" },
-        ],
-      },
-      rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
-      commit_summary: "新角色登場",
-    });
-    const events: TurnEvent[] = [];
-    for await (const ev of runMainSpaceTurn(
-      {
-        client: sequencedClient([
-          "一名陌生男子從陰影中走出，自稱姓陳。",
-          ctrl,
-          ctrl,
-          "# 陳先生\n\n自稱姓陳的陌生男子，來歷不明。",
-        ]),
-        worldDir: world,
-        commit: async () => true,
-        today: () => "2026-06-19",
-        dicePool: [1],
-      },
-      "觀察陌生男子",
-    )) {
-      events.push(ev);
-    }
-    const newcomer = await readFile(path.join(world, "characters", "newcomer.md"), "utf8");
-    expect(newcomer).toContain("來歷不明");
-    const index = await readFile(path.join(world, "characters", "index.md"), "utf8");
-    expect(index).toContain("| newcomer | 陳先生 | NPC | 初次登場 | - |");
-  });
-
-  it("touched_entities（兩個 npc）：第一筆重寫回空字串被略過，第二筆仍正常寫檔並 commit", async () => {
-    await writeFile(
-      path.join(world, "characters", "index.md"),
-      [
-        "| ID | 姓名 | 定位 | 最近狀態 | 最後更新副本 |",
-        "|----|------|------|----------|--------------|",
-      ].join("\n"),
-      "utf8",
-    );
-    const ctrl = JSON.stringify({
-      state_changes: {
-        touched_entities: [
-          { id: "npc-a", category: "npc", name: "甲", excerpt: "甲只是路過，沒說什麼。" },
-          { id: "npc-b", category: "npc", name: "乙", excerpt: "乙自稱是這裡的嚮導。" },
-        ],
-      },
-      rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
-      commit_summary: "兩名 NPC 登場",
-    });
-    let committed = false;
-    const events: TurnEvent[] = [];
-    // 兩個 NPC 的整檔重寫透過 Promise.all 併發跑，呼叫順序不保證；
-    // 故依「內容」而非「呼叫序」決定回應：甲→空字串（視為失敗略過）、乙→正常內容。
-    const client: LlmClient = {
-      async *streamChat(messages: ChatMessage[]) {
-        const system = messages.find((m) => m.role === "system")?.content ?? "";
-        const user = messages.find((m) => m.role === "user")?.content ?? "";
-        // Layer 2 fast-control 與 Layer 3 抽取：回 ctrl JSON
-        if (system.includes("fast-control") || system.includes("Layer 3：reactive-lore-sync")) {
-          yield ctrl;
-          return;
-        }
-        // 知識庫維護者（整檔重寫）：依文件標題/片段判斷是甲還是乙
-        if (system.includes("知識庫維護者")) {
-          yield user.includes("甲") ? "" : "# 乙\n\n自稱是這裡的嚮導，來歷不明。";
-          return;
-        }
-        // 主腦敘事
-        yield "甲只是路過，沒說什麼。乙自稱是這裡的嚮導。";
-      },
-    };
-    for await (const ev of runMainSpaceTurn(
-      {
-        client,
-        worldDir: world,
-        commit: async () => {
-          committed = true;
-          return true;
-        },
-        today: () => "2026-06-19",
-        dicePool: [1],
-      },
-      "觀察兩人",
-    )) {
-      events.push(ev);
-    }
-    await expect(readFile(path.join(world, "characters", "npc-a.md"), "utf8")).rejects.toThrow();
-    const npcB = await readFile(path.join(world, "characters", "npc-b.md"), "utf8");
-    expect(npcB).toContain("來歷不明");
-    expect(committed).toBe(true);
-  });
-
-  it("touched_entities（item，全新）：把比較重寫的內容整檔寫進 .md", async () => {
-    const ctrl = JSON.stringify({
-      state_changes: {
-        touched_entities: [
-          { id: "rusty-pipe", category: "item", name: "生鏽鐵管", excerpt: "沈奕從地上撿起一根生鏽鐵管，管身刻有奇怪符號。" },
-        ],
-      },
+  it("ingest entity（item，全新）：把比較重寫的內容整檔寫進 .md", async () => {
+    const fc = JSON.stringify({
+      state_changes: {},
       rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
       commit_summary: "撿到鐵管",
     });
+    const ingestJson = JSON.stringify({
+      protagonist_changed: false,
+      entities: [{ id: "rusty-pipe", category: "item", name: "生鏽鐵管" }],
+    });
     const events: TurnEvent[] = [];
-    // 序列：主腦敘事 → Layer 2(ctrl) → Layer 3 抽取(ctrl) → 比較重寫（無 secrets 生成步驟）
+    // 序列：主腦敘事 → Layer 2(fc) → Layer 3 extractEntities(ingestJson) → entity rewrite → wiki rewrite
     for await (const ev of runMainSpaceTurn(
       {
         client: sequencedClient([
           "沈奕從地上撿起一根生鏽鐵管，管身刻有奇怪符號。",
-          ctrl,
-          ctrl,
+          fc,
+          ingestJson,
           "# 道具（rusty-pipe）\n\n管身刻有奇怪符號，來歷不明。",
+          "- [[rusty-pipe]]: 生鏽鐵管",
         ]),
         worldDir: world,
         commit: async () => true,
@@ -438,30 +292,31 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     )) {
       events.push(ev);
     }
-    const wiki = await readFile(path.join(world, "items", "rusty-pipe.md"), "utf8");
-    expect(wiki).toContain("管身刻有奇怪符號，來歷不明");
+    const item = await readFile(path.join(world, "items", "rusty-pipe.md"), "utf8");
+    expect(item).toContain("管身刻有奇怪符號，來歷不明");
   });
 
-  it("touched_entities（item，既有 .md 存在）：整檔覆寫更新內容", async () => {
+  it("ingest entity（item，既有 .md 存在）：整檔覆寫更新內容", async () => {
     await mkdir(path.join(world, "items"), { recursive: true });
     await writeFile(path.join(world, "items", "rusty-pipe.md"), "# 道具（rusty-pipe）\n\n管身刻有符號。\n");
-    const ctrl = JSON.stringify({
-      state_changes: {
-        touched_entities: [
-          { id: "rusty-pipe", category: "item", name: "生鏽鐵管", excerpt: "沈奕又看了一眼鐵管，發現符號似乎在發光。" },
-        ],
-      },
+    const fc = JSON.stringify({
+      state_changes: {},
       rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
       commit_summary: "再次檢視鐵管",
+    });
+    const ingestJson = JSON.stringify({
+      protagonist_changed: false,
+      entities: [{ id: "rusty-pipe", category: "item", name: "生鏽鐵管" }],
     });
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
       {
         client: sequencedClient([
           "沈奕又看了一眼鐵管，發現符號似乎在發光。",
-          ctrl,
-          ctrl,
+          fc,
+          ingestJson,
           "# 道具（rusty-pipe）\n\n管身符號會微微發光。",
+          "- [[rusty-pipe]]: 生鏽鐵管",
         ]),
         worldDir: world,
         commit: async () => true,
@@ -472,8 +327,8 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     )) {
       events.push(ev);
     }
-    const wiki = await readFile(path.join(world, "items", "rusty-pipe.md"), "utf8");
-    expect(wiki).toContain("管身符號會微微發光");
+    const item = await readFile(path.join(world, "items", "rusty-pipe.md"), "utf8");
+    expect(item).toContain("管身符號會微微發光");
   });
 
   it("副大腦輸出無法解析時降級：保留敘事、發 warning、暫停、仍 commit", async () => {
@@ -604,18 +459,22 @@ describe("runDungeonTurn", () => {
       "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
     );
     const narrative = "你踏入大廳，三道門並排。";
-    const ctrl = JSON.stringify({
-      state_changes: { dungeon_wiki_excerpt: "入口大廳有三道門" },
+    const fc = JSON.stringify({
+      state_changes: {},
       rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
       commit_summary: "進入大廳",
     });
+    const ingestJson = JSON.stringify({
+      protagonist_changed: false,
+      entities: [{ id: "U-001", category: "dungeon", name: "U-001" }],
+    });
 
     const events: TurnEvent[] = [];
-    // 序列：主腦敘事(client) → Layer 2(controlClient) → Layer 3 抽取(controlClient，loreClient 缺省退回) → 比較重寫(controlClient)
+    // 序列：主腦敘事(client) → Layer 2(controlClient/fc) → Layer 3 extractEntities(controlClient/ingestJson) → entity rewrite → wiki rewrite
     for await (const ev of runDungeonTurn(
       {
         client: fakeClient([narrative]),
-        controlClient: sequencedClient([ctrl, ctrl, "# 副本 U-001 · 已揭露知識（Wiki）\n\n入口大廳有三道門。"]),
+        controlClient: sequencedClient([fc, ingestJson, "# 副本 U-001 · 已揭露知識（Wiki）\n\n入口大廳有三道門。", "- [[U-001]]: 進行中"]),
         worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5],
       },
       "往前走",
@@ -832,19 +691,23 @@ describe("recall 整合測試", () => {
       path.join(world, "now.md"),
       "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
     );
-    const ctrlJson = JSON.stringify({
-      state_changes: { dungeon_wiki_excerpt: "入口大廳有三道門" },
+    const fcJson = JSON.stringify({
+      state_changes: {},
       rolls: [], mode_transition: null, awaiting_user_input: true, suggested_actions: [],
       commit_summary: "進入大廳",
     });
-    const response = "你踏入大廳，三道門並排。\n===STATE===\n" + ctrlJson;
+    const ingestJson = JSON.stringify({
+      protagonist_changed: false,
+      entities: [{ id: "U-001", category: "dungeon", name: "U-001" }],
+    });
 
     const recall = fakeRecall();
     const events: TurnEvent[] = [];
     for await (const ev of runDungeonTurn(
       {
-        client: fakeClient([response]),
-        loreClient: sequencedClient([ctrlJson, "# 副本 U-001 · 已揭露知識（Wiki）\n\n入口大廳有三道門。"]),
+        client: fakeClient(["你踏入大廳，三道門並排。"]),
+        controlClient: fakeClient([fcJson]),
+        loreClient: sequencedClient([ingestJson, "# 副本 U-001 · 已揭露知識（Wiki）\n\n入口大廳有三道門。", "- [[U-001]]: 進行中"]),
         worldDir: world, commit: async () => true, today: () => "2026-06-19", dicePool: [5], recall,
       },
       "往前走",
@@ -899,22 +762,25 @@ describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
   });
 
   it("共用同一個 pendingLoreSync 連續呼叫兩次：第二次呼叫前已等到第一次 Layer 3 落地的檔案", async () => {
-    const loreCtrl = JSON.stringify({
-      state_changes: {
-        touched_entities: [{ id: "rusty-pipe", category: "item", name: "生鏽鐵管", excerpt: "撿到一根鐵管" }],
-      },
+    const extractionJson = JSON.stringify({
+      protagonist_changed: false,
+      entities: [{ id: "rusty-pipe", category: "item", name: "生鏽鐵管" }],
     });
     let loreCall = 0;
-    // Layer 3 全程走小模型（loreClient）：依序為 ①抽取 touched_entities ②整檔重寫 wiki（無 secrets 步驟）
+    // Layer 3 全程走小模型（loreClient）：依序為 ①extractEntities ②entity rewrite ③wiki rewrite
     const loreClient: LlmClient = {
       async *streamChat() {
         loreCall++;
         if (loreCall === 1) {
           await new Promise((r) => setTimeout(r, 50)); // 模擬較慢的 Layer 3 LLM（抽取階段）
-          yield loreCtrl;
+          yield extractionJson;
           return;
         }
-        yield "# 道具（rusty-pipe）\n\n比較重寫後的內容。"; // wiki 整檔重寫
+        if (loreCall === 2) {
+          yield "# 道具（rusty-pipe）\n\n比較重寫後的內容。"; // entity rewrite
+          return;
+        }
+        yield "- [[rusty-pipe]]: 生鏽鐵管"; // wiki rewrite
       },
     };
     const pendingLoreSync = { promise: null as Promise<void> | null };
