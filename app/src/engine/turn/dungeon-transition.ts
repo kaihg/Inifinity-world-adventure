@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import { parseNow } from "../context.js";
@@ -18,6 +18,36 @@ export async function generateSecrets(client: LlmClient, settingText: string, du
   let full = "";
   for await (const d of client.streamChat(messages)) full += d;
   return full.trim() || "（生成失敗，待補）";
+}
+
+/**
+ * 進入副本時在 journal.md 寫入起始邊界標記，供結算時從 journal 過濾副本段落。
+ * dungeonRunId 格式：`<dungeonId>-<runId>`（例如 `命運樞紐-run-1`）。
+ */
+export async function appendDungeonStartMarker(
+  worldDir: string,
+  dungeonRunId: string,
+  isoTimestamp: string,
+): Promise<void> {
+  await appendFile(
+    path.join(worldDir, "journal.md"),
+    `\n<!-- dungeon-start: ${dungeonRunId} ${isoTimestamp} -->\n`,
+    "utf8",
+  );
+}
+
+/**
+ * 結算副本時在 journal.md 寫入結束邊界標記。
+ */
+export async function appendDungeonEndMarker(
+  worldDir: string,
+  dungeonRunId: string,
+): Promise<void> {
+  await appendFile(
+    path.join(worldDir, "journal.md"),
+    `\n<!-- dungeon-end: ${dungeonRunId} -->\n`,
+    "utf8",
+  );
 }
 
 /** 覆寫 now.md 的進行中副本欄並更新時間戳 */

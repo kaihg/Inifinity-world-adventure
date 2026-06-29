@@ -18,8 +18,8 @@ import {
   parseActiveDungeon,
   renameLogAfterSettle,
 } from "../../engine/dungeon.js";
-import { generateSecrets, setNowActiveDungeon } from "../../engine/turn/dungeon-transition.js";
-import { readBestEffort, todayISO } from "../../engine/turn/shared.js";
+import { appendDungeonStartMarker, appendDungeonEndMarker, generateSecrets, setNowActiveDungeon } from "../../engine/turn/dungeon-transition.js";
+import { readBestEffort, todayISO, nowISOSeconds } from "../../engine/turn/shared.js";
 import type { LlmClient } from "../../llm/client.js";
 import type { Logger } from "../../logger.js";
 import type { RecallIndex } from "../../recall/store.js";
@@ -270,6 +270,8 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
           },
           turnLogger,
         );
+        const dungeonRunId = `${active.dungeonId}-${active.runId}`;
+        await appendDungeonStartMarker(config.worldDir, dungeonRunId, nowISOSeconds());
         await setNowActiveDungeon(config.worldDir, formatActiveDungeon(active), {
           date: todayISO(),
           summary: `進入副本 ${active.dungeonId}`,
@@ -285,8 +287,11 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
       if (done.modeTransition === "settle_dungeon") {
         await pendingLoreSync.promise;
         const activeForSettle = parseActiveDungeon(stateData.now.activeDungeon);
-        if (activeForSettle)
+        if (activeForSettle) {
+          const settleRunId = `${activeForSettle.dungeonId}-${activeForSettle.runId}`;
+          await appendDungeonEndMarker(config.worldDir, settleRunId);
           await renameLogAfterSettle(config.worldDir, activeForSettle.dungeonId, turnLogger);
+        }
         await setNowActiveDungeon(config.worldDir, "無", { date: todayISO(), summary: "副本結算，返回安全區" });
         await makeCommit(turnLogger)("副本結算，返回安全區");
         const settleTransEv = { type: "transition", to: "main-space" } as const;

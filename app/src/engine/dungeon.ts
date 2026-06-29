@@ -209,6 +209,23 @@ export async function listAnnouncedDungeonIds(worldDir: string): Promise<string[
 }
 
 /**
+ * 從 journal.md 全文抽出指定副本 run 的段落（不含 boundary markers 本身）。
+ * dungeonRunId 格式：`<dungeonId>-<runId>`（例如 `命運樞紐-run-1`）。
+ * 找不到 start marker → 回空字串；找不到 end marker → 回到檔尾（副本仍在進行）。
+ */
+export function extractDungeonLog(journalContent: string, dungeonRunId: string): string {
+  const startMarker = `<!-- dungeon-start: ${dungeonRunId} `;
+  const endMarker = `<!-- dungeon-end: ${dungeonRunId} -->`;
+  const startIdx = journalContent.indexOf(startMarker);
+  if (startIdx === -1) return "";
+  const afterStart = journalContent.indexOf("\n", startIdx);
+  if (afterStart === -1) return "";
+  const endIdx = journalContent.indexOf(endMarker, afterStart);
+  if (endIdx === -1) return journalContent.slice(afterStart + 1).trim();
+  return journalContent.slice(afterStart + 1, endIdx).trim();
+}
+
+/**
  * 若 dungeons-index.md 尚未記錄該 id，新增一列。
  * 已進入（建立目錄）的副本無需登記，呼叫端負責判斷。
  */
