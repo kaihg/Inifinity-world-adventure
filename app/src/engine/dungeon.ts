@@ -224,33 +224,3 @@ export function extractDungeonLog(journalContent: string, dungeonRunId: string):
   if (endIdx === -1) return journalContent.slice(afterStart + 1).trim();
   return journalContent.slice(afterStart + 1, endIdx).trim();
 }
-
-/**
- * 若 dungeons-index.md 尚未記錄該 id，新增一列。
- * 已進入（建立目錄）的副本無需登記，呼叫端負責判斷。
- */
-export async function registerAnnouncedDungeon(
-  worldDir: string,
-  id: string,
-  displayName: string,
-): Promise<void> {
-  const file = DUNGEONS_INDEX_PATH(worldDir);
-  let existing: string[] = [];
-  try {
-    const raw = await readFile(file, "utf8");
-    existing = raw
-      .split("\n")
-      .map((l) => l.match(DUNGEONS_INDEX_RE)?.[1]?.trim() ?? "")
-      .filter(Boolean);
-  } catch {
-    // 檔案不存在，初始化 header
-    await writeFile(
-      file,
-      "# 副本公告登記（Dungeons Index）\n\n> 系統已公告但尚未進入的副本。進入後由引擎移除。\n\n| id | 顯示名稱 |\n|----|----------|\n",
-      "utf8",
-    );
-  }
-  if (!existing.includes(id)) {
-    await appendFile(file, `| ${id} | ${displayName} |\n`, "utf8");
-  }
-}
