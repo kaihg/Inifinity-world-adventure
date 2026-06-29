@@ -14,6 +14,7 @@ import type { PendingLoreSync } from "../engine/turn/index.js";
 import { registerStateRoutes } from "./routes/state.js";
 import { registerWorldRoutes } from "./routes/world.js";
 import { registerTurnRoutes, type TurnState } from "./routes/turn.js";
+import { registerLintRoute } from "./routes/lint.js";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const WEB_BUILD_DIR = path.join(APP_ROOT, "web-dist");
@@ -128,6 +129,7 @@ export function buildServer(config: AppConfig, deps: ServerDeps = {}): FastifyIn
 
   registerStateRoutes(server, { config, logger, versionPromise });
   registerWorldRoutes(server, { config, logger, repoRoot, initClient, makeClient, makeCommit });
+  registerLintRoute(server, config.worldDir);
   registerTurnRoutes(server, {
     config,
     logger,
