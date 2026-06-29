@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseFastControlOutput, parseLoreSyncOutput } from "./schema.js";
+import { parseFastControlOutput } from "./schema.js";
+import { parseLoreSyncOutput } from "./turn/lore-sync.js";
 
 const VALID = `{
   "state_changes": { "now": { "scene": "資訊室", "nextStep": "找葉晴談戰術" }, "protagonist_points_delta": 0 },
@@ -165,8 +166,6 @@ describe("parseLoreSyncOutput（Layer 3：touched_entities + dungeon_wiki_excerp
 
   it("空物件也能解析（本回合沒有任何 lore 異動）", () => {
     const sync = parseLoreSyncOutput("{}");
-    // protagonist_changed 預設為 false
-    expect(sync.state_changes.protagonist_changed).toBe(false);
     expect(sync.state_changes.touched_entities).toBeUndefined();
     expect(sync.state_changes.dungeon_wiki_excerpt).toBeUndefined();
   });
@@ -199,7 +198,7 @@ describe("protagonist_permanent_death 欄位", () => {
   });
 });
 
-describe("Layer 權責重劃：protagonist 欄位移到 Layer 3", () => {
+describe("Layer 權責重劃：protagonist 欄位移到 Layer 3 ingest（Task 5-6）", () => {
   it("FastControl 解析時忽略殘留的 protagonist_points_delta（不再是 schema 欄位）", () => {
     const control = parseFastControlOutput(
       JSON.stringify({
@@ -214,19 +213,14 @@ describe("Layer 權責重劃：protagonist 欄位移到 Layer 3", () => {
     expect(control.state_changes.now?.scene).toBe("資訊室");
   });
 
-  it("LoreSync 解析 protagonist_points_delta 與 protagonist_changed", () => {
+  it("LoreSync 解析時忽略 protagonist_points_delta / protagonist_changed（已從 LoreSyncSchema 移除）", () => {
     const sync = parseLoreSyncOutput(
       JSON.stringify({
         state_changes: { protagonist_points_delta: 3, protagonist_changed: true },
       }),
     );
-    expect(sync.state_changes.protagonist_points_delta).toBe(3);
-    expect(sync.state_changes.protagonist_changed).toBe(true);
-  });
-
-  it("LoreSync 的 protagonist_changed 缺省時為 false", () => {
-    const sync = parseLoreSyncOutput(JSON.stringify({ state_changes: {} }));
-    expect(sync.state_changes.protagonist_changed).toBe(false);
-    expect(sync.state_changes.protagonist_points_delta).toBeUndefined();
+    // 欄位已從 LoreStateChangesSchema 移除：Zod strict mode ではないので無視される
+    expect((sync.state_changes as Record<string, unknown>).protagonist_points_delta).toBeUndefined();
+    expect((sync.state_changes as Record<string, unknown>).protagonist_changed).toBeUndefined();
   });
 });

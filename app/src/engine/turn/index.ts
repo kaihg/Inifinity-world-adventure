@@ -1,7 +1,7 @@
 import path from "node:path";
 import { access, rm } from "node:fs/promises";
 import { logger as defaultLogger, type Logger } from "../../logger.js";
-import { loadState, type GameState } from "../context.js";
+import { loadState } from "../context.js";
 import {
   appendLog,
   enterDungeon,
@@ -11,7 +11,6 @@ import {
   parseActiveDungeon,
   renameLogAfterSettle,
 } from "../dungeon.js";
-import { listLoreIds } from "../lore.js";
 import { appendJournal } from "../journal.js";
 import { rollPool } from "../roll.js";
 import { getTemplate } from "../template-loader.js";
@@ -23,7 +22,6 @@ import { runPacingBlock } from "./pacing.js";
 import {
   buildDungeonMessages,
   buildFastControlMessages,
-  buildLoreSyncMessages,
   buildMainSpaceMessages,
 } from "./prompts.js";
 import { readBestEffort, todayISO } from "./shared.js";
@@ -53,29 +51,6 @@ async function runBlocksParallel(
   }
   const [a, b] = await Promise.all([drain(genA), drain(genB)]);
   return { events: [...a.events, ...b.events], resultA: a.result, resultB: b.result };
-}
-
-/**
- * 蒐集各分類現有實體 id，供 Layer 3 lore-sync prompt 對齊（讓模型續用既有 id、不換 category）。
- * NPC 直接取自 state.npcs（已是 characters/index.md 的解析結果，免重讀）；
- * 道具/場景/技能列舉各自的 world 子目錄。
- */
-async function collectExistingEntityIds(
-  worldDir: string,
-  state: GameState,
-  log: Logger,
-): Promise<{ existingNpcIds: string[]; existingItemIds: string[]; existingSceneIds: string[]; existingSkillIds: string[] }> {
-  const [existingItemIds, existingSceneIds, existingSkillIds] = await Promise.all([
-    listLoreIds(worldDir, "items", log),
-    listLoreIds(worldDir, "scenes", log),
-    listLoreIds(worldDir, "skills", log),
-  ]);
-  return {
-    existingNpcIds: state.npcs.map((n) => n.id),
-    existingItemIds,
-    existingSceneIds,
-    existingSkillIds,
-  };
 }
 
 /** 主空間敘事回合 */
@@ -108,14 +83,11 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   for (const ev of blockEvents) yield ev;
 
   const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
-  const existingEntityIds = await collectExistingEntityIds(deps.worldDir, state, log);
 
   const plan: TurnPlan = {
     messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock, nudgeBlock, pacingBlock, openingPrompt }),
     buildFastControl: (narrative) =>
       buildFastControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
-    buildLoreSync: (narrative) =>
-      buildLoreSyncMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds, ...existingEntityIds }),
     appendRaw: (entry) => appendJournal(deps.worldDir, entry),
     rawFilePath: path.join(deps.worldDir, "journal.md"),
   };
@@ -152,8 +124,6 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   );
   for (const ev of blockEvents) yield ev;
 
-  const existingEntityIds = await collectExistingEntityIds(deps.worldDir, state, log);
-
   const plan: TurnPlan = {
     messages: buildDungeonMessages({
       settingText, state, input, dicePool,
@@ -164,12 +134,6 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
       buildFastControlMessages({
         settingText, state, input, narrative, dicePool,
         dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
-      }),
-    buildLoreSync: (narrative) =>
-      buildLoreSyncMessages({
-        settingText, state, input, narrative, dicePool,
-        dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
-        ...existingEntityIds,
       }),
     appendRaw: (entry) => appendLog(deps.worldDir, active.dungeonId, active.runId, entry),
     rawFilePath: path.join(deps.worldDir, "dungeons", active.dungeonId, "log.md"),

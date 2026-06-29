@@ -44,24 +44,6 @@ const FAST_CONTROL_FORMAT_BLOCK = [
   "格式範例：「沈奕向葉晴詢問暗號詞進度，葉晴確認目前仍未定案。」或「沈奕跟蹤可疑男子至走廊轉角，目擊對方敲開隱藏通道。」",
 ].join("\n");
 
-const LORE_SYNC_FORMAT_BLOCK = [
-  "## 輸出格式（務必嚴格遵守）",
-  `所有中文字串值一律使用繁體中文與台灣用詞（${TRADITIONAL_CHINESE_RULE}）。`,
-  "只輸出**單一 JSON 物件**，不要任何前言、後語或程式碼框。欄位：",
-  "- state_changes: { touched_entities?: [{id, category, name, excerpt}], dungeon_wiki_excerpt?: string, protagonist_points_delta?: number, protagonist_changed?: boolean }",
-  "  - touched_entities：本回合敘事中明確登場、或知識被進一步揭露/訂正的 NPC、道具、場景、技能。",
-  "    category 只能是 npc/item/scene/skill 其中之一；id 直接用中文顯示名稱（建議）或英文 slug；",
-  "    **id 必須對應實體本身的名字**（例如「關公」「碰撞警報裝置」），不可用系統視角功能詞（system_monitor、handler）取代；" +
-    "id 不可含 /、\\、.. 等路徑字元；name 用顯示名稱；",
-  "    excerpt 是本回合敘事中跟這個實體有關的原文片段（之後會有另一步驟拿這段片段去跟現有檔案比較、",
-  "    決定怎麼更新，你不需要自己組好最終的完整內容，只要把相關原文片段填進來）。",
-  "  - dungeon_wiki_excerpt：劇情中對**當前副本本身**新揭露的知識片段（地圖/機關/規則），不在副本中則省略。",
-  "  - protagonist_points_delta：本回合主角積分的增減量（敘事明確發生才填，沒有就省略或 0）。",
-  "  - protagonist_changed：本回合敘事是否涉及主角屬性/技能/物品/buff 的變化（有就 true，純積分變動或無變化則省略/false）。",
-  "  - announced_dungeon：敘事中若有系統**首次公告**尚未進入的新副本（如系統面板顯示「副本即將開啟」），填入 {id, display_name}，" +
-  "id 直接用副本顯示名稱（如「魔獸世界」）；已進入過的副本或尚未公告的副本省略此欄。",
-  "（本回合若沒有任何相關異動，對應欄位省略即可，不要硬湊內容）",
-].join("\n");
 
 function canonicalBlock(state: GameState): string {
   const { now, protagonistDetail: p } = state;
@@ -193,11 +175,6 @@ export interface BuildControlParams {
   dicePool: number[];
   /** 現有副本 id 列表，供主空間模式 enter_dungeon 判斷續用既有 slug 或新建；副本模式不需要（不會 enter_dungeon） */
   existingDungeonIds?: string[];
-  /** 現有實體 id 列表（Layer 3 lore-sync 對齊用：讓模型續用既有 id、不為同一實體發明新 id、不換 category） */
-  existingNpcIds?: string[];
-  existingItemIds?: string[];
-  existingSceneIds?: string[];
-  existingSkillIds?: string[];
   /** 副本模式才填 */
   dungeonId?: string;
   wiki?: string;
@@ -207,7 +184,7 @@ export interface BuildControlParams {
 /**
  * Layer 2（fast-control）：讀主腦敘事 + 當前狀態，只抽出「done event 前必須就位」
  * 的最小欄位子集（now/主角/骰值/轉場/awaiting_user_input/suggested_actions/commit_summary）。
- * npc/item/scene/skill/wiki 等可延後落地的欄位交給 buildLoreSyncMessages。
+ * npc/item/scene/skill/wiki 等可延後落地的欄位交給 Layer 3 reactive-lore-sync 處理。
  */
 export function buildFastControlMessages(params: BuildControlParams): ChatMessage[] {
   const { settingText, state, input, narrative, dicePool } = params;
@@ -250,58 +227,6 @@ export function buildFastControlMessages(params: BuildControlParams): ChatMessag
   ];
 }
 
-/**
- * Layer 3（reactive-lore-sync）：讀主腦敘事 + 當前狀態，抽出可延後落地的 lore 欄位
- * （touched_entities：NPC/道具/場景/技能的初次接觸與知識揭露、dungeon_wiki_excerpt）。
- * 不卡玩家可見的 done event，但仍只整理敘事中已發生的事實，規則與 Layer 2 一致。
- */
-export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[] {
-  const { settingText, state, input, narrative } = params;
-  const inDungeon = Boolean(params.dungeonId);
-  const system = [
-    "你是「無限恐怖」世界敘事引擎的**結構控制抽取器（Layer 3：reactive-lore-sync）**。",
-    "下方有本回合已經產生的敘事散文，你的工作是把其中**已經發生的事實**整理成結構化 JSON，",
-    "只需要負責 NPC 關係、道具/場景/技能的初次接觸與知識揭露，不需要處理 now/主角積分/轉場等即時狀態，那部分已由另一個抽取器處理。",
-    "",
-    "## 鐵則",
-    "- 只整理敘事中已經寫出的事實，**不可新增劇情、不可發明敘事未提及的事件**。",
-    "- touched_entities 的 excerpt 只填**敘事中明確公開揭露給主角知道**的真相（角色已親眼確認、已被明說）；" +
-      "敘事中模糊的暗示、伏筆、氣氛描寫一律不可當成已揭露填入，寧可漏填也不可提前洩漏暗線。",
-    "",
-    LORE_SYNC_FORMAT_BLOCK,
-    "",
-    existingEntityIdsBlock(params),
-    "",
-    "## 世界設定",
-    settingText.trim(),
-    "",
-    ...(inDungeon
-      ? ["## 副本已揭露知識（wiki）", (params.wiki ?? "").trim() || "（尚無）",
-         "", `## 當前副本 id：${params.dungeonId}`, ""]
-      : []),
-    canonicalBlock(state),
-    "",
-    "## 本回合敘事散文（事實來源）",
-    narrative.trim(),
-  ].join("\n");
-
-  return [
-    { role: "system", content: system },
-    { role: "user", content: `玩家本回合行動：${input}` },
-  ];
-}
-
-/** Layer 3 對齊區塊：把各分類現有 id 餵給模型，要求續用既有 id、同一實體不換 category（對稱 Layer 2 的 existingDungeonIds） */
-function existingEntityIdsBlock(params: BuildControlParams): string {
-  const fmt = (ids?: string[]) => (ids && ids.length > 0 ? ids.join("、") : "（無）");
-  return [
-    "## 現有實體 id（若敘事中的實體已在下列，務必沿用既有 id，不要為同一實體發明新 id；同一實體不可更換 category）",
-    `- 現有 NPC：${fmt(params.existingNpcIds)}`,
-    `- 現有道具：${fmt(params.existingItemIds)}`,
-    `- 現有場景：${fmt(params.existingSceneIds)}`,
-    `- 現有技能：${fmt(params.existingSkillIds)}`,
-  ].join("\n");
-}
 
 export interface BuildPacingParams {
   /** 保留此欄位與其他 build*Messages 函式的簽名一致；函式本體不使用（節奏審閱不需要完整世界設定全文）。 */

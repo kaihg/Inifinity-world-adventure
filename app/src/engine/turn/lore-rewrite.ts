@@ -3,7 +3,6 @@ import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import type { Logger } from "../../logger.js";
 import { NPC_ID_RE } from "../context.js";
 import { loadLoreFile, type LoreCategory } from "../lore.js";
-import type { LoreEntityRef } from "../schema.js";
 import { getTemplate } from "../template-loader.js";
 import { TRADITIONAL_CHINESE_RULE } from "./prompts.js";
 import { readBestEffort } from "./shared.js";
@@ -12,6 +11,14 @@ import type { TurnDeps } from "./types.js";
 
 /** 防止路徑穿越：id 不可含 /、\、..、null byte 等危險字元；允許中文顯示名稱 */
 export const ITEM_ID_RE = /^[^/\\:?*<>|"\x00]+$/;
+
+/** Layer 3 實體參照：本回合敘事中接觸到的 NPC / 道具 / 場景 / 技能 */
+export interface LoreEntityRef {
+  id: string;
+  category: "npc" | "item" | "scene" | "skill";
+  name: string;
+  excerpt: string;
+}
 
 export const ENTITY_CATEGORY_TO_LORE: Record<"item" | "scene" | "skill", LoreCategory> = {
   item: "items",
@@ -146,7 +153,7 @@ export async function callProtagonistRewrite(
         "",
         "鐵則：",
         "- 只輸出主角檔案完整新版內容本身（純文字/Markdown），不要 JSON、不要前言、不要程式碼框。",
-        "- **「當前積分」數值與其所在區塊一律照抄現有全文，絕不可改動**（積分由引擎另行計算，你動了就是錯）。",
+        "- 若敘事片段明確寫出積分增減結果，更新「當前積分」欄位；若未提及則保持不變。",
         "- 不可遺漏現有全文中仍然成立的事實；只在敘事片段明確提供新的屬性/技能/物品/buff 變化時，才把該變化整合進對應區塊。",
         "- 整合時若某項已存在（即使措辭不同），更新該項而非新增重複條目；不可發明敘事未提及的成長。",
         "- 輸出是整理過的角色檔案，不是敘事轉貼。禁止把敘事片段的散文、對白、系統提示原文照抄進檔；文件中不應出現「本回合」這類敘事時序語句。",

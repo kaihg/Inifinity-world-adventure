@@ -67,46 +67,13 @@ export const FastControlSchema = z.object({
 
 export type FastControl = z.infer<typeof FastControlSchema>;
 
-/** Layer 3（reactive-lore-sync）：本回合摸到的實體列表 + 副本本身的揭露片段，皆可省略 */
-const LoreEntityRefSchema = z.object({
-  id: z.string(),
-  category: z.enum(["npc", "item", "scene", "skill"]),
-  name: z.string(),
-  excerpt: z.string(),
-});
-
-export type LoreEntityRef = z.infer<typeof LoreEntityRefSchema>;
-
-const AnnouncedDungeonSchema = z.object({
-  id: z.string(),
-  display_name: z.string(),
-});
-
-export type AnnouncedDungeon = z.infer<typeof AnnouncedDungeonSchema>;
-
-const LoreStateChangesSchema = z
-  .object({
-    touched_entities: z.array(LoreEntityRefSchema).optional(),
-    dungeon_wiki_excerpt: z.string().optional(),
-    protagonist_points_delta: z.number().optional(),
-    protagonist_changed: z.boolean().default(false),
-    announced_dungeon: AnnouncedDungeonSchema.optional(),
-  })
-  .default({});
-
-export const LoreSyncSchema = z.object({
-  state_changes: LoreStateChangesSchema,
-});
-
-export type LoreSync = z.infer<typeof LoreSyncSchema>;
-
 /**
  * 從第一個 `{` 起，由最後一個 `}` 往前逐個嘗試解析，取第一個能 JSON.parse
  * 成功的範圍。這樣對「合法 JSON 之後又跟了含 `}` 的客套字」（lastIndexOf 會
  * 抓到後綴的 `}`）也能還原，而非整段降級。找不到任何可解析的範圍時回傳
  * undefined（與 JSON 合法值 null 區分）。
  */
-function extractFromText(text: string): unknown {
+export function extractFromText(text: string): unknown {
   const start = text.indexOf("{");
   if (start === -1) return undefined;
 
@@ -129,7 +96,7 @@ function extractFromText(text: string): unknown {
  * 所以只在 happy path 失敗時才介入，避免讓本來能解析的輸出反而解析失敗。
  * 找不到任何可解析的 JSON 時回傳 null。
  */
-function extractJsonObject(raw: string): unknown {
+export function extractJsonObject(raw: string): unknown {
   const cleaned = raw.replace(/```(?:json)?/gi, "");
 
   const direct = extractFromText(cleaned);
@@ -158,11 +125,3 @@ export function parseFastControlOutput(raw: string): FastControl {
   return FastControlSchema.parse(parsed);
 }
 
-/** 從 Layer 3（reactive-lore-sync）原始輸出解析出 LoreSync，規則同 parseFastControlOutput */
-export function parseLoreSyncOutput(raw: string): LoreSync {
-  const parsed = extractJsonObject(raw);
-  if (parsed === null) {
-    throw new Error("Layer 3 reactive-lore-sync 輸出找不到可解析的 JSON 物件");
-  }
-  return LoreSyncSchema.parse(parsed);
-}

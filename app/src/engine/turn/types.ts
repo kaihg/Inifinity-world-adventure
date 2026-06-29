@@ -79,8 +79,6 @@ export interface TurnPlan {
   messages: ChatMessage[];
   /** Layer 2（fast-control）訊息建構器：拿主腦完整敘事，回傳 fast-control 對話 */
   buildFastControl: (narrative: string) => ChatMessage[];
-  /** Layer 3（reactive-lore-sync）訊息建構器：拿主腦完整敘事，回傳 lore-sync 對話 */
-  buildLoreSync: (narrative: string) => ChatMessage[];
   /** raw 層落地：主空間→journal，副本→runs/<run>.md */
   appendRaw: (entry: { date: string; title: string; body: string }) => Promise<void>;
   /** raw 層檔案絕對路徑（journal.md 或 runs/<run>.md），供回合結束後重建語意索引用 */

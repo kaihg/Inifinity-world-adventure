@@ -117,7 +117,7 @@ async function makeTempWorld(opts: { withYeqing?: boolean } = {}): Promise<strin
 }
 
 describe("runMainSpaceTurn — 結構化輸出", () => {
-  it("串流敘事、副大腦套用 now，Layer 3 落地積分、commit，done 帶 awaitingUserInput/suggestedActions", async () => {
+  it("串流敘事、副大腦套用 now，commit，done 帶 awaitingUserInput/suggestedActions", async () => {
     const commits: string[] = [];
     const narrative = "沈奕走進資訊室。";
     const ctrl = JSON.stringify({
@@ -128,26 +128,11 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
       suggested_actions: ["找葉晴", "離開"],
       commit_summary: "沈奕進資訊室",
     });
-    const ls = JSON.stringify({
-      state_changes: { protagonist_points_delta: 2, protagonist_changed: true },
-    });
-    // 依 system prompt 路由：Layer 3 lore-sync → ls；主角重寫 → 含積分2的全文；其餘 → ctrl
-    const client: LlmClient = {
-      async *streamChat(messages: ChatMessage[]) {
-        const system = messages.find((m) => m.role === "system")?.content ?? "";
-        if (system.includes("reactive-lore-sync")) { yield ls; return; }
-        if (system.includes("主角檔案維護者")) {
-          yield "# 主角\n- 姓名：沈奕\n- 當前積分：2\n";
-          return;
-        }
-        yield ctrl;
-      },
-    };
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
       {
         client: fakeClient([narrative]),
-        controlClient: client,
+        controlClient: fakeClient([ctrl]),
         worldDir: world,
         commit: async (m) => { commits.push(m); return true; },
         today: () => "2026-06-19",
@@ -171,9 +156,6 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(now).toContain("- 此刻場景/地點：資訊室");
     expect(now).toContain("- 主角下一步打算：找葉晴");
     expect(now).toContain("- 最後更新：[2026-06-19] 沈奕進資訊室");
-
-    const prot = await readFile(path.join(world, "characters", "protagonist.md"), "utf8");
-    expect(prot).toContain("- 當前積分：2");
 
     const journal = await readFile(path.join(world, "journal.md"), "utf8");
     expect(journal).toContain("## [2026-06-19] 沈奕進資訊室");
@@ -247,33 +229,25 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(now).not.toContain("U-999");
   });
 
-  it("主角成長改由 Layer 3 落地（積分 + 技能/物品整合進 protagonist.md）", async () => {
-    await writeFile(
-      path.join(world, "characters", "protagonist.md"),
-      ["# 主角", "- 姓名：沈奕", "- 當前積分：0", "", "## 技能 / 異能", "- （無）", "", "## 物品欄", "- 戰術刀", ""].join("\n"),
-      "utf8",
-    );
+  it("Layer 3 の protagonist_points_delta / protagonist_changed は Task 2 で除去済み：protagonist.md は変更されない", async () => {
+    const initialContent = ["# 主角", "- 姓名：沈奕", "- 當前積分：0", "", "## 技能 / 異能", "- （無）", "", "## 物品欄", "- 戰術刀", ""].join("\n");
+    await writeFile(path.join(world, "characters", "protagonist.md"), initialContent, "utf8");
     await writeFile(path.join(world, "characters", "index.md"), "| ID | 姓名 |\n|----|------|\n", "utf8");
-    // Layer 2 只出顯示欄位；Layer 3 出 protagonist 變化
     const fc = JSON.stringify({
       state_changes: { now: { scene: "訓練場" } },
       rolls: [], mode_transition: null, awaiting_user_input: true,
       suggested_actions: [], commit_summary: "沈奕成長",
     });
+    // Layer 3 出力に protagonist_points_delta / protagonist_changed があっても LoreSyncSchema で無視される
     const ls = JSON.stringify({
       state_changes: { protagonist_points_delta: 1, protagonist_changed: true },
     });
-    // fakeClient 依 system prompt 內容回不同層；主角重寫回整檔新版
     const client: LlmClient = {
       async *streamChat(messages: ChatMessage[]) {
         const system = messages.find((m) => m.role === "system")?.content ?? "";
-        if (system.includes("Layer 3：reactive-lore-sync") || system.includes("reactive-lore-sync")) { yield ls; return; }
-        if (system.includes("主角檔案維護者")) {
-          yield "# 主角\n- 姓名：沈奕\n- 當前積分：1\n\n## 技能 / 異能\n- 近戰格鬥精通\n\n## 物品欄\n- 戰術刀\n- 生鏽鐵管\n";
-          return;
-        }
+        if (system.includes("reactive-lore-sync")) { yield ls; return; }
         if (system.includes("fast-control")) { yield fc; return; }
-        yield "沈奕領悟近戰格鬥精通，撿起鐵管。"; // 主腦敘事
+        yield "沈奕在訓練場揮動戰術刀。"; // 主腦敘事
       },
     };
     const events: TurnEvent[] = [];
@@ -283,10 +257,9 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     )) {
       events.push(ev);
     }
+    // protagonist.md は変更されない（Task 5-6 の新 ingest で再実装予定）
     const prot = await readFile(path.join(world, "characters", "protagonist.md"), "utf8");
-    expect(prot).toContain("- 當前積分：1");
-    expect(prot).toContain("近戰格鬥精通");
-    expect(prot).toContain("生鏽鐵管");
+    expect(prot).toBe(initialContent);
   });
 
   it("touched_entities（npc）：整檔重寫角色檔，並用小模型摘要同步進 characters/index.md", async () => {
@@ -781,12 +754,12 @@ describe("recall 整合測試", () => {
     expect(capturedSystem).toContain("葉晴受傷了");
   });
 
-  it("回合結束後重新索引 journal 與主角檔（main-space）", async () => {
+  it("回合結束後重新索引 journal（main-space）", async () => {
     const recall = fakeRecall();
     const response =
       "沈奕成長了。\n===STATE===\n" +
       JSON.stringify({
-        state_changes: { protagonist_points_delta: 5 },
+        state_changes: {},
         rolls: [],
         mode_transition: null,
         awaiting_user_input: true,
@@ -807,7 +780,7 @@ describe("recall 整合測試", () => {
 
     const relPaths = recall.upserted.map((u) => u.relPath);
     expect(relPaths).toContain("journal.md");
-    expect(relPaths).toContain(path.join("characters", "protagonist.md"));
+    // protagonist.md は Layer 3 ingest（Task 5-6）で再実装されるまで reindex されない
   });
 
   it("deps.recall.query 失敗時回合仍正常完成（降級，無 recall 區塊）", async () => {

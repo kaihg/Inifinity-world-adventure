@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   buildDungeonMessages,
   buildFastControlMessages,
-  buildLoreSyncMessages,
   buildMainSpaceMessages,
   buildPacingMessages,
 } from "./prompts.js";
@@ -136,69 +135,6 @@ describe("buildFastControlMessages（Layer 2）", () => {
   });
 });
 
-describe("buildLoreSyncMessages（Layer 3）", () => {
-  it("system 含 touched_entities/dungeon_wiki_excerpt 欄位說明，不含 mode_transition/awaiting_user_input", () => {
-    const msgs = buildLoreSyncMessages({
-      settingText: "設定", state: sampleState, input: "我四處看看",
-      narrative: "沈奕在資訊室撿到一根生鏽鐵管。",
-      dicePool: [42, 7], existingDungeonIds: ["U-001"],
-    });
-    expect(msgs[0].role).toBe("system");
-    expect(msgs[0].content).toContain("touched_entities");
-    expect(msgs[0].content).toContain("dungeon_wiki_excerpt");
-    expect(msgs[0].content).toContain("npc/item/scene/skill");
-    expect(msgs[0].content).not.toContain("awaiting_user_input");
-    expect(msgs[0].content).not.toContain("mode_transition");
-    expect(msgs[0].content).toContain("沈奕在資訊室撿到一根生鏽鐵管");
-    expect(msgs[1].content).toContain("我四處看看");
-  });
-
-  it("Layer 3 含 protagonist_points_delta / protagonist_changed 欄位說明", () => {
-    const msgs = buildLoreSyncMessages({
-      settingText: "設定", state: sampleState, input: "練格鬥",
-      narrative: "沈奕得 2 分並領悟新技能。", dicePool: [1],
-    });
-    expect(msgs[0].content).toContain("protagonist_points_delta");
-    expect(msgs[0].content).toContain("protagonist_changed");
-  });
-
-  it("Layer 3 含中文 id 規則與路徑字元禁止說明（根因 Bug 2）", () => {
-    const msgs = buildLoreSyncMessages({
-      settingText: "設定", state: sampleState, input: "辨識震動",
-      narrative: "沈奕練成辨識震動。", dicePool: [1],
-    });
-    expect(msgs[0].content).toContain("中文顯示名稱");
-    expect(msgs[0].content).toContain("system_monitor"); // 作為反例出現
-    expect(msgs[0].content).toContain("路徑字元"); // 路徑穿越防護說明
-  });
-
-  it("副本：system 帶 wiki 與 dungeonId，不外洩 secrets", () => {
-    const msgs = buildLoreSyncMessages({
-      settingText: "設定", state: sampleState, input: "往前走",
-      narrative: "沈奕抵達出口。", dicePool: [5], existingDungeonIds: ["U-001"],
-      dungeonId: "U-001", wiki: "入口有三道門", secrets: "地板會塌",
-    });
-    expect(msgs[0].content).toContain("U-001");
-    expect(msgs[0].content).toContain("入口有三道門");
-    expect(msgs[0].content).not.toContain("地板會塌");
-  });
-
-  it("含現有實體 id 對齊區塊（根因 A：要求模型續用既有 id、不換 category）", () => {
-    const msgs = buildLoreSyncMessages({
-      settingText: "設定", state: sampleState, input: "找葉晴",
-      narrative: "沈奕找葉晴討論。", dicePool: [1],
-      existingNpcIds: ["yeqing", "linsiyu"],
-      existingItemIds: ["rusty-pipe"],
-      existingSceneIds: ["info-room"],
-      existingSkillIds: [],
-    });
-    expect(msgs[0].content).toContain("現有實體 id");
-    expect(msgs[0].content).toContain("不要為同一實體發明新 id");
-    expect(msgs[0].content).toContain("yeqing、linsiyu");
-    expect(msgs[0].content).toContain("rusty-pipe");
-    expect(msgs[0].content).toContain("info-room");
-  });
-});
 
 describe("nudgeBlock / pacingBlock 注入", () => {
   it("nudgeBlock 有值時出現在主空間 system prompt", () => {
