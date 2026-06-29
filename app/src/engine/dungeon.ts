@@ -1,7 +1,7 @@
-import { writeFile, appendFile, mkdir, readFile, readdir, rename } from "node:fs/promises";
+import { writeFile, appendFile, mkdir, readFile, readdir, rename, access } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
-import { loadLore, ensureSecrets, listLoreIds } from "./lore.js";
+import { loadLoreFile } from "./lore.js";
 import { toTraditional } from "./text/traditionalize.js";
 
 export interface ActiveDungeon {
@@ -77,7 +77,18 @@ export async function enterDungeon(
 
   await writeFile(logFile, header, "utf8");
 
-  await ensureSecrets(worldDir, "dungeons", safeDungeonId, params.secretsText, `副本隱藏真相（${safeDungeonId}）`, logger);
+  // 首次進入寫 secrets.md（已存在則不覆寫，保住暗線一致）
+  const secretsFile = path.join(dir, "secrets.md");
+  let secretsExists = false;
+  try { await access(secretsFile); secretsExists = true; } catch { /* ENOENT is expected */ }
+  if (!secretsExists) {
+    logger.debug({ dungeonId: safeDungeonId }, "首次進入副本，寫入隱藏設定 secrets.md");
+    await writeFile(
+      secretsFile,
+      `# 副本隱藏真相（${safeDungeonId}）\n\n> 劇透文件：僅供敘事暗線一致，不可提前揭露給玩家。\n\n${params.secretsText.trim()}\n`,
+      "utf8",
+    );
+  }
 
   return { dungeonId: safeDungeonId, runId };
 }
@@ -130,7 +141,31 @@ export async function loadDungeonLore(
   dungeonId: string,
   logger: Logger = defaultLogger,
 ): Promise<{ wiki: string; secrets: string }> {
-  return loadLore(worldDir, "dungeons", dungeonId, logger);
+  const wiki = await loadLoreFile(worldDir, "dungeons", dungeonId, logger);
+  const secretsPath = path.join(worldDir, "dungeons", dungeonId, "secrets.md");
+  let secrets = "";
+  try {
+    secrets = await readFile(secretsPath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      logger.warn({ err, file: secretsPath }, "讀取副本 secrets.md 失敗（非檔案不存在）");
+    }
+  }
+  return { wiki, secrets };
+}
+
+/**
+ * 列舉已進入的副本 id（dungeons/ 子目錄名）；目錄不存在回 []。
+ * 副本進入時以目錄存在為準（log.md 等在目錄內），不依賴 wiki .md 是否已建立。
+ */
+async function listEnteredDungeonIds(worldDir: string): Promise<string[]> {
+  const dungeonsDir = path.join(worldDir, "dungeons");
+  try {
+    const entries = await readdir(dungeonsDir, { withFileTypes: true });
+    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -139,10 +174,10 @@ export async function loadDungeonLore(
  */
 export async function listDungeonIds(
   worldDir: string,
-  logger: Logger = defaultLogger,
+  _logger?: Logger,
 ): Promise<string[]> {
   const [entered, announced] = await Promise.all([
-    listLoreIds(worldDir, "dungeons", logger),
+    listEnteredDungeonIds(worldDir),
     listAnnouncedDungeonIds(worldDir),
   ]);
   const merged = new Set([...entered, ...announced]);

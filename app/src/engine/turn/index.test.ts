@@ -436,7 +436,7 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(committed).toBe(true);
   });
 
-  it("touched_entities（item，全新）：首次生成 secrets.md，並把比較重寫的內容整檔寫進 wiki.md", async () => {
+  it("touched_entities（item，全新）：把比較重寫的內容整檔寫進 .md", async () => {
     const ctrl = JSON.stringify({
       state_changes: {
         touched_entities: [
@@ -447,14 +447,13 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
       commit_summary: "撿到鐵管",
     });
     const events: TurnEvent[] = [];
-    // 序列：主腦敘事 → Layer 2(ctrl) → Layer 3 抽取(ctrl) → 道具 secrets 生成（generateItemSecrets 用 deps.client）→ 比較重寫
+    // 序列：主腦敘事 → Layer 2(ctrl) → Layer 3 抽取(ctrl) → 比較重寫（無 secrets 生成步驟）
     for await (const ev of runMainSpaceTurn(
       {
         client: sequencedClient([
           "沈奕從地上撿起一根生鏽鐵管，管身刻有奇怪符號。",
           ctrl,
           ctrl,
-          "其實是某把武器的殘骸，蘊含未知力量。",
           "# 道具（rusty-pipe）\n\n管身刻有奇怪符號，來歷不明。",
         ]),
         worldDir: world,
@@ -466,15 +465,13 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     )) {
       events.push(ev);
     }
-    const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
-    expect(secrets).toContain("某把武器的殘骸");
-    const wiki = await readFile(path.join(world, "items", "rusty-pipe", "wiki.md"), "utf8");
+    const wiki = await readFile(path.join(world, "items", "rusty-pipe.md"), "utf8");
     expect(wiki).toContain("管身刻有奇怪符號，來歷不明");
   });
 
-  it("touched_entities（item，已有 secrets）：不重複生成 secrets，只整檔重寫 wiki", async () => {
-    await mkdir(path.join(world, "items", "rusty-pipe"), { recursive: true });
-    await writeFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "# 道具隱藏設定（生鏽鐵管）\n\n原始真相\n");
+  it("touched_entities（item，既有 .md 存在）：整檔覆寫更新內容", async () => {
+    await mkdir(path.join(world, "items"), { recursive: true });
+    await writeFile(path.join(world, "items", "rusty-pipe.md"), "# 道具（rusty-pipe）\n\n管身刻有符號。\n");
     const ctrl = JSON.stringify({
       state_changes: {
         touched_entities: [
@@ -502,9 +499,7 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     )) {
       events.push(ev);
     }
-    const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
-    expect(secrets).toContain("原始真相");
-    const wiki = await readFile(path.join(world, "items", "rusty-pipe", "wiki.md"), "utf8");
+    const wiki = await readFile(path.join(world, "items", "rusty-pipe.md"), "utf8");
     expect(wiki).toContain("管身符號會微微發光");
   });
 
@@ -658,7 +653,7 @@ describe("runDungeonTurn", () => {
     const run = await readFile(path.join(world, "dungeons", "U-001", "log.md"), "utf8");
     expect(run).toContain("## [2026-06-19] 進入大廳");
     expect(run).toContain("往前走");
-    const wiki = await readFile(path.join(world, "dungeons", "U-001", "wiki.md"), "utf8");
+    const wiki = await readFile(path.join(world, "dungeons", "U-001.md"), "utf8");
     expect(wiki).toContain("入口大廳有三道門");
     // journal 不該被副本回合寫入
     const journalExists = await readFile(path.join(world, "journal.md"), "utf8").then(() => true).catch(() => false);
@@ -886,7 +881,7 @@ describe("recall 整合測試", () => {
 
     const relPaths = recall.upserted.map((u) => u.relPath);
     expect(relPaths).toContain(path.join("dungeons", "U-001", "log.md"));
-    expect(relPaths).toContain(path.join("dungeons", "U-001", "wiki.md"));
+    expect(relPaths).toContain(path.join("dungeons", "U-001.md"));
   });
 });
 
@@ -937,17 +932,13 @@ describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
       },
     });
     let loreCall = 0;
-    // Layer 3 全程走小模型（loreClient）：依序為 ①抽取 touched_entities ②生成 secrets ③整檔重寫 wiki
+    // Layer 3 全程走小模型（loreClient）：依序為 ①抽取 touched_entities ②整檔重寫 wiki（無 secrets 步驟）
     const loreClient: LlmClient = {
       async *streamChat() {
         loreCall++;
         if (loreCall === 1) {
           await new Promise((r) => setTimeout(r, 50)); // 模擬較慢的 Layer 3 LLM（抽取階段）
           yield loreCtrl;
-          return;
-        }
-        if (loreCall === 2) {
-          yield "鐵管暗線真相內容"; // secrets 生成
           return;
         }
         yield "# 道具（rusty-pipe）\n\n比較重寫後的內容。"; // wiki 整檔重寫
@@ -972,9 +963,9 @@ describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
       // 第二回合一開始就 await 同一個 pendingLoreSync，理論上會等到第一回合的 Layer 3 落地
     }
 
-    // secrets.md 已落地即證明第一回合的 Layer 3 在第二回合開始前完成（內容來自小模型 loreClient）
-    const secrets = await readFile(path.join(world, "items", "rusty-pipe", "secrets.md"), "utf8");
-    expect(secrets).toContain("鐵管暗線真相內容");
+    // wiki .md 已落地即證明第一回合的 Layer 3 在第二回合開始前完成（內容來自小模型 loreClient）
+    const wiki = await readFile(path.join(world, "items", "rusty-pipe.md"), "utf8");
+    expect(wiki).toContain("比較重寫後的內容");
   });
 
   it("Layer 3 失敗（loreClient 拋錯）：下一回合仍正常開始、不拋錯", async () => {

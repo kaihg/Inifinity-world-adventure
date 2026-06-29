@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import { logger } from "../../logger.js";
 import type { Logger } from "../../logger.js";
-import { callLoreRewrite, type LoreRewriteCategory, generateEntitySecrets, rewriteLoreEntity } from "./lore-rewrite.js";
+import { callLoreRewrite, type LoreRewriteCategory, rewriteLoreEntity } from "./lore-rewrite.js";
+import { loreFilePath, loadLoreFile, rewriteLoreFile, listLoreIds } from "../../engine/lore.js";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -32,6 +33,46 @@ function fakeLogger(): { log: Logger; warnCalls: unknown[] } {
   const log = { warn: (...args: unknown[]) => warnCalls.push(args) } as unknown as Logger;
   return { log, warnCalls };
 }
+
+describe("lore flat API", () => {
+  let tmpDir: string;
+  beforeEach(async () => { tmpDir = await mkdtemp(path.join(os.tmpdir(), "lore-test-")); });
+  afterEach(async () => { await rm(tmpDir, { recursive: true, force: true }); });
+
+  it("loreFilePath returns world/<category>/<id>.md", () => {
+    expect(loreFilePath(tmpDir, "skills", "邏輯推理")).toBe(
+      path.join(tmpDir, "skills", "邏輯推理.md")
+    );
+  });
+
+  it("loadLoreFile returns empty string when file missing", async () => {
+    const result = await loadLoreFile(tmpDir, "skills", "不存在");
+    expect(result).toBe("");
+  });
+
+  it("loadLoreFile returns content when file exists", async () => {
+    await mkdir(path.join(tmpDir, "skills"), { recursive: true });
+    await writeFile(path.join(tmpDir, "skills", "邏輯推理.md"), "# 邏輯推理\n\n內容", "utf8");
+    const result = await loadLoreFile(tmpDir, "skills", "邏輯推理");
+    expect(result).toBe("# 邏輯推理\n\n內容");
+  });
+
+  it("rewriteLoreFile creates file with H1 when title missing", async () => {
+    await rewriteLoreFile(tmpDir, "skills", "邏輯推理", "內容段落", "邏輯推理");
+    const { readFile } = await import("node:fs/promises");
+    const content = await readFile(path.join(tmpDir, "skills", "邏輯推理.md"), "utf8");
+    expect(content).toContain("# 邏輯推理");
+    expect(content).toContain("內容段落");
+  });
+
+  it("listLoreIds returns .md filenames without extension", async () => {
+    await mkdir(path.join(tmpDir, "skills"), { recursive: true });
+    await writeFile(path.join(tmpDir, "skills", "技能A.md"), "", "utf8");
+    await writeFile(path.join(tmpDir, "skills", "技能B.md"), "", "utf8");
+    const ids = await listLoreIds(tmpDir, "skills");
+    expect(ids.sort()).toEqual(["技能A", "技能B"]);
+  });
+});
 
 describe("callLoreRewrite", () => {
   it("system prompt 含繁體用詞規範", async () => {
@@ -85,33 +126,6 @@ describe("callLoreRewrite", () => {
     );
     const system = cap.messages.find((m) => m.role === "system")?.content ?? "";
     expect(system).not.toContain("文件骨架（段落標題固定");
-  });
-});
-
-describe("generateEntitySecrets", () => {
-  it.each([
-    ["item", "道具設計者", "道具名稱"],
-    ["scene", "場景設計者", "場景名稱"],
-    ["skill", "技能設計者", "技能名稱"],
-  ] as [("item" | "scene" | "skill"), string, string][])(
-    "category=%s 時措辭正確（%s / %s）",
-    async (category, roleKeyword, nounKeyword) => {
-      const cap = capturingClient("隱藏設定內容");
-      await generateEntitySecrets(cap.client, "世界設定", "測試實體", category, logger);
-      const system = cap.messages.find((m) => m.role === "system")?.content ?? "";
-      const user = cap.messages.find((m) => m.role === "user")?.content ?? "";
-      expect(system).toContain(roleKeyword);
-      expect(user).toContain(nounKeyword);
-    },
-  );
-
-  it("client.streamChat 拋錯時回退預設文字並記一筆 warn，不往上拋", async () => {
-    const { log, warnCalls } = fakeLogger();
-
-    const result = await generateEntitySecrets(throwingClient(), "世界設定", "神祕道具", "item", log);
-
-    expect(result).toBe("（生成失敗，待補）");
-    expect(warnCalls).toHaveLength(1);
   });
 });
 
@@ -238,40 +252,6 @@ describe("rewriteLoreEntity — NPC 角色檔標題正規化（根因 I）", () 
     expect(result!.content.startsWith("# 葉晴")).toBe(true);
     expect(result!.content.startsWith("###")).toBe(false);
     expect(result!.title).toBe("葉晴");
-  });
-});
-
-describe("rewriteLoreEntity — secrets 用小模型（根因 G）", () => {
-  it("生成 secrets 用 loreClient 而非主敘事 client", async () => {
-    const worldDir = await mkdtemp(path.join(os.tmpdir(), "world-"));
-    await mkdir(path.join(worldDir, "items", "amulet-001"), { recursive: true });
-
-    const mainCalls: string[] = [];
-    const loreCalls: string[] = [];
-    const mainClient: LlmClient = {
-      async *streamChat() {
-        mainCalls.push("main");
-        yield "主模型不該被叫到";
-      },
-    };
-    const loreClient: LlmClient = {
-      async *streamChat(messages: ChatMessage[]) {
-        loreCalls.push("lore");
-        const system = messages.find((m) => m.role === "system")?.content ?? "";
-        yield system.includes("劇透文件") ? "隱藏真相" : "# 護符\n\n外觀";
-      },
-    };
-    const deps: TurnDeps = { client: mainClient, loreClient, worldDir, commit: async () => true };
-
-    await rewriteLoreEntity(
-      deps,
-      "世界設定",
-      { id: "amulet-001", category: "item", name: "護符", excerpt: "主角撿到一個護符" },
-      logger,
-    );
-
-    expect(mainCalls).toHaveLength(0); // 主敘事大模型完全不參與 lore 落地
-    expect(loreCalls.length).toBeGreaterThanOrEqual(2); // secrets + wiki 都走小模型
   });
 });
 

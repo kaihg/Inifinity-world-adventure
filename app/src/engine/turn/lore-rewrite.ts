@@ -2,7 +2,7 @@ import path from "node:path";
 import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import type { Logger } from "../../logger.js";
 import { NPC_ID_RE } from "../context.js";
-import { ensureSecrets, loadLore, type LoreCategory } from "../lore.js";
+import { loadLoreFile, type LoreCategory } from "../lore.js";
 import type { LoreEntityRef } from "../schema.js";
 import { getTemplate } from "../template-loader.js";
 import { TRADITIONAL_CHINESE_RULE } from "./prompts.js";
@@ -12,43 +12,6 @@ import type { TurnDeps } from "./types.js";
 
 /** 防止路徑穿越：id 不可含 /、\、..、null byte 等危險字元；允許中文顯示名稱 */
 export const ITEM_ID_RE = /^[^/\\:?*<>|"\x00]+$/;
-
-/** 隱藏設定生成者，依分類套用對應的世界觀角色稱呼（道具/場景/技能設計者措辭不同） */
-export const ENTITY_SECRETS_DESIGNER_ROLE: Record<"item" | "scene" | "skill", string> = {
-  item: "道具設計者",
-  scene: "場景設計者",
-  skill: "技能設計者",
-};
-
-/** 為指定實體生成隱藏設定（劇透文件，僅供暗線一致，不可外洩）；依分類套用正確的角色稱呼與名詞，風格與 callLoreRewrite 對齊 */
-export async function generateEntitySecrets(
-  client: LlmClient,
-  settingText: string,
-  entityName: string,
-  category: "item" | "scene" | "skill",
-  log: Logger,
-): Promise<string> {
-  const noun = ENTITY_CATEGORY_TITLE[category];
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content:
-        `你是「無限恐怖」世界的${ENTITY_SECRETS_DESIGNER_ROLE[category]}。為指定${noun}生成隱藏設定（真實來歷、隱藏效果、與主線的關聯）。` +
-        `這是劇透文件，玩家永遠不會直接看到，只供敘事暗線一致。只輸出設定內容本身。${TRADITIONAL_CHINESE_RULE}不要前言或客套。\n\n` +
-        "世界設定：\n" + settingText.trim(),
-    },
-    { role: "user", content: `${noun}名稱：${entityName}。請生成其隱藏設定。` },
-  ];
-  let full = "";
-  try {
-    for await (const d of client.streamChat(messages)) full += d;
-  } catch (err) {
-    log.warn({ err }, "隱藏設定生成 LLM 呼叫失敗，回退預設文字");
-    return "（生成失敗，待補）";
-  }
-  // 落地進 secrets.md 前繁體化（小模型較易吐簡體，決定論兜底）
-  return toTraditional(full.trim()) || "（生成失敗，待補）";
-}
 
 export const ENTITY_CATEGORY_TO_LORE: Record<"item" | "scene" | "skill", LoreCategory> = {
   item: "items",
@@ -266,25 +229,17 @@ export async function rewriteLoreEntity(
     return { id: safeNpcId, category: "npc", title, content: normalized };
   }
 
-  // 落地前繁體化 id（用作目錄名）
+  // 落地前繁體化 id（用作檔名）
   const safeId = toTraditional(entity.id.trim());
   if (!ITEM_ID_RE.test(safeId) || safeId.includes("..") || safeId === "") {
     log.warn({ entity }, "touched_entities 含不合法 id，略過");
     return null;
   }
   const category = ENTITY_CATEGORY_TO_LORE[entity.category];
-  const existing = await loadLore(deps.worldDir, category, safeId, log);
-  if (!existing.secrets) {
-    // secrets 是玩家永不見、只生成一次的暗線文件，用小模型（loreClient→controlClient→client）即可，
-    // 不必占用主敘事大模型；A 校驗 gate 修好後此處呼叫量本就大降。
-    const secretsClient = deps.loreClient ?? deps.controlClient ?? deps.client;
-    const secretsText = await generateEntitySecrets(secretsClient, settingText, entity.name, entity.category, log);
-    await ensureSecrets(deps.worldDir, category, safeId, secretsText, `隱藏設定（${entity.name}）`, log);
-  }
-  const title = `${ENTITY_CATEGORY_TITLE[entity.category]}（${entity.name}）`;
+  const existing = await loadLoreFile(deps.worldDir, category, safeId, log);
   // 全新建檔時注入骨架（getTemplate 失敗則 warn 並繼續，骨架是 nice-to-have）
   let scaffoldContent: string | undefined;
-  if (!existing.wiki) {
+  if (!existing) {
     const repoRoot = path.dirname(deps.worldDir);
     try {
       scaffoldContent = await getTemplate(entity.category, deps.worldDir, repoRoot);
@@ -292,7 +247,8 @@ export async function rewriteLoreEntity(
       log.warn({ err, category: entity.category }, "getTemplate 失敗，略過骨架注入");
     }
   }
-  const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing.wiki, entity.category, log, context, scaffoldContent);
+  const title = `${ENTITY_CATEGORY_TITLE[entity.category]}（${entity.name}）`;
+  const content = await callLoreRewrite(rewriteClient, settingText, entity.excerpt, title, existing, entity.category, log, context, scaffoldContent);
   if (!content) return null;
   return { id: safeId, category: entity.category, title, content };
 }

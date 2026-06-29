@@ -11,7 +11,7 @@ import {
   loadDungeonLore,
   listDungeonIds,
 } from "./dungeon.js";
-import { rewriteLoreWiki } from "./lore.js";
+import { rewriteLoreFile } from "./lore.js";
 
 describe("parseActiveDungeon / formatActiveDungeon", () => {
   it("解析「<id> + <run>」", () => {
@@ -119,7 +119,7 @@ describe("enterDungeon / appendLog / loadDungeonLore", () => {
     expect(lore.secrets).toContain("真相");
     expect(lore.wiki).toBe(""); // 尚未有 wiki
 
-    await rewriteLoreWiki(world, "dungeons", "U-001", "入口大廳有三道門", "副本 U-001 · 已揭露知識（Wiki）");
+    await rewriteLoreFile(world, "dungeons", "U-001", "入口大廳有三道門", "副本 U-001 · 已揭露知識（Wiki）");
     const lore2 = await loadDungeonLore(world, "U-001");
     expect(lore2.wiki).toContain("三道門");
   });

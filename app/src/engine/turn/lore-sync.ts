@@ -9,8 +9,7 @@ import {
 } from "../context.js";
 import { loadDungeonLore, registerAnnouncedDungeon } from "../dungeon.js";
 import type { Logger } from "../../logger.js";
-import { listLoreIds, loreDir, rewriteLoreWiki } from "../lore.js";
-import { parseCharacterIndex } from "../context.js";
+import { loreFilePath, rewriteLoreFile } from "../lore.js";
 import { parseLoreSyncOutput } from "../schema.js";
 import { summarizeNpcStatus } from "../npc-status-summary.js";
 import {
@@ -21,7 +20,6 @@ import {
   type LoreRewriteContext,
   type LoreRewriteResult,
 } from "./lore-rewrite.js";
-import { reconcileEntityCategories, sanitizeTouchedEntities } from "./lore-sync-validate.js";
 import { readBestEffort, reindexTouchedFiles } from "./shared.js";
 import type { PendingLoreSync, TurnDeps, TurnPlan } from "./types.js";
 
@@ -89,30 +87,7 @@ export async function runLoreSync(
     const sync = parseLoreSyncOutput(raw);
     const changes = sync.state_changes;
 
-    // A 校驗 gate（落地前、呼叫任何 LLM 重寫之前）：
-    // 1) 剔除黑名單/非 slug/同回合跨 category 的垃圾 entity
-    // 2) 與既有檔案 category 對齊（既有檔案是 canonical truth）
-    // 這道 gate 同時抑制假 entity 暴增 LLM 重寫呼叫（根因 G 的呼叫量來源）。
-    const sanitized = sanitizeTouchedEntities(changes.touched_entities ?? [], log);
-    const [itemIds, sceneIds, skillIds] = await Promise.all([
-      listLoreIds(deps.worldDir, "items", log),
-      listLoreIds(deps.worldDir, "scenes", log),
-      listLoreIds(deps.worldDir, "skills", log),
-    ]);
-    const indexMdForIds = await readBestEffort(path.join(deps.worldDir, "characters", "index.md"));
-    const npcEntries = parseCharacterIndex(indexMdForIds);
-    const npcNameToId = new Map(npcEntries.map((n) => [n.name.trim().toLowerCase(), n.id]));
-    const entities = reconcileEntityCategories(
-      sanitized,
-      {
-        npc: new Set(npcEntries.map((n) => n.id)),
-        item: new Set(itemIds),
-        scene: new Set(sceneIds),
-        skill: new Set(skillIds),
-      },
-      log,
-      npcNameToId,
-    );
+    const entities = changes.touched_entities ?? [];
 
     // F：把「主角在不在副本」情境傳給知識庫維護者，避免把安全區事件誤寫成副本內
     const loreContext: LoreRewriteContext = { inDungeon: Boolean(plan.dungeonId), dungeonId: plan.dungeonId };
@@ -183,7 +158,7 @@ export async function runLoreSync(
         }
       } else {
         const category = r.category === "dungeon" ? "dungeons" : ENTITY_CATEGORY_TO_LORE[r.category];
-        await rewriteLoreWiki(deps.worldDir, category, r.id, r.content, r.title, log);
+        await rewriteLoreFile(deps.worldDir, category, r.id, r.content, r.title, log);
       }
     }
 
@@ -196,7 +171,7 @@ export async function runLoreSync(
       const touched: string[] = results.map((r) =>
         r.category === "npc"
           ? path.join(deps.worldDir, "characters", `${r.id}.md`)
-          : path.join(loreDir(deps.worldDir, r.category === "dungeon" ? "dungeons" : ENTITY_CATEGORY_TO_LORE[r.category], r.id), "wiki.md"),
+          : loreFilePath(deps.worldDir, r.category === "dungeon" ? "dungeons" : ENTITY_CATEGORY_TO_LORE[r.category], r.id),
       );
       if (npcIds.length > 0) touched.push(path.join(deps.worldDir, "characters", "index.md"));
       if (protagonistTouched) touched.push(path.join(deps.worldDir, "characters", "protagonist.md"));
