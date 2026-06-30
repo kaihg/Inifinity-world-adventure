@@ -24,8 +24,6 @@ import { sanitizeLoreId } from "../../engine/lore.js";
 import type { LlmClient } from "../../llm/client.js";
 import type { Logger } from "../../logger.js";
 import type { RecallIndex } from "../../recall/store.js";
-import { appendPlayerDecision } from "../../engine/player-decisions.js";
-import { readPlayerMetaCounts } from "../../engine/player-meta.js";
 
 export interface TurnBuffer {
   turnId: string;
@@ -178,25 +176,6 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
       reply.raw.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
 
       const stateData = await loadState(config.worldDir, turnLogger);
-
-      {
-        const metaPlayerPath = path.join(repoRoot, "meta", "player.md");
-        let protagonistGeneration = 1;
-        if (existsSync(metaPlayerPath)) {
-          try {
-            const counts = await readPlayerMetaCounts(repoRoot);
-            protagonistGeneration = counts.protagonistGenerationCount + 1;
-          } catch {
-            // player.md 格式異常時靜默降級
-          }
-        }
-        await appendPlayerDecision(config.worldDir, {
-          turnId,
-          protagonistGeneration,
-          createdAt: new Date().toISOString(),
-          input,
-        });
-      }
 
       const turnDeps = {
         client: makeClient(turnLogger),

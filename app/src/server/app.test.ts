@@ -619,7 +619,7 @@ describe("POST /api/world/protagonist", () => {
   });
 });
 
-describe("POST /api/turn 玩家決策記錄", () => {
+describe("POST /api/turn 玩家輸入寫入 journal.md", () => {
   let world: string;
   beforeEach(async () => {
     world = await mkdtemp(path.join(tmpdir(), "iwa-turn-decision-"));
@@ -638,7 +638,7 @@ describe("POST /api/turn 玩家決策記錄", () => {
     await rm(world, { recursive: true, force: true });
   });
 
-  it("POST /api/turn 會在主回合開始前記錄玩家原始輸入", async () => {
+  it("POST /api/turn 回合後 journal.md 包含 > 玩家：行", async () => {
     const server = buildServer(loadConfig({ WORLD_DIR: world }), {
       client: fakeClient(["前半段，", "後半段。"]),
       controlClient: fakeClient([
@@ -651,8 +651,8 @@ describe("POST /api/turn 玩家決策記錄", () => {
     });
     const res = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "先確認出口" } });
     expect(res.statusCode).toBe(200);
-    const decisionsContent = await readFile(path.join(world, "player-decisions.md"), "utf8");
-    expect(decisionsContent).toContain("先確認出口");
+    const journalContent = await readFile(path.join(world, "journal.md"), "utf8");
+    expect(journalContent).toContain("> 玩家：先確認出口");
     await server.close();
   });
 });
