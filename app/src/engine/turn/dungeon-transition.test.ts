@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, writeFile, readFile, appendFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { ChatMessage, LlmClient } from "../../llm/client.js";
 import { extractDungeonLog } from "../../engine/dungeon.js";
-import { appendDungeonStartMarker, appendDungeonEndMarker } from "./dungeon-transition.js";
+import { appendDungeonStartMarker, appendDungeonEndMarker, generateSecrets } from "./dungeon-transition.js";
 
 let tmpDir: string;
 beforeEach(async () => {
@@ -62,6 +63,43 @@ describe("appendDungeonEndMarker", () => {
     await appendDungeonEndMarker(tmpDir, "測試副本-run-1");
     const content = await readFile(path.join(tmpDir, "journal.md"), "utf8");
     expect(content).toContain("<!-- dungeon-end: 測試副本-run-1 -->");
+  });
+});
+
+describe("generateSecrets", () => {
+  it("傳給 LLM 的系統 prompt 包含禁止跨副本元資訊的約束", async () => {
+    let capturedMessages: ChatMessage[] = [];
+    const mockClient: LlmClient = {
+      async *streamChat(messages) {
+        capturedMessages = messages;
+        yield "測試隱藏真相內容";
+      },
+    };
+    await generateSecrets(mockClient, "# 測試世界設定", "test-dungeon-001");
+    const sysPrompt = capturedMessages.find((m) => m.role === "system")?.content ?? "";
+    expect(sysPrompt).toContain("禁止在副本 secrets 引入跨副本的元資訊");
+    expect(sysPrompt).toContain("主神");
+  });
+
+  it("傳給 LLM 的 user message 包含副本 id", async () => {
+    let capturedMessages: ChatMessage[] = [];
+    const mockClient: LlmClient = {
+      async *streamChat(messages) {
+        capturedMessages = messages;
+        yield "隱藏真相";
+      },
+    };
+    await generateSecrets(mockClient, "# 設定", "bio-hazard-raccoon-city");
+    const userMsg = capturedMessages.find((m) => m.role === "user")?.content ?? "";
+    expect(userMsg).toContain("bio-hazard-raccoon-city");
+  });
+
+  it("LLM 回傳空字串時回傳降級預設值", async () => {
+    const mockClient: LlmClient = {
+      async *streamChat() { /* no yield */ },
+    };
+    const result = await generateSecrets(mockClient, "# 設定", "空回傳副本");
+    expect(result).toBe("（生成失敗，待補）");
   });
 });
 
