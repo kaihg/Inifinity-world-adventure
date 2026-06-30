@@ -123,6 +123,21 @@ describe("enterDungeon / appendLog / loadDungeonLore", () => {
     const lore2 = await loadDungeonLore(world, "U-001");
     expect(lore2.wiki).toContain("三道門");
   });
+
+  it("appendLog playerAction 非空時，> 玩家：行出現在 ## 段落標題之前", async () => {
+    await enterDungeon(world, { dungeonId: "D-001", today: "2026-06-19", protagonistSummary: "初始", goal: "測試", secretsText: "真相" });
+    await appendLog(world, "D-001", "run-1", {
+      date: "2026-06-19",
+      title: "回合一",
+      body: "副本敘事。",
+      playerAction: "進入副本",
+    });
+    const log = await readFile(path.join(world, "dungeons", "D-001", "log.md"), "utf8");
+    expect(log).toContain("> 玩家：進入副本");
+    expect(log.indexOf("> 玩家：進入副本")).toBeLessThan(
+      log.indexOf("## [2026-06-19] 回合一"),
+    );
+  });
 });
 
 describe("listDungeonIds", () => {
