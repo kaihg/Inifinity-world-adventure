@@ -46,10 +46,10 @@ const CATEGORY_TITLE: Record<string, string> = {
 
 /** 各分類 wiki 索引格式提示 */
 const WIKI_FORMAT_HINT: Record<LoreCategory, string> = {
-  skills: "分「主動技能」「被動技能」兩大段，各技能一行 `- [[id]]：簡述（持有者：xxx）`",
-  items: "分「消耗品」「持久道具」，各道具一行 `- [[id]]：品質、效果簡述`",
-  scenes: "各場景一行 `- [[id]]：環境基調、已知危險`",
-  dungeons: "各副本一行 `- [[id]]：難度基調、狀態（進行中/結算）`",
+  skills: "分「主動技能」「被動技能」兩大段，各技能一行 `- [[id]]：一句中性描述`（不寫持有者或取得狀態）",
+  items: "分「消耗品」「持久道具」兩大段，各道具一行 `- [[id]]：品質等級、一句中性描述`",
+  scenes: "分「主空間場景」「副本場景（副本名）」兩大段，各場景一行 `- [[id]]：環境基調`",
+  dungeons: "各副本一行 `- [[id]]：難度基調、狀態（進行中/已結算）`",
 };
 
 export async function extractEntities(
@@ -77,6 +77,9 @@ export async function extractEntities(
         "- id 優先使用已存在的 id（見下方清單），沒有匹配才用顯示名稱當 id",
         "- 主角本身不列入 entities（用 protagonist_changed 表示）",
         "- 主空間的日常對話、無變化的背景描述不要列入",
+        "- 所有 entity id 直接使用中文正式名稱，不做英文翻譯或 snake_case 轉換（例如「主神空間」而非 main_space）",
+        "- scene 的 id 使用場所的中文正式名稱；同一物理地點只能有一個 scene entity，禁止為同一場所的不同面向建立多個 id",
+        "- dungeon 的 id 使用副本的中文正式名稱（例如「生化危機：浣熊市」）",
         `${TRADITIONAL_CHINESE_RULE}`,
         "",
         "已存在的實體 id：",

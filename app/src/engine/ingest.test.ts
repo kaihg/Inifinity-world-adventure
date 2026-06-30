@@ -36,6 +36,21 @@ describe("extractEntities", () => {
     expect(result.protagonist_changed).toBe(false);
     expect(result.entities).toHaveLength(0);
   });
+
+  it("extraction system prompt 包含中文 id 規則", async () => {
+    // 攔截 client.streamChat，確認 system message 含有必要規則
+    let capturedSystem = "";
+    const mockClient: LlmClient = {
+      streamChat: async function* (msgs) {
+        capturedSystem = (msgs[0] as { role: string; content: string }).content;
+        yield '{"protagonist_changed":false,"entities":[]}';
+      },
+      complete: async () => "",
+    };
+    await extractEntities(mockClient, "測試敘事", "", {}, log);
+    expect(capturedSystem).toContain("中文正式名稱");
+    expect(capturedSystem).toContain("同一物理地點只能有一個 scene entity");
+  });
 });
 
 describe("runIngest", () => {
