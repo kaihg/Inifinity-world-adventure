@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { LlmClient } from "../llm/client.js";
 import type { Logger } from "../logger.js";
-import { loadLoreFile, loreFilePath, rewriteLoreFile, listLoreIds, type LoreCategory } from "./lore.js";
+import { loadLoreFile, loreFilePath, rewriteLoreFile, listLoreIds, sanitizeLoreId, type LoreCategory } from "./lore.js";
 import {
   callLoreRewrite,
   callProtagonistRewrite,
@@ -150,7 +150,7 @@ export async function runIngest(
       log.warn({ entity }, "ingest: 未知 category，略過");
       return;
     }
-    const safeId = toTraditional(entity.id.trim());
+    const safeId = sanitizeLoreId(toTraditional(entity.id));
     const existing = await loadLoreFile(deps.worldDir, loreCat, safeId, log);
 
     // 全新建檔時注入骨架（失敗則略過，骨架是 nice-to-have）
