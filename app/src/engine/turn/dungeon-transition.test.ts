@@ -66,6 +66,8 @@ describe("appendDungeonEndMarker", () => {
   });
 });
 
+const MOCK_TEMPLATE = "## 副本背景\n<!-- 說明 -->\n\n## 機關原理\n<!-- 機關說明 -->\n";
+
 describe("generateSecrets", () => {
   it("傳給 LLM 的系統 prompt 包含禁止跨副本元資訊的約束", async () => {
     let capturedMessages: ChatMessage[] = [];
@@ -75,10 +77,24 @@ describe("generateSecrets", () => {
         yield "測試隱藏真相內容";
       },
     };
-    await generateSecrets(mockClient, "# 測試世界設定", "test-dungeon-001");
+    await generateSecrets(mockClient, "# 測試世界設定", "test-dungeon-001", MOCK_TEMPLATE);
     const sysPrompt = capturedMessages.find((m) => m.role === "system")?.content ?? "";
     expect(sysPrompt).toContain("禁止在副本 secrets 引入跨副本的元資訊");
     expect(sysPrompt).toContain("主神");
+  });
+
+  it("傳給 LLM 的系統 prompt 包含 secrets 骨架", async () => {
+    let capturedMessages: ChatMessage[] = [];
+    const mockClient: LlmClient = {
+      async *streamChat(messages) {
+        capturedMessages = messages;
+        yield "填好的內容";
+      },
+    };
+    await generateSecrets(mockClient, "# 設定", "test-dungeon-002", MOCK_TEMPLATE);
+    const sysPrompt = capturedMessages.find((m) => m.role === "system")?.content ?? "";
+    expect(sysPrompt).toContain("## 副本背景");
+    expect(sysPrompt).toContain("## 機關原理");
   });
 
   it("傳給 LLM 的 user message 包含副本 id", async () => {
@@ -89,7 +105,7 @@ describe("generateSecrets", () => {
         yield "隱藏真相";
       },
     };
-    await generateSecrets(mockClient, "# 設定", "bio-hazard-raccoon-city");
+    await generateSecrets(mockClient, "# 設定", "bio-hazard-raccoon-city", MOCK_TEMPLATE);
     const userMsg = capturedMessages.find((m) => m.role === "user")?.content ?? "";
     expect(userMsg).toContain("bio-hazard-raccoon-city");
   });
@@ -98,7 +114,7 @@ describe("generateSecrets", () => {
     const mockClient: LlmClient = {
       async *streamChat() { /* no yield */ },
     };
-    const result = await generateSecrets(mockClient, "# 設定", "空回傳副本");
+    const result = await generateSecrets(mockClient, "# 設定", "空回傳副本", MOCK_TEMPLATE);
     expect(result).toBe("（生成失敗，待補）");
   });
 });
