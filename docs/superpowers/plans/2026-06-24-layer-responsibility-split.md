@@ -262,7 +262,7 @@ export async function callProtagonistRewrite(
     {
       role: "system",
       content: [
-        "你是「無限恐怖」世界敘事引擎的主角檔案維護者。任務：把【現有主角檔案全文】依【本回合敘事片段】更新成一份完整、連貫的新版內容。",
+        "你是本世界敘事引擎的主角檔案維護者。任務：把【現有主角檔案全文】依【本回合敘事片段】更新成一份完整、連貫的新版內容。",
         "",
         "語言與用詞：",
         `- ${TRADITIONAL_CHINESE_RULE}`,

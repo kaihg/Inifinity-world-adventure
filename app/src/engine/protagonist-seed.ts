@@ -29,6 +29,6 @@ export function buildProtagonistPrompt(seed: ProtagonistSeed): string {
   return [
     "請依下列玩家設定，生成主角檔案 protagonist.md（繁體中文）：",
     `- 姓名：${name}`,
-    `- 描述（出身、進入無限恐怖的原因、性格、目標等，玩家自由填寫）：${freeform}`,
+    `- 描述（出身、進入此系統的原因、性格、目標等，玩家自由填寫）：${freeform}`,
   ].join("\n");
 }

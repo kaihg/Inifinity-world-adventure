@@ -431,7 +431,7 @@ export async function initWorld(opts: {
     {
       role: "system",
       content:
-        "你是「無限恐怖」世界的設定設計師。依玩家偏好，照以下骨架結構填入此世界的具體規則（繁體中文）。" +
+        "你是本世界的設定設計師。依玩家偏好，照以下骨架結構填入此世界的具體規則（繁體中文）。" +
         "段落標題（## 開頭）不可改動，每段自由發揮，但必須在本世界全程一致。" +
         "只輸出 markdown 正文，開頭是 `# 世界設定（World Setting）`。\n\n" +
         "骨架如下：\n\n" + settingScaffold,
@@ -451,7 +451,7 @@ export async function initWorld(opts: {
     {
       role: "system",
       content:
-        "你是「無限恐怖」世界的暗線設計師。依玩家可見的 setting.md，自主編寫世界隱藏真相 gm-notes.md（繁體中文）：" +
+        "你是本世界的暗線設計師。依玩家可見的 setting.md，自主編寫世界隱藏真相 gm-notes.md（繁體中文）：" +
         "主神真實動機、世界背後真相、最終目的、暗線伏筆。這是劇透文件，玩家永遠不會直接看到。" +
         "只輸出 markdown 正文，開頭是 `# 世界隱藏真相（GM Notes）`。",
     },
@@ -464,7 +464,7 @@ export async function initWorld(opts: {
     {
       role: "system",
       content:
-        "你是「無限恐怖」世界的角色設計師。照以下骨架結構，填入主角初始資料（繁體中文）。" +
+        "你是本世界的角色設計師。照以下骨架結構，填入主角初始資料（繁體中文）。" +
         "段落標題不可改動。只輸出 markdown 正文，開頭是 `# 主角檔案`。\n\n" +
         "骨架如下：\n\n" + protagonistScaffold,
     },

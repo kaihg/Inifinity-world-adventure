@@ -507,7 +507,7 @@ export function buildControlMessages(params: BuildControlParams): ChatMessage[] 
   const { settingText, state, input, narrative, dicePool, existingDungeonIds } = params;
   const inDungeon = Boolean(params.dungeonId);
   const system = [
-    "你是「無限恐怖」世界敘事引擎的**結構控制抽取器**。",
+    "你是本世界敘事引擎的**結構控制抽取器**。",
     "下方有本回合已經產生的敘事散文，你的工作是把其中**已經發生的事實**整理成結構化 JSON。",
     "",
     "## 鐵則",
