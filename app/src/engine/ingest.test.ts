@@ -45,7 +45,6 @@ describe("extractEntities", () => {
         capturedSystem = (msgs[0] as { role: string; content: string }).content;
         yield '{"protagonist_changed":false,"entities":[]}';
       },
-      complete: async () => "",
     };
     await extractEntities(mockClient, "測試敘事", "", {}, log);
     expect(capturedSystem).toContain("中文正式名稱");
