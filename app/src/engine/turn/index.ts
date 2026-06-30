@@ -66,8 +66,10 @@ async function loadCategoryWikiBlock(worldDir: string): Promise<string> {
     try {
       const content = await readFile(path.join(worldDir, dir, "wiki.md"), "utf8");
       if (content.trim()) parts.push(`### ${label}`, content.trim());
-    } catch {
-      // ENOENT 靜默略過
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        defaultLogger.warn({ err, file: path.join(worldDir, dir, "wiki.md") }, "讀取 category wiki 失敗");
+      }
     }
   }
   if (parts.length === 0) return "";
