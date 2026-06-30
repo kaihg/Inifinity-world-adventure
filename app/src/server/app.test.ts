@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildServer } from "./app.js";
@@ -276,6 +276,30 @@ describe("POST /api/turn（SSE）", () => {
     expect(transitions[0].to).toBe("dungeon");
     // 轉場後合成的 done 要有 fallback 按鈕
     expect(dones[0].suggestedActions).toEqual(["順勢而為"]);
+    await server.close();
+  });
+
+  it("enter_dungeon 時套用 sanitizeLoreId，將非安全字元轉為全形", async () => {
+    // LLM 輸出 transition_dungeon_id 為「生化危機:浣熊市」（ASCII 冒號）
+    // 預期應被正規化為「生化危機：浣熊市」（全形冒號），建立同名副本目錄
+    const enterCtl = JSON.stringify({
+      state_changes: {}, rolls: [], mode_transition: "enter_dungeon",
+      transition_dungeon_id: "生化危機:浣熊市", transition_dungeon_goal: "生存",
+      awaiting_user_input: false, suggested_actions: [], commit_summary: "進副本",
+    });
+    const server = buildServer(loadConfig({ WORLD_DIR: world }), {
+      client: fakeClient(["進入副本"]),
+      controlClient: fakeClient([enterCtl, enterCtl]),
+      commit: async () => true,
+    });
+    const res = await server.inject({ method: "POST", url: "/api/turn", payload: { input: "進入副本" } });
+    expect(res.statusCode).toBe(200);
+
+    // 確認正規化後的副本目錄存在（使用全形冒號）
+    const dungeonPath = path.join(world, "dungeons", "生化危機：浣熊市");
+    const entries = await readdir(dungeonPath);
+    expect(entries).toContain("log.md");
+    expect(entries).toContain("secrets.md");
     await server.close();
   });
 
@@ -763,7 +787,7 @@ describe("GET /api/turn/stream 重連端點", () => {
     // 重播的事件裡必須包含 transition
     expect(transitions).toHaveLength(1);
     expect(transitions[0].to).toBe("dungeon");
-    expect(transitions[0].dungeonId).toBe("D-001");
+    expect(transitions[0].dungeonId).toBe("d-001");
     await server.close();
   });
 

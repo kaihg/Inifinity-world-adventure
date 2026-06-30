@@ -20,6 +20,7 @@ import {
 } from "../../engine/dungeon.js";
 import { appendDungeonStartMarker, appendDungeonEndMarker, generateSecrets, setNowActiveDungeon } from "../../engine/turn/dungeon-transition.js";
 import { readBestEffort, todayISO, nowISOSeconds } from "../../engine/turn/shared.js";
+import { sanitizeLoreId } from "../../engine/lore.js";
 import type { LlmClient } from "../../llm/client.js";
 import type { Logger } from "../../logger.js";
 import type { RecallIndex } from "../../recall/store.js";
@@ -256,13 +257,15 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
       }
 
       if (done.modeTransition === "enter_dungeon" && done.transitionDungeonId && stateData.mode !== "dungeon") {
+        const rawDungeonId = done.transitionDungeonId;
+        const safeDungeonId = sanitizeLoreId(rawDungeonId);
         await pendingLoreSync.promise;
         const settingText = await readBestEffort(path.join(config.worldDir, "setting.md"));
-        const secretsText = await generateSecrets(makeClient(turnLogger), settingText, done.transitionDungeonId);
+        const secretsText = await generateSecrets(makeClient(turnLogger), settingText, safeDungeonId);
         const active = await enterDungeon(
           config.worldDir,
           {
-            dungeonId: done.transitionDungeonId,
+            dungeonId: safeDungeonId,
             today: todayISO(),
             protagonistSummary: `${stateData.protagonist.name}（積分 ${stateData.protagonist.points}）`,
             goal: done.transitionDungeonGoal?.trim() || "（待劇情揭露）",
