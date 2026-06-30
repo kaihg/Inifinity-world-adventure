@@ -63,10 +63,9 @@ export async function initWorld(opts: {
   const pref = input.preferences ?? {};
 
   // 1) 讀骨架（平行讀，無資料依賴）
-  const [settingScaffold, characterScaffold, openingScaffold] = await Promise.all([
+  const [settingScaffold, characterScaffold] = await Promise.all([
     getTemplate("setting", worldDir, repoRoot),
     getTemplate("character", worldDir, repoRoot),
-    getTemplate("opening", worldDir, repoRoot),
   ]);
 
   // 2) setting.md（玩家可見）：先串行生成，後續文件都依賴它
@@ -115,32 +114,16 @@ export async function initWorld(opts: {
     },
   ]);
 
-  // 4) gm-notes + opening：皆依賴 settingMd+protagonistMd，平行生成
-  const [gmNotesMd, openingMd] = await Promise.all([
-    generateText(client, [
-      {
-        role: "system",
-        content:
-          "你是「無限恐怖」世界的暗線設計師。依玩家可見的 setting.md，自主編寫世界隱藏真相 gm-notes.md（繁體中文）：" +
-          "主神真實動機、世界背後真相、最終目的、暗線伏筆。這是劇透文件，玩家永遠不會直接看到。" +
-          "只輸出 markdown 正文，開頭是 `# 世界隱藏真相（GM Notes）`。",
-      },
-      { role: "user", content: `玩家可見設定如下：\n\n${settingMd}` },
-    ]),
-    generateText(client, [
-      {
-        role: "system",
-        content:
-          "你是「無限恐怖」世界的開場敘事設計師。依玩家可見的 setting.md 與 protagonist.md，" +
-          "寫一段開場敘事（繁體中文）：主角在原世界的處境、以及被選中拉入主神空間瞬間的經過。\n" +
-          "重要限制：開場敘事只描寫主角離開原世界的那一刻，**不可讓主角帶任何現實道具進入主神空間**；" +
-          "若角色有天賦或被動能力，可自然流露，但道具、武器、裝備均留在原世界。" +
-          "道具的鑑定與記錄會在進入主神空間後的第一個回合由系統處理，開場不需提及。\n" +
-          "只輸出敘事正文本身，不要加標題、不要條列、不要前言。長度約 500-1000 字的連續散文，第三人稱。\n\n" +
-          "以下是此世界的額外寫作參考（若有）：\n\n" + openingScaffold,
-      },
-      { role: "user", content: `世界設定：\n\n${settingMd}\n\n---\n\n主角檔案：\n\n${protagonistMd}` },
-    ]),
+  // 4) gm-notes：依賴 settingMd+protagonistMd，生成
+  const gmNotesMd = await generateText(client, [
+    {
+      role: "system",
+      content:
+        "你是「無限恐怖」世界的暗線設計師。依玩家可見的 setting.md，自主編寫世界隱藏真相 gm-notes.md（繁體中文）：" +
+        "主神真實動機、世界背後真相、最終目的、暗線伏筆。這是劇透文件，玩家永遠不會直接看到。" +
+        "只輸出 markdown 正文，開頭是 `# 世界隱藏真相（GM Notes）`。",
+    },
+    { role: "user", content: `玩家可見設定如下：\n\n${settingMd}` },
   ]);
 
   // 5) 全部寫入（最後才一次性落地，避免半初始化）
@@ -156,7 +139,7 @@ export async function initWorld(opts: {
   );
   await writeFile(
     path.join(worldDir, "journal.md"),
-    `# 主空間日誌（Journal）\n\n## [${today}] 新世界啟用\n\n${openingMd}\n`,
+    `# 主空間日誌（Journal）\n`,
     "utf8",
   );
   await writeFile(path.join(worldDir, "now.md"), serializeNow(initialNow(today)), "utf8");
