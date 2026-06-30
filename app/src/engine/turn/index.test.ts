@@ -684,12 +684,12 @@ describe("recall 整合測試", () => {
   });
 
   it("副本回合結束後重新索引 run log 與 wiki（有 dungeon_wiki_excerpt 時）", async () => {
-    await mkdir(path.join(world, "dungeons", "U-001", "runs"), { recursive: true });
-    await writeFile(path.join(world, "dungeons", "U-001", "runs", "run-1.md"), "# run\n");
-    await writeFile(path.join(world, "dungeons", "U-001", "secrets.md"), "真相：地板會塌\n");
+    await mkdir(path.join(world, "dungeons", "u-001", "runs"), { recursive: true });
+    await writeFile(path.join(world, "dungeons", "u-001", "runs", "run-1.md"), "# run\n");
+    await writeFile(path.join(world, "dungeons", "u-001", "secrets.md"), "真相：地板會塌\n");
     await writeFile(
       path.join(world, "now.md"),
-      "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：U-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
+      "- 當前篇章：第一章\n- 此刻場景/地點：副本\n- 進行中的副本：u-001 + run-1\n- 最後更新：[2026-06-18] 舊\n",
     );
     const fcJson = JSON.stringify({
       state_changes: {},
@@ -716,8 +716,8 @@ describe("recall 整合測試", () => {
     }
 
     const relPaths = recall.upserted.map((u) => u.relPath);
-    expect(relPaths).toContain(path.join("dungeons", "U-001", "log.md"));
-    expect(relPaths).toContain(path.join("dungeons", "U-001.md"));
+    expect(relPaths).toContain(path.join("dungeons", "u-001", "log.md"));
+    expect(relPaths).toContain(path.join("dungeons", "u-001.md"));
   });
 });
 
