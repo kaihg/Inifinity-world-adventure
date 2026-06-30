@@ -2,7 +2,29 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, readFile, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { loreFilePath, loadLoreFile, rewriteLoreFile, listLoreIds } from "./lore.js";
+import { loreFilePath, loadLoreFile, rewriteLoreFile, listLoreIds, sanitizeLoreId } from "./lore.js";
+
+describe("sanitizeLoreId", () => {
+  it("trim 頭尾空白", () => {
+    expect(sanitizeLoreId("  生化危機  ")).toBe("生化危機");
+  });
+  it("toLowerCase（中文無副作用，英文統一小寫）", () => {
+    expect(sanitizeLoreId("Raccoon City")).toBe("raccoon city");
+    expect(sanitizeLoreId("主神空間")).toBe("主神空間");
+  });
+  it("ASCII 冒號 → 全形冒號", () => {
+    expect(sanitizeLoreId("生化危機:浣熊市")).toBe("生化危機：浣熊市");
+  });
+  it("ASCII 斜線 → 全形斜線", () => {
+    expect(sanitizeLoreId("a/b\\c")).toBe("a／b／c");
+  });
+  it("截斷至 80 字元", () => {
+    expect(sanitizeLoreId("a".repeat(100))).toHaveLength(80);
+  });
+  it("已是正規化 id 不變", () => {
+    expect(sanitizeLoreId("基礎戰術反應")).toBe("基礎戰術反應");
+  });
+});
 
 describe("lore（扁平 .md 落地：items/skills/scenes/dungeons 共用同一套規則）", () => {
   let world: string;

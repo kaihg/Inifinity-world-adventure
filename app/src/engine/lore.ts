@@ -2,6 +2,16 @@ import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 import { logger as defaultLogger, type Logger } from "../logger.js";
 
+/** 正規化 lore entity ID：統一小寫、全形化危險字元、截斷至 80 字元 */
+export function sanitizeLoreId(id: string): string {
+  return id
+    .trim()
+    .toLowerCase()
+    .replace(/:/g, "：")
+    .replace(/[/\\]/g, "／")
+    .slice(0, 80);
+}
+
 export type LoreCategory = "dungeons" | "items" | "skills" | "scenes";
 
 /** 檔案不存在（ENOENT）是預期狀況；其他 I/O 錯誤才值得記錄 */
@@ -22,7 +32,8 @@ export async function loadLoreFile(
   id: string,
   logger: Logger = defaultLogger,
 ): Promise<string> {
-  const file = loreFilePath(worldDir, category, id);
+  const safeId = sanitizeLoreId(id);
+  const file = loreFilePath(worldDir, category, safeId);
   try {
     return await readFile(file, "utf8");
   } catch (err) {
@@ -40,8 +51,9 @@ export async function rewriteLoreFile(
   title: string,
   logger: Logger = defaultLogger,
 ): Promise<void> {
-  logger.debug({ category, id }, "整檔重寫 entity .md");
-  const file = loreFilePath(worldDir, category, id);
+  const safeId = sanitizeLoreId(id);
+  logger.debug({ category, id: safeId }, "整檔重寫 entity .md");
+  const file = loreFilePath(worldDir, category, safeId);
   await mkdir(path.dirname(file), { recursive: true });
   const body = content.trim();
   const finalContent = /^#\s/.test(body) ? `${body}\n` : `# ${title}\n\n${body}\n`;
