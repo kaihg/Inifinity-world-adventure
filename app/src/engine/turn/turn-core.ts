@@ -121,10 +121,12 @@ export async function* runTurnCore(
       : "";
   const suggestedActions = control?.suggested_actions ?? [];
   const suggestedLine = suggestedActions.length > 0 ? `\n\n建議動作：${suggestedActions.join("、")}` : "";
+  const diceComment = `\n<!-- 骰池：[${dicePool.join(", ")}] -->`;
   await plan.appendRaw({
     date: today,
     title: summary,
-    body: `玩家行動：${input}\n骰池：[${dicePool.join(", ")}]\n\n${narrative}${rollsLine}${suggestedLine}`,
+    playerAction: input,
+    body: `${narrative}${rollsLine}${suggestedLine}${diceComment}`,
   });
 
   // 1b. journal_summary 索引（衍生摘要，給短期/長期節奏機制讀；失敗只警告，不擋本回合落地）

@@ -161,6 +161,15 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
     expect(journal).toContain("## [2026-06-19] 沈奕進資訊室");
     expect(journal).toContain("去資訊室");
 
+    // 新格式驗證
+    expect(journal).toContain("> 玩家：去資訊室");
+    expect(journal).toContain("<!-- 骰池：[10, 20] -->");
+    expect(journal).not.toContain("玩家行動：");
+    expect(journal).not.toContain("骰池：[10, 20]\n"); // flat 骰池行不應存在
+    expect(journal.indexOf("> 玩家：去資訊室")).toBeLessThan(
+      journal.indexOf("## [2026-06-19] 沈奕進資訊室"),
+    );
+
     expect(commits[0]).toBe("沈奕進資訊室");
   });
 
