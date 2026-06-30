@@ -102,7 +102,7 @@ const [gmNotesMd, openingMd] = await Promise.all([
     {
       role: "system",
       content:
-        "你是本世界的暗線設計師。依玩家可見的 setting.md，自主編寫世界隱藏真相 gm-notes.md（繁體中文）：" +
+        "你是「無限恐怖」世界的暗線設計師。依玩家可見的 setting.md，自主編寫世界隱藏真相 gm-notes.md（繁體中文）：" +
         "主神真實動機、世界背後真相、最終目的、暗線伏筆。這是劇透文件，玩家永遠不會直接看到。" +
         "只輸出 markdown 正文，開頭是 `# 世界隱藏真相（GM Notes）`。",
     },
@@ -112,7 +112,7 @@ const [gmNotesMd, openingMd] = await Promise.all([
     {
       role: "system",
       content:
-        "你是本世界的開場敘事設計師。依玩家可見的 setting.md 與 protagonist.md，" +
+        "你是「無限恐怖」世界的開場敘事設計師。依玩家可見的 setting.md 與 protagonist.md，" +
         "寫一段開場敘事（繁體中文）：主角在原世界的處境、以及被選中拉入主神空間瞬間的經過。\n" +
         "重要限制：開場敘事只描寫主角離開原世界的那一刻，**不可讓主角帶任何現實道具進入主神空間**；" +
         "若角色有天賦或被動能力，可自然流露，但道具、武器、裝備均留在原世界。" +
@@ -133,7 +133,7 @@ const gmNotesMd = await generateText(client, [
   {
     role: "system",
     content:
-      "你是本世界的暗線設計師。依玩家可見的 setting.md，自主編寫世界隱藏真相 gm-notes.md（繁體中文）：" +
+      "你是「無限恐怖」世界的暗線設計師。依玩家可見的 setting.md，自主編寫世界隱藏真相 gm-notes.md（繁體中文）：" +
       "主神真實動機、世界背後真相、最終目的、暗線伏筆。這是劇透文件，玩家永遠不會直接看到。" +
       "只輸出 markdown 正文，開頭是 `# 世界隱藏真相（GM Notes）`。",
   },

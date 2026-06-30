@@ -746,7 +746,7 @@ export async function extractEntities(
     {
       role: "system" as const,
       content: [
-        "你是本世界敘事引擎的知識庫索引器。從敘事片段中識別「有狀態變化的實體」。",
+        "你是「無限恐怖」世界敘事引擎的知識庫索引器。從敘事片段中識別「有狀態變化的實體」。",
         "只輸出 JSON，格式如下：",
         '{"protagonist_changed": bool, "entities": [{"id": string, "category": "skill"|"item"|"scene"|"dungeon"|"character", "name": string}]}',
         "",
@@ -970,7 +970,7 @@ export async function runIngest(
       })
     );
     const prompt = [
-      `你是本世界的分類索引維護者。`,
+      `你是「無限恐怖」世界的分類索引維護者。`,
       `根據以下「更新的實體內容」，更新「${cat}」的分類索引 wiki.md。`,
       `索引格式建議：${WIKI_FORMAT_HINT[cat]}`,
       "規則：保留索引中未被更新的條目；只對本次更新的條目修改或新增對應行；輸出整份 wiki.md 完整內容。",

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把「無限流」文本站的狀態更新從靠自律改成「同回合耦合 + 確定性提醒」，並補上 Karpathy wiki-llm 模式缺的回合收束協議與一致性 lint。
+**Goal:** 把「無限恐怖」文本站的狀態更新從靠自律改成「同回合耦合 + 確定性提醒」，並補上 Karpathy wiki-llm 模式缺的回合收束協議與一致性 lint。
 
 **Architecture:** 純 Markdown + skill 規範 + 一個 Stop hook。三層對映：raw（`runs/*.md`、新增 `world/journal.md`）／wiki（`characters/*.md`、`wiki.md`）／schema（`CLAUDE.md`、`setting.md`、skills）。回合結束跑固定收束協議；settle 時用 subagent 做一致性 lint；Stop hook 用 git 髒狀態兜底。
 

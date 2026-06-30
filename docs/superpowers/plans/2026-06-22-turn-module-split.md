@@ -251,7 +251,7 @@ export interface BuildMessagesParams {
 export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage[] {
   const { settingText, state, input, dicePool } = params;
   const system = [
-    "你是本世界的敘事引擎，扮演冷酷機械的主控系統與世界本身，",
+    "你是「無限恐怖」世界的敘事引擎，扮演冷酷機械的主控系統與世界本身，",
     "推進主角在「主神空間安全區」（副本之間的安全區）的劇情。",
     "",
     "## 鐵則",
@@ -293,7 +293,7 @@ export interface BuildDungeonMessagesParams extends BuildMessagesParams {
 export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMessage[] {
   const { settingText, state, input, dicePool, dungeonId, wiki, secrets } = params;
   const system = [
-    `你是本世界的敘事引擎，主角正在副本「${dungeonId}」內。`,
+    `你是「無限恐怖」世界的敘事引擎，主角正在副本「${dungeonId}」內。`,
     "扮演副本世界與主控系統，依規則推進戰鬥/解謎/生存劇情。",
     "",
     "## 鐵則",
@@ -356,7 +356,7 @@ export function buildFastControlMessages(params: BuildControlParams): ChatMessag
   const existingDungeonIds = params.existingDungeonIds ?? [];
   const inDungeon = Boolean(params.dungeonId);
   const system = [
-    "你是本世界敘事引擎的**結構控制抽取器（Layer 2：fast-control）**。",
+    "你是「無限恐怖」世界敘事引擎的**結構控制抽取器（Layer 2：fast-control）**。",
     "下方有本回合已經產生的敘事散文，你的工作是把其中**已經發生的事實**整理成結構化 JSON，",
     "只需要供應玩家立即所需的狀態（局勢/主角/轉場/建議動作），不需要整理 NPC 關係或道具/場景/技能知識，那部分由另一個抽取器處理。",
     "",
@@ -401,7 +401,7 @@ export function buildLoreSyncMessages(params: BuildControlParams): ChatMessage[]
   const { settingText, state, input, narrative } = params;
   const inDungeon = Boolean(params.dungeonId);
   const system = [
-    "你是本世界敘事引擎的**結構控制抽取器（Layer 3：reactive-lore-sync）**。",
+    "你是「無限恐怖」世界敘事引擎的**結構控制抽取器（Layer 3：reactive-lore-sync）**。",
     "下方有本回合已經產生的敘事散文，你的工作是把其中**已經發生的事實**整理成結構化 JSON，",
     "只需要負責 NPC 關係、道具/場景/技能的初次接觸與知識揭露，不需要處理 now/主角積分/轉場等即時狀態，那部分已由另一個抽取器處理。",
     "",
@@ -635,7 +635,7 @@ export async function generateItemSecrets(client: LlmClient, settingText: string
     {
       role: "system",
       content:
-        "你是本世界的道具設計者。為指定道具生成隱藏設定（真實來歷、隱藏效果、與主線的關聯）。" +
+        "你是「無限恐怖」世界的道具設計者。為指定道具生成隱藏設定（真實來歷、隱藏效果、與主線的關聯）。" +
         "這是劇透文件，玩家永遠不會直接看到，只供敘事暗線一致。只輸出設定內容本身，繁體中文，不要前言或客套。\n\n" +
         "世界設定：\n" + settingText.trim(),
     },
@@ -674,7 +674,7 @@ export async function callLoreRewrite(
     {
       role: "system",
       content: [
-        "你是本世界敘事引擎的知識庫維護者。任務：把【現有文件】依【本回合敘事片段】更新成一份完整、連貫的新版內容。",
+        "你是「無限恐怖」世界敘事引擎的知識庫維護者。任務：把【現有文件】依【本回合敘事片段】更新成一份完整、連貫的新版內容。",
         "鐵則：",
         "- 只輸出文件完整新版內容本身（純文字/Markdown），不要 JSON、不要前言、不要程式碼框。",
         "- 不可遺漏現有文件中仍然成立的事實；只在片段明確提供新資訊或訂正時才改動對應部分。",
@@ -1273,7 +1273,7 @@ export async function generateSecrets(client: LlmClient, settingText: string, du
     {
       role: "system",
       content:
-        "你是本世界的副本設計者。為指定副本生成隱藏真相（機關原理、暗藏轉折、NPC 真實動機、主線/隱藏目標）。" +
+        "你是「無限恐怖」世界的副本設計者。為指定副本生成隱藏真相（機關原理、暗藏轉折、NPC 真實動機、主線/隱藏目標）。" +
         "這是劇透文件，玩家永遠不會直接看到，只供敘事暗線一致。只輸出真相內容本身，繁體中文，不要前言或客套。\n\n" +
         "世界設定：\n" + settingText.trim(),
     },

@@ -198,14 +198,14 @@ import { generateWorldUuid, writeWorldMeta, readWorldUuid } from "./world-id.js"
 ```typescript
 // 改前（約 line 73）
 const settingMdRaw = await generateText(client, [
-  { role: "system", content: "你是本世界的設定設計師。..." },
+  { role: "system", content: "你是「無限恐怖」世界的設定設計師。..." },
   { role: "user", content: [...].join("\n") },
 ]);
 const settingMd = injectWorldUuid(settingMdRaw, worldUuid);
 
 // 改後（移除 injectWorldUuid 那行，直接把 settingMdRaw 改名為 settingMd）
 const settingMd = await generateText(client, [
-  { role: "system", content: "你是本世界的設定設計師。..." },
+  { role: "system", content: "你是「無限恐怖」世界的設定設計師。..." },
   { role: "user", content: [...].join("\n") },
 ]);
 // （不再有 injectWorldUuid 那行）

@@ -417,7 +417,7 @@ export function buildPacingMessages(params: BuildPacingParams): ChatMessage[] {
   const { settingText, state, entries } = params;
   const historyLines = entries.map((e) => `- [${e.timestamp}] (${e.mode}) ${e.summary}`).join("\n");
   const system = [
-    "你是本世界敘事引擎的**劇本大師（長期節奏顧問）**。",
+    "你是「無限恐怖」世界敘事引擎的**劇本大師（長期節奏顧問）**。",
     "下方是最近的歷史摘要時間線與當前局勢，你的工作是依長期走勢給敘事 LLM 一段節奏建議",
     "（例如：該不該插入支線、是否該催促/開啟下一個副本、副本內節奏是否該升級），",
     "建議僅供參考、不是指令，敘事 LLM 會自行決定是否採納。",
@@ -450,7 +450,7 @@ export function buildPacingMessages(params: BuildPacingParams): ChatMessage[] {
   const { state, entries } = params;
   const historyLines = entries.map((e) => `- [${e.timestamp}] (${e.mode}) ${e.summary}`).join("\n");
   const system = [
-    "你是本世界敘事引擎的**劇本大師（長期節奏顧問）**。",
+    "你是「無限恐怖」世界敘事引擎的**劇本大師（長期節奏顧問）**。",
     "下方是最近的歷史摘要時間線與當前局勢，你的工作是依長期走勢給敘事 LLM 一段節奏建議",
     "（例如：該不該插入支線、是否該催促/開啟下一個副本、副本內節奏是否該升級），",
     "建議僅供參考、不是指令，敘事 LLM 會自行決定是否採納。",
