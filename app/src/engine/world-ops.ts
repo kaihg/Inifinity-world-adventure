@@ -11,7 +11,7 @@ import {
   UNINITIALIZED_GM_NOTES_PLACEHOLDER,
 } from "./world-status.js";
 import { getTemplate } from "./template-loader.js";
-import { generateWorldUuid, injectWorldUuid, readWorldUuid } from "./world-id.js";
+import { generateWorldUuid, writeWorldMeta, readWorldUuid } from "./world-id.js";
 import { ensurePlayerMeta, incrementPlayerCounts, readPlayerMetaCounts } from "./player-meta.js";
 import { settleProtagonist } from "./protagonist-epitaph.js";
 
@@ -70,7 +70,7 @@ export async function initWorld(opts: {
 
   // 2) setting.md（玩家可見）：先串行生成，後續文件都依賴它
   const worldUuid = generateWorldUuid();
-  const settingMdRaw = await generateText(client, [
+  const settingMd = await generateText(client, [
     {
       role: "system",
       content:
@@ -88,7 +88,6 @@ export async function initWorld(opts: {
       ].join("\n"),
     },
   ]);
-  const settingMd = injectWorldUuid(settingMdRaw, worldUuid);
 
   // 3) protagonist：依賴 settingMd（需知道屬性系統定義），串行生成
   const protagonistMd = await generateText(client, [
@@ -127,8 +126,9 @@ export async function initWorld(opts: {
   ]);
 
   // 5) 全部寫入（最後才一次性落地，避免半初始化）
-  // settingMd 已由 injectWorldUuid 確保結尾換行，不再額外加 \n
+  // settingMd 為 LLM 直接輸出，generateText 已 trim；writeFile 時不另加 \n
   await mkdir(path.join(worldDir, "characters"), { recursive: true });
+  await writeWorldMeta(worldDir, worldUuid);
   await writeFile(path.join(worldDir, "setting.md"), settingMd, "utf8");
   await writeFile(path.join(worldDir, "gm-notes.md"), `${gmNotesMd}\n`, "utf8");
   await writeFile(path.join(worldDir, "characters", "protagonist.md"), `${protagonistMd}\n`, "utf8");

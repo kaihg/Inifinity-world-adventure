@@ -5,6 +5,7 @@ import path from "node:path";
 import type { ChatMessage, LlmClient } from "../llm/client.js";
 import { createLogger } from "../logger.js";
 import { settleProtagonist } from "./protagonist-epitaph.js";
+import { writeWorldMeta } from "./world-id.js";
 
 /** fakeClient：回傳含「主神評語」的測試用墓誌銘 */
 const fakeClient: LlmClient = {
@@ -31,9 +32,10 @@ describe("settleProtagonist", () => {
     await mkdir(path.join(worldDir, "characters"), { recursive: true });
 
     // 建立最基本的世界檔案（含 UUID 供 readWorldUuid 使用）
+    await writeWorldMeta(worldDir, "550e8400-e29b-41d4-a716-446655440000");
     await writeFile(
       path.join(worldDir, "setting.md"),
-      "# 世界設定（World Setting）\n\n- 世界 UUID：550e8400-e29b-41d4-a716-446655440000\n\n真實世界。\n",
+      "# 世界設定（World Setting）\n\n真實世界。\n",
       "utf8",
     );
     await writeFile(

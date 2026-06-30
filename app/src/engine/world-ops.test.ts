@@ -3,7 +3,7 @@ import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promis
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resetWorldToPlaceholder, endWorld, initWorld, replaceProtagonist } from "./world-ops.js";
-import { readWorldUuid } from "./world-id.js";
+import { readWorldUuid, writeWorldMeta } from "./world-id.js";
 import { isWorldInitialized } from "./world-status.js";
 import { createLogger } from "../logger.js";
 import type { LlmClient, ChatMessage } from "../llm/client.js";
@@ -189,7 +189,7 @@ describe("initWorld 骨架注入", () => {
     await rm(repoRoot, { recursive: true, force: true });
   });
 
-  it("initWorld 會把 world_uuid 寫進 setting.md", async () => {
+  it("initWorld 會把 world_uuid 寫進 meta.json，不寫進 setting.md", async () => {
     const client: LlmClient = {
       async *streamChat(messages: ChatMessage[]) {
         const system = messages.find((m) => m.role === "system")?.content ?? "";
@@ -206,8 +206,12 @@ describe("initWorld 骨架注入", () => {
     };
 
     await initWorld({ worldDir, repoRoot, client, input: {}, today: "2026-06-26", logger: createLogger() });
+
+    const meta = JSON.parse(await readFile(path.join(worldDir, "meta.json"), "utf8")) as { worldUuid?: string };
+    expect(meta.worldUuid).toMatch(/^[a-f0-9-]{36}$/);
+
     const setting = await readFile(path.join(worldDir, "setting.md"), "utf8");
-    expect(setting).toMatch(/世界 UUID[:：]\s*[a-f0-9-]{36}/i);
+    expect(setting).not.toMatch(/世界 UUID/);
   });
 
   it("setting 先完成後，protagonist 才開始生成（character 需要 settingMd 定義屬性系統）", async () => {
@@ -245,14 +249,14 @@ describe("initWorld 骨架注入", () => {
     await initPromise;
   });
 
-  it("readWorldUuid 從 setting.md 讀取並回傳 UUID", async () => {
-    await writeFile(path.join(worldDir, "setting.md"), "# 標題\n\n- 世界 UUID：550e8400-e29b-41d4-a716-446655440000\n", "utf8");
+  it("readWorldUuid 從 meta.json 讀取並回傳 UUID", async () => {
+    await writeWorldMeta(worldDir, "550e8400-e29b-41d4-a716-446655440000");
     const uuid = await readWorldUuid(worldDir);
     expect(uuid).toBe("550e8400-e29b-41d4-a716-446655440000");
   });
 
-  it("readWorldUuid 找不到 UUID 時拋出錯誤", async () => {
-    await writeFile(path.join(worldDir, "setting.md"), "# 標題\n\n無 UUID。\n", "utf8");
+  it("readWorldUuid 找不到 meta.json 時拋出錯誤", async () => {
+    // worldDir 存在但無 meta.json — 不需額外寫檔
     await expect(readWorldUuid(worldDir)).rejects.toThrow();
   });
 
