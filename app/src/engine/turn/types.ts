@@ -80,7 +80,7 @@ export interface TurnPlan {
   /** Layer 2（fast-control）訊息建構器：拿主腦完整敘事，回傳 fast-control 對話 */
   buildFastControl: (narrative: string) => ChatMessage[];
   /** raw 層落地：主空間→journal，副本→runs/<run>.md */
-  appendRaw: (entry: { date: string; title: string; body: string }) => Promise<void>;
+  appendRaw: (entry: { date: string; title: string; body: string; playerAction?: string }) => Promise<void>;
   /** raw 層檔案絕對路徑（journal.md 或 runs/<run>.md），供回合結束後重建語意索引用 */
   rawFilePath: string;
   /** 當前副本 id（僅副本回合有），供 Layer 3 落地 dungeon_wiki_excerpt 用 */

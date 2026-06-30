@@ -119,6 +119,7 @@ export interface RunEntry {
   date: string;
   title: string;
   body: string;
+  playerAction?: string;
 }
 
 /** 把回合記錄 append 到 dungeons/<id>/log.md（副本 raw 層，append-only） */
@@ -129,7 +130,10 @@ export async function appendLog(
   entry: RunEntry,
 ): Promise<void> {
   const file = path.join(dungeonDir(worldDir, dungeonId), "log.md");
-  await appendFile(file, `\n## [${entry.date}] ${entry.title}\n\n${entry.body.trim()}\n`, "utf8");
+  const playerLine = entry.playerAction?.trim()
+    ? `\n> 玩家：${entry.playerAction.trim()}\n`
+    : "";
+  await appendFile(file, `${playerLine}\n## [${entry.date}] ${entry.title}\n\n${entry.body.trim()}\n`, "utf8");
 }
 
 /** @deprecated 請改用 appendLog */

@@ -23,6 +23,31 @@ describe("appendJournal", () => {
     // 新段在舊段之後（append-only）
     expect(md.indexOf("新回合")).toBeGreaterThan(md.indexOf("既有段"));
   });
+
+  it("playerAction 非空時，> 玩家：行出現在 ## 段落標題之前", async () => {
+    await appendJournal(dir, {
+      date: "2026-06-19",
+      title: "新回合",
+      body: "沈奕做了某事。",
+      playerAction: "去資訊室",
+    });
+    const md = await readFile(path.join(dir, "journal.md"), "utf8");
+    expect(md).toContain("> 玩家：去資訊室");
+    expect(md.indexOf("> 玩家：去資訊室")).toBeLessThan(
+      md.indexOf("## [2026-06-19] 新回合"),
+    );
+  });
+
+  it("playerAction 為空字串或未提供時，不寫入 > 玩家：行", async () => {
+    await appendJournal(dir, {
+      date: "2026-06-19",
+      title: "新回合",
+      body: "沈奕做了某事。",
+      playerAction: "",
+    });
+    const md = await readFile(path.join(dir, "journal.md"), "utf8");
+    expect(md).not.toContain("> 玩家：");
+  });
 });
 
 describe("parseLastTurnRecord", () => {
@@ -66,5 +91,29 @@ describe("parseLastTurnRecord", () => {
     const md = "## [2026-06-19] 回合\n\n玩家行動：開始休息\n\n\n\n你沉入休息。";
     const result = parseLastTurnRecord(md);
     expect(result).toEqual({ narrative: "你沉入休息。", suggestedActions: [] });
+  });
+
+  it("新格式：建議動作後的 HTML comment 骰池行不進 narrative 也不進 suggestedActions", () => {
+    const md = [
+      "## [2026-06-19] 新回合",
+      "",
+      "沈奕走進資訊室，葉晴抬頭看他。",
+      "",
+      "建議動作：詢問葉晴、離開",
+      "<!-- 骰池：[66, 5, 26] -->",
+      "",
+    ].join("\n");
+
+    const result = parseLastTurnRecord(md);
+    expect(result).not.toBeNull();
+    expect(result!.narrative).toBe("沈奕走進資訊室，葉晴抬頭看他。");
+    expect(result!.suggestedActions).toEqual(["詢問葉晴", "離開"]);
+    expect(result!.narrative).not.toContain("骰池");
+  });
+
+  it("新格式：無建議動作時，HTML comment 骰池行不殘留在 narrative", () => {
+    const md = "## [2026-06-19] 新回合\n\n什麼都沒發生。\n<!-- 骰池：[10, 20] -->";
+    const result = parseLastTurnRecord(md);
+    expect(result).toEqual({ narrative: "什麼都沒發生。", suggestedActions: [] });
   });
 });
