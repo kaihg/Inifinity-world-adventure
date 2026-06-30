@@ -81,6 +81,28 @@ describe("buildMainSpaceMessages", () => {
     const msgs = buildMainSpaceMessages(params);
     expect(msgs[0].content).not.toContain("## 在場角色本回合意圖");
   });
+
+  it("wikiBlock 非空時注入 system prompt", () => {
+    const msgs = buildMainSpaceMessages({
+      settingText: "設定",
+      state: makeFakeState(),
+      input: "行動",
+      dicePool: [50],
+      wikiBlock: "## 已知實體索引\n### 技能\n- [[基礎戰術反應]]：強化戰術的 E 級技能",
+    });
+    expect(msgs[0].content).toContain("已知實體索引");
+    expect(msgs[0].content).toContain("基礎戰術反應");
+  });
+
+  it("wikiBlock 為空時不注入", () => {
+    const msgs = buildMainSpaceMessages({
+      settingText: "設定",
+      state: makeFakeState(),
+      input: "行動",
+      dicePool: [50],
+    });
+    expect(msgs[0].content).not.toContain("已知實體索引");
+  });
 });
 
 describe("buildDungeonMessages", () => {
@@ -93,6 +115,34 @@ describe("buildDungeonMessages", () => {
     expect(msgs[0].content).toContain("絕不可用「你」指稱主角");
     expect(msgs[0].content).toContain("U-001");
     expect(msgs[0].content).toContain("入口有三道門");
+  });
+
+  it("wikiBlock 非空時注入 system prompt", () => {
+    const msgs = buildDungeonMessages({
+      settingText: "設定",
+      state: makeFakeState(),
+      input: "行動",
+      dicePool: [50],
+      dungeonId: "d1",
+      wiki: "",
+      secrets: "",
+      wikiBlock: "## 已知實體索引\n### 技能\n- [[基礎戰術反應]]：強化戰術的 E 級技能",
+    });
+    expect(msgs[0].content).toContain("已知實體索引");
+    expect(msgs[0].content).toContain("基礎戰術反應");
+  });
+
+  it("wikiBlock 為空時不注入", () => {
+    const msgs = buildDungeonMessages({
+      settingText: "設定",
+      state: makeFakeState(),
+      input: "行動",
+      dicePool: [50],
+      dungeonId: "d1",
+      wiki: "",
+      secrets: "",
+    });
+    expect(msgs[0].content).not.toContain("已知實體索引");
   });
 });
 

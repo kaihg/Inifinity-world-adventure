@@ -16,11 +16,13 @@ export const TRADITIONAL_CHINESE_RULE =
 function appendOptionalBlocks(params: {
   intentsBlock?: string;
   recallBlock?: string;
+  wikiBlock?: string;
   nudgeBlock?: string;
   pacingBlock?: string;
 }): string[] {
   return [
     ...(params.intentsBlock ? ["", params.intentsBlock] : []),
+    ...(params.wikiBlock ? ["", params.wikiBlock] : []),
     ...(params.recallBlock ? ["", params.recallBlock] : []),
     ...(params.nudgeBlock ? ["", params.nudgeBlock] : []),
     ...(params.pacingBlock ? ["", params.pacingBlock] : []),
@@ -75,6 +77,7 @@ export interface BuildMessagesParams {
   dicePool: number[];
   intentsBlock?: string;
   recallBlock?: string;
+  wikiBlock?: string;
   nudgeBlock?: string;
   pacingBlock?: string;
   openingPrompt?: string;

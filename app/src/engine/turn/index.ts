@@ -1,5 +1,5 @@
 import path from "node:path";
-import { access, rm } from "node:fs/promises";
+import { access, readFile, rm } from "node:fs/promises";
 import { logger as defaultLogger, type Logger } from "../../logger.js";
 import { loadState } from "../context.js";
 import {
@@ -53,6 +53,27 @@ async function runBlocksParallel(
   return { events: [...a.events, ...b.events], resultA: a.result, resultB: b.result };
 }
 
+/** 讀取四個 category wiki，合為一個名稱登記冊區塊；任一 wiki 不存在則略過 */
+async function loadCategoryWikiBlock(worldDir: string): Promise<string> {
+  const categories: Array<{ label: string; dir: string }> = [
+    { label: "技能", dir: "skills" },
+    { label: "道具", dir: "items" },
+    { label: "場景", dir: "scenes" },
+    { label: "副本", dir: "dungeons" },
+  ];
+  const parts: string[] = [];
+  for (const { label, dir } of categories) {
+    try {
+      const content = await readFile(path.join(worldDir, dir, "wiki.md"), "utf8");
+      if (content.trim()) parts.push(`### ${label}`, content.trim());
+    } catch {
+      // ENOENT 靜默略過
+    }
+  }
+  if (parts.length === 0) return "";
+  return ["## 已知實體索引（name registry）", ...parts].join("\n");
+}
+
 /** 主空間敘事回合 */
 export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent> {
   const log = (deps.logger ?? defaultLogger).child({ mode: "main-space" });
@@ -74,6 +95,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
     : undefined;
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
+  const wikiBlock = await loadCategoryWikiBlock(deps.worldDir);
   const recallBlock = yield* runRecallBlock(deps, input);
 
   const { events: blockEvents, resultA: nudgeBlock, resultB: pacingBlock } = await runBlocksParallel(
@@ -85,7 +107,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
   const existingDungeonIds = await listDungeonIds(deps.worldDir, log);
 
   const plan: TurnPlan = {
-    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock, nudgeBlock, pacingBlock, openingPrompt }),
+    messages: buildMainSpaceMessages({ settingText, state, input, dicePool, intentsBlock, recallBlock, wikiBlock, nudgeBlock, pacingBlock, openingPrompt }),
     buildFastControl: (narrative) =>
       buildFastControlMessages({ settingText, state, input, narrative, dicePool, existingDungeonIds }),
     appendRaw: (entry) => appendJournal(deps.worldDir, entry),
@@ -116,6 +138,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
   const lore = await loadDungeonLore(deps.worldDir, active.dungeonId, log);
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
+  const wikiBlock = await loadCategoryWikiBlock(deps.worldDir);
   const recallBlock = yield* runRecallBlock(deps, input);
 
   const { events: blockEvents, resultA: nudgeBlock, resultB: pacingBlock } = await runBlocksParallel(
@@ -128,7 +151,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
     messages: buildDungeonMessages({
       settingText, state, input, dicePool,
       dungeonId: active.dungeonId, wiki: lore.wiki, secrets: lore.secrets,
-      intentsBlock, recallBlock, nudgeBlock, pacingBlock,
+      intentsBlock, recallBlock, wikiBlock, nudgeBlock, pacingBlock,
     }),
     buildFastControl: (narrative) =>
       buildFastControlMessages({
