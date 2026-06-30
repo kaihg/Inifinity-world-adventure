@@ -52,15 +52,27 @@ export async function* runPrePassBlock(
 }
 
 const DEFAULT_RECALL_TOP_K = 5;
+/** 最大查詢字元數：避免過長的上一回合敘事把向量模型拖慢 */
+const MAX_RECALL_QUERY_LENGTH = 2000;
 
 /**
- * 對 deps.recall（若有）以玩家輸入做語意檢索，格式化成 recallBlock。
+ * 對 deps.recall（若有）以「上一回合敘事 + 玩家輸入」做語意檢索，格式化成 recallBlock。
+ * lastNarrative：上一回合 Layer 1 產出的敘事段落（從 state.lastTurn?.narrative 傳入）；
+ *   缺省時（opening 回合或 recall 首次）只用 input 查詢。
  * 失敗靜默降級——不 block 回合，但 yield warning 讓前端可觀察。
  */
-export async function* runRecallBlock(deps: TurnDeps, input: string): AsyncGenerator<TurnEvent, string> {
+export async function* runRecallBlock(
+  deps: TurnDeps,
+  input: string,
+  lastNarrative?: string,
+): AsyncGenerator<TurnEvent, string> {
   if (!deps.recall) return "";
   try {
-    const hits = await deps.recall.query(input, deps.recallTopK ?? DEFAULT_RECALL_TOP_K);
+    const query = [lastNarrative, input]
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, MAX_RECALL_QUERY_LENGTH);
+    const hits = await deps.recall.query(query, deps.recallTopK ?? DEFAULT_RECALL_TOP_K);
     return formatRecallBlock(hits);
   } catch (err) {
     yield { type: "warning" as const, message: `recall 檢索失敗，略過：${(err as Error).message}` };

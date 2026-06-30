@@ -98,7 +98,7 @@ export async function* runMainSpaceTurn(deps: TurnDeps, input: string): AsyncGen
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const wikiBlock = await loadCategoryWikiBlock(deps.worldDir);
-  const recallBlock = yield* runRecallBlock(deps, input);
+  const recallBlock = yield* runRecallBlock(deps, input, state.lastTurn?.narrative ?? undefined);
 
   const { events: blockEvents, resultA: nudgeBlock, resultB: pacingBlock } = await runBlocksParallel(
     runNudgeBlock(deps, input),
@@ -141,7 +141,7 @@ export async function* runDungeonTurn(deps: TurnDeps, input: string): AsyncGener
 
   const intentsBlock = yield* runPrePassBlock(deps, state, input);
   const wikiBlock = await loadCategoryWikiBlock(deps.worldDir);
-  const recallBlock = yield* runRecallBlock(deps, input);
+  const recallBlock = yield* runRecallBlock(deps, input, state.lastTurn?.narrative ?? undefined);
 
   const { events: blockEvents, resultA: nudgeBlock, resultB: pacingBlock } = await runBlocksParallel(
     runNudgeBlock(deps, input),
