@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import type { ServerResponse } from "node:http";
 import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "../../config.js";
 import { loadState, parseNow } from "../../engine/context.js";
@@ -52,6 +53,14 @@ export interface TurnRouteDeps {
   pacingClient?: LlmClient;
   pendingLoreSync: PendingLoreSync;
   recall?: RecallIndex;
+}
+
+export function safeWrite(raw: ServerResponse, data: string): void {
+  try {
+    raw.write(data);
+  } catch {
+    // 客戶端已斷線；TurnBuffer 仍有完整事件，斷線不影響落地
+  }
 }
 
 export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps): void {
@@ -151,7 +160,8 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
       });
-      reply.raw.write(
+      safeWrite(
+        reply.raw,
         `data: ${JSON.stringify({ type: "error", message: "主角已死亡，請先完成換代或封存抉擇" })}\n\n`,
       );
       reply.raw.end();
@@ -174,7 +184,7 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
     const startedAt = Date.now();
     turnLogger.info({ inputLength: input.length }, "/api/turn 開始");
     try {
-      reply.raw.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
+      safeWrite(reply.raw, `data: ${JSON.stringify({ type: "ping" })}\n\n`);
 
       const stateData = await loadState(config.worldDir, turnLogger);
 
@@ -207,7 +217,7 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
           state.currentTurnBuffer.events.push(ev);
         }
         if (ev.type === "done") { done = ev; continue; }
-        reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`);
+        safeWrite(reply.raw, `data: ${JSON.stringify(ev)}\n\n`);
       }
       if (!done) {
         turnLogger.warn("/api/turn 未收到 done 事件，異常降級");
@@ -230,7 +240,8 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
         } catch (err) {
           turnLogger.warn({ err }, "guard 補寫 now.md 失敗，略過");
         }
-        reply.raw.write(
+        safeWrite(
+          reply.raw,
           `data: ${JSON.stringify({ type: "warning", message: "系統判定要進入副本，但未能確定副本 id，暫停等玩家確認。" })}\n\n`,
         );
         done = { ...done, modeTransition: null };
@@ -265,7 +276,7 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
         await makeCommit(turnLogger)(`進入副本 ${active.dungeonId} ${active.runId}`);
         const enterTransEv = { type: "transition", to: "dungeon", dungeonId: active.dungeonId } as const;
         if (state.currentTurnBuffer) state.currentTurnBuffer.events.push(enterTransEv);
-        reply.raw.write(`data: ${JSON.stringify(enterTransEv)}\n\n`);
+        safeWrite(reply.raw, `data: ${JSON.stringify(enterTransEv)}\n\n`);
         done = { ...done, modeTransition: null, suggestedActions: ["順勢而為"], awaitingUserInput: true };
         didTransition = true;
       }
@@ -282,7 +293,7 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
         await makeCommit(turnLogger)("副本結算，返回安全區");
         const settleTransEv = { type: "transition", to: "main-space" } as const;
         if (state.currentTurnBuffer) state.currentTurnBuffer.events.push(settleTransEv);
-        reply.raw.write(`data: ${JSON.stringify(settleTransEv)}\n\n`);
+        safeWrite(reply.raw, `data: ${JSON.stringify(settleTransEv)}\n\n`);
         done = { ...done, modeTransition: null, suggestedActions: ["順勢而為"], awaitingUserInput: true };
         didTransition = true;
       }
@@ -303,7 +314,7 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
         state.currentTurnBuffer.events.push(done);
         state.currentTurnBuffer.active = false;
       }
-      reply.raw.write(`data: ${JSON.stringify(done)}\n\n`);
+      safeWrite(reply.raw, `data: ${JSON.stringify(done)}\n\n`);
 
       turnLogger.info({ durationMs: Date.now() - startedAt }, "/api/turn 完成");
     } catch (err) {
@@ -311,7 +322,7 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
       turnLogger.error({ err, durationMs: Date.now() - startedAt }, "/api/turn 失敗");
       const warnEv: TurnEvent = { type: "warning", message };
       if (state.currentTurnBuffer) state.currentTurnBuffer.events.push(warnEv);
-      reply.raw.write(`data: ${JSON.stringify({ type: "error", message })}\n\n`);
+      safeWrite(reply.raw, `data: ${JSON.stringify({ type: "error", message })}\n\n`);
     } finally {
       state.turnInProgress = false;
       if (state.currentTurnBuffer?.active) {
