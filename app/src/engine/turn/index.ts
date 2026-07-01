@@ -15,7 +15,7 @@ import { appendJournal } from "../journal.js";
 import { rollPool } from "../roll.js";
 import { getTemplate } from "../template-loader.js";
 import { runPrePassBlock, runRecallBlock } from "./context-blocks.js";
-import { generateSecrets, setNowActiveDungeon } from "./dungeon-transition.js";
+import { setNowActiveDungeon } from "./dungeon-transition.js";
 import { scheduleLoreSync } from "./lore-sync.js";
 import { runNudgeBlock } from "./nudge.js";
 import { runPacingBlock } from "./pacing.js";

@@ -87,7 +87,7 @@ export interface BuildMessagesParams {
 export function buildMainSpaceMessages(params: BuildMessagesParams): ChatMessage[] {
   const { settingText, state, input, dicePool } = params;
   const system = [
-    "你是「無限恐怖」世界的敘事引擎，扮演冷酷機械的主控系統與世界本身，",
+    "你是本世界的敘事引擎，扮演冷酷機械的主控系統與世界本身，",
     "推進主角在「主神空間安全區」（副本之間的安全區）的劇情。",
     "",
     "## 鐵則",
@@ -132,7 +132,7 @@ export interface BuildDungeonMessagesParams extends BuildMessagesParams {
 export function buildDungeonMessages(params: BuildDungeonMessagesParams): ChatMessage[] {
   const { settingText, state, input, dicePool, dungeonId, wiki, secrets } = params;
   const system = [
-    `你是「無限恐怖」世界的敘事引擎，主角正在副本「${dungeonId}」內。`,
+    `你是本世界的敘事引擎，主角正在副本「${dungeonId}」內。`,
     "扮演副本世界與主控系統，依規則推進戰鬥/解謎/生存劇情。",
     "",
     "## 鐵則",
@@ -195,7 +195,7 @@ export function buildFastControlMessages(params: BuildControlParams): ChatMessag
   const existingDungeonIds = params.existingDungeonIds ?? [];
   const inDungeon = Boolean(params.dungeonId);
   const system = [
-    "你是「無限恐怖」世界敘事引擎的**結構控制抽取器（Layer 2：fast-control）**。",
+    "你是本世界敘事引擎的**結構控制抽取器（Layer 2：fast-control）**。",
     "下方有本回合已經產生的敘事散文，你的工作是把其中**已經發生的事實**整理成結構化 JSON，",
     "只需要供應玩家立即所需的狀態（局勢/主角/轉場/建議動作），不需要整理 NPC 關係或道具/場景/技能知識，那部分由另一個抽取器處理。",
     "",
@@ -248,7 +248,7 @@ export function buildPacingMessages(params: BuildPacingParams): ChatMessage[] {
   const { state, entries } = params;
   const historyLines = entries.map((e) => `- [${e.timestamp}] (${e.mode}) ${e.summary}`).join("\n");
   const system = [
-    "你是「無限恐怖」世界敘事引擎的**劇本大師（長期節奏顧問）**。",
+    "你是本世界敘事引擎的**劇本大師（長期節奏顧問）**。",
     "下方是最近的歷史摘要時間線與當前局勢，你的工作是依長期走勢給敘事 LLM 一段節奏建議",
     "（例如：該不該插入支線、是否該催促/開啟下一個副本、副本內節奏是否該升級），",
     "建議僅供參考、不是指令，敘事 LLM 會自行決定是否採納。",

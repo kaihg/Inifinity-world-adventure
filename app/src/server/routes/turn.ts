@@ -21,6 +21,7 @@ import {
 import { appendDungeonStartMarker, appendDungeonEndMarker, generateSecrets, setNowActiveDungeon } from "../../engine/turn/dungeon-transition.js";
 import { readBestEffort, todayISO, nowISOSeconds } from "../../engine/turn/shared.js";
 import { sanitizeLoreId } from "../../engine/lore.js";
+import { getTemplate } from "../../engine/template-loader.js";
 import type { LlmClient } from "../../llm/client.js";
 import type { Logger } from "../../logger.js";
 import type { RecallIndex } from "../../recall/store.js";
@@ -239,8 +240,11 @@ export function registerTurnRoutes(server: FastifyInstance, deps: TurnRouteDeps)
         const rawDungeonId = done.transitionDungeonId;
         const safeDungeonId = sanitizeLoreId(rawDungeonId);
         await pendingLoreSync.promise;
-        const settingText = await readBestEffort(path.join(config.worldDir, "setting.md"));
-        const secretsText = await generateSecrets(makeClient(turnLogger), settingText, safeDungeonId);
+        const [settingText, secretsTemplate] = await Promise.all([
+          readBestEffort(path.join(config.worldDir, "setting.md")),
+          getTemplate("secrets", config.worldDir, repoRoot),
+        ]);
+        const secretsText = await generateSecrets(makeClient(turnLogger), settingText, safeDungeonId, secretsTemplate);
         const active = await enterDungeon(
           config.worldDir,
           {

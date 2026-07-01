@@ -90,9 +90,13 @@ describe("buildServer", () => {
 
 describe("POST /api/turn（SSE）", () => {
   let world: string;
+  let repoRoot: string;
   beforeEach(async () => {
-    world = await mkdtemp(path.join(tmpdir(), "iwa-route-"));
+    repoRoot = await mkdtemp(path.join(tmpdir(), "iwa-route-"));
+    world = path.join(repoRoot, "world");
     await mkdir(path.join(world, "characters"), { recursive: true });
+    await mkdir(path.join(repoRoot, "templates"), { recursive: true });
+    await writeFile(path.join(repoRoot, "templates", "secrets.md"), "## 副本背景\n<!-- 填入 -->\n\n## 機關原理\n<!-- 填入 -->\n", "utf8");
     await writeFile(path.join(world, "setting.md"), "# 設定\n禁止竄改數值。\n");
     await writeFile(
       path.join(world, "now.md"),
@@ -104,7 +108,7 @@ describe("POST /api/turn（SSE）", () => {
     );
   });
   afterEach(async () => {
-    await rm(world, { recursive: true, force: true });
+    await rm(repoRoot, { recursive: true, force: true });
   });
 
   it("以 SSE 串流 delta 與 done 事件", async () => {
@@ -697,9 +701,13 @@ describe("TurnBuffer：POST /api/turn 填充 buffer", () => {
 
 describe("GET /api/turn/stream 重連端點", () => {
   let world: string;
+  let repoRoot: string;
   beforeEach(async () => {
-    world = await mkdtemp(path.join(tmpdir(), "iwa-stream-"));
+    repoRoot = await mkdtemp(path.join(tmpdir(), "iwa-stream-"));
+    world = path.join(repoRoot, "world");
     await mkdir(path.join(world, "characters"), { recursive: true });
+    await mkdir(path.join(repoRoot, "templates"), { recursive: true });
+    await writeFile(path.join(repoRoot, "templates", "secrets.md"), "## 副本背景\n<!-- 填入 -->\n\n## 機關原理\n<!-- 填入 -->\n", "utf8");
     await writeFile(path.join(world, "setting.md"), "# 設定\n\n世界。\n");
     await writeFile(
       path.join(world, "now.md"),
@@ -708,7 +716,7 @@ describe("GET /api/turn/stream 重連端點", () => {
     await writeFile(path.join(world, "characters", "protagonist.md"), "- 姓名：沈奕\n- 當前積分：0\n");
   });
   afterEach(async () => {
-    await rm(world, { recursive: true, force: true });
+    await rm(repoRoot, { recursive: true, force: true });
   });
 
   it("GET /api/turn/stream?offset=0 重播所有已落地事件，active=false 時串流結束", async () => {
