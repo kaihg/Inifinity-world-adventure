@@ -90,9 +90,8 @@ export async function extractEntities(
     { role: "user" as const, content: `敘事片段：\n${narrative}` },
   ];
 
-  let raw = "";
   try {
-    for await (const delta of client.streamChat(messages)) raw += delta;
+    const raw = await client.chat(messages);
     const cleaned = raw.replace(/```(?:json)?/gi, "").trim();
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");

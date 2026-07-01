@@ -29,6 +29,8 @@ describe("extractEntities", () => {
     expect(result.protagonist_changed).toBe(true);
     expect(result.entities).toHaveLength(1);
     expect(result.entities[0].id).toBe("邏輯推理");
+    expect(client.chat).toHaveBeenCalledOnce();
+    expect(client.streamChat).not.toHaveBeenCalled();
   });
 
   it("returns empty result on parse failure", async () => {
@@ -36,17 +38,18 @@ describe("extractEntities", () => {
     const result = await extractEntities(client, "敘事內容", "", {}, log);
     expect(result.protagonist_changed).toBe(false);
     expect(result.entities).toHaveLength(0);
+    expect(client.chat).toHaveBeenCalledOnce();
   });
 
   it("extraction system prompt 包含中文 id 規則", async () => {
-    // 攔截 client.streamChat，確認 system message 含有必要規則
+    // 攔截 client.chat，確認 system message 含有必要規則
     let capturedSystem = "";
     const mockClient: LlmClient = {
-      streamChat: async function* (msgs) {
+      async *streamChat() { yield ""; },
+      async chat(msgs) {
         capturedSystem = (msgs[0] as { role: string; content: string }).content;
-        yield '{"protagonist_changed":false,"entities":[]}';
+        return '{"protagonist_changed":false,"entities":[]}';
       },
-      chat: async () => '{"protagonist_changed":false,"entities":[]}',
     };
     await extractEntities(mockClient, "測試敘事", "", {}, log);
     expect(capturedSystem).toContain("中文正式名稱");
@@ -74,14 +77,13 @@ describe("runIngest", () => {
     // wiki rewrite
     const wikiRewriteText = "# 技能索引\n\n## 主動技能\n- [[邏輯推理]]";
 
-    let callCount = 0;
+    let streamCallCount = 0;
     const client = {
-      chat: vi.fn(async () => extractionJson),  // Task 4 會調整（extractEntities 改走 chat）
+      chat: vi.fn(async () => extractionJson),   // Step 1: extractEntities
       streamChat: vi.fn(async function* () {
-        callCount++;
-        if (callCount === 1) yield extractionJson;        // Step 1 extraction（Task 4 前仍走 streamChat）
-        else if (callCount === 2) yield entityRewriteText; // Step 2 entity
-        else yield wikiRewriteText;                        // Step 3 wiki
+        streamCallCount++;
+        if (streamCallCount === 1) yield entityRewriteText;  // Step 2 entity rewrite
+        else yield wikiRewriteText;                           // Step 3 wiki rewrite
       }),
     } as unknown as LlmClient;
 
