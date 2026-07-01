@@ -93,4 +93,49 @@ describe("createOpenAiClient usage logging", () => {
     const logged = JSON.parse((await readFile(usageLogPath, "utf8")).trim());
     expect(logged.label).toBe("main");
   });
+
+  it("chat() 成功：回傳完整字串並寫入 usage log", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "client-test-"));
+    const usageLogPath = path.join(dir, "usage.log");
+    createMock.mockResolvedValue({
+      choices: [{ message: { content: "你好世界" } }],
+      usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
+    });
+
+    const { createOpenAiClient } = await import("./client.js");
+    const client = createOpenAiClient(makeConfig(usageLogPath), undefined, { label: "ctrl" });
+    const result = await client.chat([{ role: "user", content: "hi" }]);
+    expect(result).toBe("你好世界");
+
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({ stream: false }),
+    );
+    // 不應帶 stream_options（那是串流專用）
+    expect(createMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ stream_options: expect.anything() }),
+    );
+
+    const logged = JSON.parse((await readFile(usageLogPath, "utf8")).trim());
+    expect(logged).toMatchObject({
+      label: "ctrl",
+      model: "test-model",
+      promptTokens: 5,
+      completionTokens: 3,
+      totalTokens: 8,
+    });
+    expect(typeof logged.durationMs).toBe("number");
+  });
+
+  it("chat() 失敗：拋錯，不寫 usage log", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "client-test-"));
+    const usageLogPath = path.join(dir, "usage.log");
+    createMock.mockRejectedValue(new Error("timeout"));
+
+    const { createOpenAiClient } = await import("./client.js");
+    const client = createOpenAiClient(makeConfig(usageLogPath));
+    await expect(client.chat([{ role: "user", content: "hi" }])).rejects.toThrow("timeout");
+
+    const exists = await readFile(usageLogPath, "utf8").catch(() => null);
+    expect(exists).toBeNull();
+  });
 });

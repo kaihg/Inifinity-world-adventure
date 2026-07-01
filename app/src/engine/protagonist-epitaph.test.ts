@@ -13,6 +13,7 @@ const fakeClient: LlmClient = {
   async *streamChat(_messages: ChatMessage[]): AsyncIterable<string> {
     yield "主神評語：測試評語";
   },
+  async chat(_messages: ChatMessage[]): Promise<string> { return ""; },
 };
 
 /** fakeClient：模擬 LLM 呼叫失敗 */
@@ -20,6 +21,7 @@ const failClient: LlmClient = {
   async *streamChat(): AsyncIterable<string> {
     throw new Error("LLM 連線失敗");
   },
+  async chat(): Promise<string> { throw new Error("LLM 連線失敗"); },
 };
 
 describe("settleProtagonist", () => {

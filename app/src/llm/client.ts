@@ -15,6 +15,8 @@ export interface ChatMessage {
 export interface LlmClient {
   /** 串流對話，逐段 yield 文字 delta */
   streamChat(messages: ChatMessage[]): AsyncIterable<string>;
+  /** 批次對話：等待全文再回傳（JSON 輸出場景） */
+  chat(messages: ChatMessage[]): Promise<string>;
 }
 
 export interface CreateOpenAiClientOptions {
@@ -95,6 +97,47 @@ export function createOpenAiClient(
         logger.error(
           { err, model: config.openai.model, baseUrl: config.openai.baseUrl, durationMs: Date.now() - startedAt },
           "llm 串流失敗",
+        );
+        throw err;
+      }
+    },
+
+    async chat(messages: ChatMessage[]): Promise<string> {
+      const startedAt = Date.now();
+      const totalChars = messages.reduce((n, m) => n + m.content.length, 0);
+      logger.debug(
+        { model: config.openai.model, baseUrl: config.openai.baseUrl, messageCount: messages.length, totalChars },
+        "llm batch 呼叫開始",
+      );
+      try {
+        const resp = await openai.chat.completions.create({
+          model: config.openai.model,
+          messages,
+          stream: false,
+          ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+        });
+        const text = resp.choices[0]?.message?.content ?? "";
+        const durationMs = Date.now() - startedAt;
+        logger.debug({ model: config.openai.model, durationMs, outChars: text.length }, "llm batch 完成");
+        await appendUsageLog(
+          usageLogPath,
+          {
+            timestamp: new Date().toISOString(),
+            label,
+            model: config.openai.model,
+            baseUrl: config.openai.baseUrl,
+            durationMs,
+            promptTokens: resp.usage?.prompt_tokens,
+            completionTokens: resp.usage?.completion_tokens,
+            totalTokens: resp.usage?.total_tokens,
+          },
+          logger,
+        );
+        return text;
+      } catch (err) {
+        logger.error(
+          { err, model: config.openai.model, baseUrl: config.openai.baseUrl, durationMs: Date.now() - startedAt },
+          "llm batch 呼叫失敗",
         );
         throw err;
       }

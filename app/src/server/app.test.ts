@@ -12,6 +12,9 @@ function fakeClient(deltas: string[]): LlmClient {
     async *streamChat(_m: ChatMessage[]): AsyncIterable<string> {
       for (const d of deltas) yield d;
     },
+    async chat(_m: ChatMessage[]): Promise<string> {
+      return deltas.join("");
+    },
   };
 }
 
@@ -161,6 +164,9 @@ describe("POST /api/turn（SSE）", () => {
       async *streamChat() {
         await new Promise(() => {}); // 永遠不 resolve，模擬掛掉/超慢的 Layer 3 LLM
       },
+      async chat(): Promise<string> {
+        return ""; // loreClient 的 chat() 此測試不會實際呼叫
+      },
     };
     const server = buildServer(loadConfig({ WORLD_DIR: world }), {
       client: fakeClient(["前半段，", "後半段。"]),
@@ -196,6 +202,7 @@ describe("POST /api/turn（SSE）", () => {
         await new Promise<void>((resolve) => { releaseFirst = resolve; });
         yield "後半段。";
       },
+      async chat(): Promise<string> { return ""; },
     };
     const server = buildServer(loadConfig({ WORLD_DIR: world }), {
       client: blockingClient,
@@ -447,6 +454,9 @@ describe("POST /api/world/init", () => {
       async *streamChat() {
         throw new Error("不該呼叫主 client：初始化應改用 lore 的 model");
       },
+      async chat(): Promise<string> {
+        throw new Error("不該呼叫主 client：初始化應改用 lore 的 model");
+      },
     };
     const server = buildServer(
       loadConfig({
@@ -492,6 +502,7 @@ describe("POST /api/world/init", () => {
     const commits: string[] = [];
     const throwingClient: LlmClient = {
       async *streamChat() { throw new Error("LLM 連線失敗"); },
+      async chat(): Promise<string> { throw new Error("LLM 連線失敗"); },
     };
     const server = buildServer(loadConfig({ WORLD_DIR: world }), {
       client: throwingClient,
@@ -909,7 +920,10 @@ describe("POST /api/turn 在 .pending-death 存在時擋下", () => {
   it("回 error event，不呼叫 client.streamChat", async () => {
     let called = false;
     const server = buildServer(loadConfig({ WORLD_DIR: world }), {
-      client: { async *streamChat() { called = true; yield "x"; } },
+      client: {
+        async *streamChat() { called = true; yield "x"; },
+        async chat(): Promise<string> { return ""; },
+      },
       commit: async () => true,
     });
     const res = await server.inject({

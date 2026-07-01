@@ -10,6 +10,7 @@ import { createSilentLogger } from "../logger.js";
 function makeMockClient(response: string): LlmClient {
   return {
     streamChat: vi.fn(async function* () { yield response; }),
+    chat: vi.fn(async () => response),
   } as unknown as LlmClient;
 }
 
@@ -45,6 +46,7 @@ describe("extractEntities", () => {
         capturedSystem = (msgs[0] as { role: string; content: string }).content;
         yield '{"protagonist_changed":false,"entities":[]}';
       },
+      chat: async () => '{"protagonist_changed":false,"entities":[]}',
     };
     await extractEntities(mockClient, "測試敘事", "", {}, log);
     expect(capturedSystem).toContain("中文正式名稱");
@@ -74,9 +76,10 @@ describe("runIngest", () => {
 
     let callCount = 0;
     const client = {
+      chat: vi.fn(async () => extractionJson),  // Task 4 會調整（extractEntities 改走 chat）
       streamChat: vi.fn(async function* () {
         callCount++;
-        if (callCount === 1) yield extractionJson;        // Step 1
+        if (callCount === 1) yield extractionJson;        // Step 1 extraction（Task 4 前仍走 streamChat）
         else if (callCount === 2) yield entityRewriteText; // Step 2 entity
         else yield wikiRewriteText;                        // Step 3 wiki
       }),
