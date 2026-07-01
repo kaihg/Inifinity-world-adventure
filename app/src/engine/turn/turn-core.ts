@@ -85,11 +85,8 @@ export async function* runTurnCore(
   let raw = "";
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    raw = "";
     try {
-      for await (const delta of controlClient.streamChat(plan.buildFastControl(narrative))) {
-        raw += delta;
-      }
+      raw = await controlClient.chat(plan.buildFastControl(narrative));
       // 落地進 now.md / protagonist.md / commit / journal_summary 前繁體化（slug 類欄位不轉）
       control = traditionalizeFastControl(parseFastControlOutput(raw));
       break;

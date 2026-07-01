@@ -37,16 +37,24 @@ function fakeClient(chunks: string[]): LlmClient {
     async *streamChat(_messages: ChatMessage[]): AsyncIterable<string> {
       for (const c of chunks) yield c;
     },
+    async chat(_messages: ChatMessage[]): Promise<string> {
+      return chunks.join("");
+    },
   };
 }
 
-/** 每次 streamChat 回傳序列中的下一個完整回應 */
+/** 每次呼叫回傳序列中的下一個完整回應 */
 function sequencedClient(responses: string[]): LlmClient {
   let i = 0;
   return {
     async *streamChat(_m: ChatMessage[]): AsyncIterable<string> {
       yield responses[Math.min(i, responses.length - 1)];
       i++;
+    },
+    async chat(_m: ChatMessage[]): Promise<string> {
+      const response = responses[Math.min(i, responses.length - 1)];
+      i++;
+      return response;
     },
   };
 }
@@ -404,6 +412,19 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
           });
         }
       },
+      async chat(): Promise<string> {
+        callCount++;
+        if (callCount < 3) {
+          return "前兩次都是壞掉的輸出，沒有 JSON";
+        } else {
+          return JSON.stringify({
+            state_changes: { now: { scene: "資訊室" } },
+            rolls: [], mode_transition: null,
+            awaiting_user_input: false, suggested_actions: ["繼續前進"],
+            commit_summary: "重試後終於解析成功",
+          });
+        }
+      },
     };
     const events: TurnEvent[] = [];
     for await (const ev of runMainSpaceTurn(
@@ -433,6 +454,10 @@ describe("runMainSpaceTurn — 結構化輸出", () => {
       async *streamChat() {
         callCount++;
         yield "永遠都是壞掉的輸出";
+      },
+      async chat(): Promise<string> {
+        callCount++;
+        return "永遠都是壞掉的輸出";
       },
     };
     const events: TurnEvent[] = [];

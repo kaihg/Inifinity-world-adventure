@@ -12,6 +12,9 @@ function makeClient(response: string): LlmClient {
     async *streamChat() {
       yield response;
     },
+    async chat() {
+      return response;
+    },
   };
 }
 

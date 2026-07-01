@@ -14,6 +14,10 @@ function fakeClient(deltas: string[] | (() => never)): LlmClient {
       if (typeof deltas === "function") deltas();
       else for (const d of deltas) yield d;
     },
+    async chat(_m: ChatMessage[]): Promise<string> {
+      if (typeof deltas === "function") deltas();
+      else return deltas.join("");
+    },
   };
 }
 

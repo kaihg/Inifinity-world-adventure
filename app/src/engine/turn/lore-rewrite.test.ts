@@ -16,6 +16,10 @@ function capturingClient(response: string): { client: LlmClient; messages: ChatM
       result.messages = messages;
       yield response;
     },
+    async chat(messages: ChatMessage[]) {
+      result.messages = messages;
+      return response;
+    },
   };
   return result;
 }
@@ -23,6 +27,9 @@ function capturingClient(response: string): { client: LlmClient; messages: ChatM
 function throwingClient(): LlmClient {
   return {
     async *streamChat(_messages: ChatMessage[]): AsyncIterable<string> {
+      throw new Error("LLM 呼叫失敗");
+    },
+    async chat(_messages: ChatMessage[]): Promise<string> {
       throw new Error("LLM 呼叫失敗");
     },
   };
@@ -139,6 +146,10 @@ describe("rewriteLoreEntity 標題", () => {
         const systemContent = messages.find((m) => m.role === "system")?.content ?? "";
         yield systemContent.includes("劇透文件") ? "隱藏設定內容" : "# 淬毒匕首\n\n外觀描述";
       },
+      async chat(messages: ChatMessage[]): Promise<string> {
+        const systemContent = messages.find((m) => m.role === "system")?.content ?? "";
+        return systemContent.includes("劇透文件") ? "隱藏設定內容" : "# 淬毒匕首\n\n外觀描述";
+      },
     };
     const deps: TurnDeps = {
       client: fakeClient,
@@ -199,6 +210,9 @@ describe("rewriteLoreEntity — NPC 角色檔標題正規化（根因 I）", () 
       async *streamChat() {
         yield "### 基本資訊\n\n葉晴是前特種部隊教官。";
       },
+      async chat(): Promise<string> {
+        return "### 基本資訊\n\n葉晴是前特種部隊教官。";
+      },
     };
     const deps: TurnDeps = { client: fakeClient, worldDir, commit: async () => true };
     const result = await rewriteLoreEntity(
@@ -220,6 +234,9 @@ describe("rewriteLoreEntity — NPC 角色檔標題正規化（根因 I）", () 
       async *streamChat() {
         yield "# 陳哲\n\n老手，拒絕入隊。";
       },
+      async chat(): Promise<string> {
+        return "# 陳哲\n\n老手，拒絕入隊。";
+      },
     };
     const deps: TurnDeps = { client: fakeClient, worldDir, commit: async () => true };
     const result = await rewriteLoreEntity(
@@ -240,6 +257,9 @@ describe("rewriteLoreEntity — NPC 角色檔標題正規化（根因 I）", () 
       async *streamChat() {
         // 首行是 ###，但內文某行出現一個 H1（例如引用、標籤），不可被當成「已自帶標題」
         yield "### 基本資訊\n\n葉晴是教官。\n\n# 補充\n\n備註。";
+      },
+      async chat(): Promise<string> {
+        return "### 基本資訊\n\n葉晴是教官。\n\n# 補充\n\n備註。";
       },
     };
     const deps: TurnDeps = { client: fakeClient, worldDir, commit: async () => true };
@@ -276,6 +296,12 @@ describe("rewriteLoreEntity — 骨架注入（全新建檔）", () => {
           ? "隱藏設定"
           : "## 品質等級\n普通\n## 效果/說明\n造成傷害";
       },
+      async chat(msgs: ChatMessage[]): Promise<string> {
+        messages.push(...msgs);
+        return msgs.find((m) => m.role === "system")?.content?.includes("劇透文件")
+          ? "隱藏設定"
+          : "## 品質等級\n普通\n## 效果/說明\n造成傷害";
+      },
     };
     const deps: TurnDeps = { client: capClient, worldDir, commit: async () => true };
 
@@ -304,6 +330,11 @@ describe("callProtagonistRewrite", () => {
         captured.system.push(messages.find((m) => m.role === "system")?.content ?? "");
         captured.user.push(messages.find((m) => m.role === "user")?.content ?? "");
         yield out;
+      },
+      async chat(messages: ChatMessage[]): Promise<string> {
+        captured.system.push(messages.find((m) => m.role === "system")?.content ?? "");
+        captured.user.push(messages.find((m) => m.role === "user")?.content ?? "");
+        return out;
       },
     };
   }
@@ -352,6 +383,10 @@ describe("callLoreRewrite 禁止照搬敘事散文", () => {
       async *streamChat(messages: ChatMessage[]) {
         captured.push(messages.find((m) => m.role === "system")?.content ?? "");
         yield "# 道具（鐵管）\n";
+      },
+      async chat(messages: ChatMessage[]): Promise<string> {
+        captured.push(messages.find((m) => m.role === "system")?.content ?? "");
+        return "# 道具（鐵管）\n";
       },
     };
     await callLoreRewrite(client, "設定", "片段", "道具（鐵管）", "", "item", logger);

@@ -9,7 +9,14 @@ import { cosineSimilarity, runNudgeBlock } from "./nudge.js";
 import type { TurnDeps, TurnEvent } from "./types.js";
 
 function fakeClient(): LlmClient {
-  return { async *streamChat(_m: ChatMessage[]): AsyncIterable<string> { yield ""; } };
+  return {
+    async *streamChat(_m: ChatMessage[]): AsyncIterable<string> {
+      yield "";
+    },
+    async chat(_m: ChatMessage[]): Promise<string> {
+      return "";
+    },
+  };
 }
 
 function fakeEmbedder(vectorsByText: Record<string, number[]>, opts: { throwOnEmbed?: boolean } = {}): Embedder {

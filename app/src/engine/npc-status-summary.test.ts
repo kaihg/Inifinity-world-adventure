@@ -7,6 +7,9 @@ function fakeClient(chunks: string[]): LlmClient {
     async *streamChat(_messages: ChatMessage[]): AsyncIterable<string> {
       for (const c of chunks) yield c;
     },
+    async chat(_messages: ChatMessage[]): Promise<string> {
+      return chunks.join("");
+    },
   };
 }
 
@@ -37,6 +40,9 @@ describe("summarizeNpcStatus", () => {
       async *streamChat() {
         throw new Error("LLM 掛了");
         yield "";
+      },
+      async chat() {
+        throw new Error("LLM 掛了");
       },
     };
     const status = await summarizeNpcStatus({
