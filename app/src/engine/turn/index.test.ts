@@ -801,16 +801,15 @@ describe("Layer 3 reactive-lore-sync 接力（pendingLoreSync）", () => {
       entities: [{ id: "rusty-pipe", category: "item", name: "生鏽鐵管" }],
     });
     let loreCall = 0;
-    // Layer 3 全程走小模型（loreClient）：依序為 ①extractEntities ②entity rewrite ③wiki rewrite
+    // Layer 3 全程走小模型（loreClient）：①extractEntities 走 chat()，②entity rewrite ③wiki rewrite 走 streamChat
     const loreClient: LlmClient = {
+      async chat() {
+        await new Promise((r) => setTimeout(r, 50)); // 模擬較慢的 Layer 3 LLM（抽取階段）
+        return extractionJson;
+      },
       async *streamChat() {
         loreCall++;
         if (loreCall === 1) {
-          await new Promise((r) => setTimeout(r, 50)); // 模擬較慢的 Layer 3 LLM（抽取階段）
-          yield extractionJson;
-          return;
-        }
-        if (loreCall === 2) {
           yield "# 道具（rusty-pipe）\n\n比較重寫後的內容。"; // entity rewrite
           return;
         }
