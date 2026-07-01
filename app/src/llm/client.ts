@@ -116,23 +116,28 @@ export function createOpenAiClient(
           stream: false,
           ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
         });
-        const text = resp.choices[0]?.message?.content ?? "";
+        const text = resp.choices[0]?.message?.content;
+        if (text == null) throw new Error("LLM 回傳空 content（可能是 function_call 或 refusal 模式）");
         const durationMs = Date.now() - startedAt;
         logger.debug({ model: config.openai.model, durationMs, outChars: text.length }, "llm batch 完成");
-        await appendUsageLog(
-          usageLogPath,
-          {
-            timestamp: new Date().toISOString(),
-            label,
-            model: config.openai.model,
-            baseUrl: config.openai.baseUrl,
-            durationMs,
-            promptTokens: resp.usage?.prompt_tokens,
-            completionTokens: resp.usage?.completion_tokens,
-            totalTokens: resp.usage?.total_tokens,
-          },
-          logger,
-        );
+        try {
+          await appendUsageLog(
+            usageLogPath,
+            {
+              timestamp: new Date().toISOString(),
+              label,
+              model: config.openai.model,
+              baseUrl: config.openai.baseUrl,
+              durationMs,
+              promptTokens: resp.usage?.prompt_tokens,
+              completionTokens: resp.usage?.completion_tokens,
+              totalTokens: resp.usage?.total_tokens,
+            },
+            logger,
+          );
+        } catch (logErr) {
+          logger.warn({ err: logErr }, "usage log 寫入失敗（不影響呼叫結果）");
+        }
         return text;
       } catch (err) {
         logger.error(

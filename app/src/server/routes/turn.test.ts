@@ -24,4 +24,14 @@ describe("safeWrite", () => {
     safeWrite(fakeRaw, "data: hello\n\n");
     expect(written).toBe("data: hello\n\n");
   });
+
+  it("logger 存在時，斷線錯誤觸發 debug log", () => {
+    let debugObj: object | null = null;
+    const fakeLog = { debug: (obj: object) => { debugObj = obj; } };
+    const brokenRaw = {
+      write: () => { throw new Error("ERR_HTTP_HEADERS_SENT"); },
+    } as unknown as ServerResponse;
+    expect(() => safeWrite(brokenRaw, "data: test\n\n", fakeLog)).not.toThrow();
+    expect(debugObj).toMatchObject({ err: expect.any(Error) });
+  });
 });

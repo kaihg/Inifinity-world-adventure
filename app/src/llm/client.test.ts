@@ -126,6 +126,22 @@ describe("createOpenAiClient usage logging", () => {
     expect(typeof logged.durationMs).toBe("number");
   });
 
+  it("chat() content 為 null 時拋錯，不寫 usage log", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "client-test-"));
+    const usageLogPath = path.join(dir, "usage.log");
+    createMock.mockResolvedValue({
+      choices: [{ message: { content: null } }],
+      usage: { prompt_tokens: 5, completion_tokens: 0, total_tokens: 5 },
+    });
+
+    const { createOpenAiClient } = await import("./client.js");
+    const client = createOpenAiClient(makeConfig(usageLogPath));
+    await expect(client.chat([{ role: "user", content: "hi" }])).rejects.toThrow("LLM 回傳空 content");
+
+    const exists = await readFile(usageLogPath, "utf8").catch(() => null);
+    expect(exists).toBeNull();
+  });
+
   it("chat() 失敗：拋錯，不寫 usage log", async () => {
     dir = await mkdtemp(path.join(tmpdir(), "client-test-"));
     const usageLogPath = path.join(dir, "usage.log");
